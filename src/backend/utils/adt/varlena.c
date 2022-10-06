@@ -1555,93 +1555,6 @@ varstr_cmp(const char *arg1, int len1, const char *arg2, int len2, Oid collid)
 		if (len1 == len2 && memcmp(arg1, arg2, len1) == 0)
 			return 0;
 
-#ifdef WIN32
-		/* Win32 does not have UTF-8, so we need to map to UTF-16 */
-		if (GetDatabaseEncoding() == PG_UTF8
-			&& (!mylocale || mylocale->provider == COLLPROVIDER_LIBC))
-		{
-			int			a1len;
-			int			a2len;
-			int			r;
-
-			if (len1 >= TEXTBUFLEN / 2)
-			{
-				a1len = len1 * 2 + 2;
-				a1p = palloc(a1len);
-			}
-			else
-			{
-				a1len = TEXTBUFLEN;
-				a1p = a1buf;
-			}
-			if (len2 >= TEXTBUFLEN / 2)
-			{
-				a2len = len2 * 2 + 2;
-				a2p = palloc(a2len);
-			}
-			else
-			{
-				a2len = TEXTBUFLEN;
-				a2p = a2buf;
-			}
-
-			/* stupid Microsloth API does not work for zero-length input */
-			if (len1 == 0)
-				r = 0;
-			else
-			{
-				r = MultiByteToWideChar(CP_UTF8, 0, arg1, len1,
-										(LPWSTR) a1p, a1len / 2);
-				if (!r)
-					ereport(ERROR,
-							(errmsg("could not convert string to UTF-16: error code %lu",
-									GetLastError())));
-			}
-			((LPWSTR) a1p)[r] = 0;
-
-			if (len2 == 0)
-				r = 0;
-			else
-			{
-				r = MultiByteToWideChar(CP_UTF8, 0, arg2, len2,
-										(LPWSTR) a2p, a2len / 2);
-				if (!r)
-					ereport(ERROR,
-							(errmsg("could not convert string to UTF-16: error code %lu",
-									GetLastError())));
-			}
-			((LPWSTR) a2p)[r] = 0;
-
-			errno = 0;
-#ifdef HAVE_LOCALE_T
-			if (mylocale)
-				result = wcscoll_l((LPWSTR) a1p, (LPWSTR) a2p, mylocale->info.lt);
-			else
-#endif
-				result = wcscoll((LPWSTR) a1p, (LPWSTR) a2p);
-			if (result == 2147483647)	/* _NLSCMPERROR; missing from mingw
-										 * headers */
-				ereport(ERROR,
-						(errmsg("could not compare Unicode strings: %m")));
-
-			/* Break tie if necessary. */
-			if (result == 0 &&
-				(!mylocale || mylocale->deterministic))
-			{
-				result = memcmp(arg1, arg2, Min(len1, len2));
-				if ((result == 0) && (len1 != len2))
-					result = (len1 < len2) ? -1 : 1;
-			}
-
-			if (a1p != a1buf)
-				pfree(a1p);
-			if (a2p != a2buf)
-				pfree(a2p);
-
-			return result;
-		}
-#endif							/* WIN32 */
-
 		if (len1 >= TEXTBUFLEN)
 			a1p = (char *) palloc(len1 + 1);
 		else
@@ -1656,65 +1569,7 @@ varstr_cmp(const char *arg1, int len1, const char *arg2, int len2, Oid collid)
 		memcpy(a2p, arg2, len2);
 		a2p[len2] = '\0';
 
-		if (mylocale)
-		{
-			if (mylocale->provider == COLLPROVIDER_ICU)
-			{
-#ifdef USE_ICU
-#ifdef HAVE_UCOL_STRCOLLUTF8
-				if (GetDatabaseEncoding() == PG_UTF8)
-				{
-					UErrorCode	status;
-
-					status = U_ZERO_ERROR;
-					result = ucol_strcollUTF8(mylocale->info.icu.ucol,
-											  arg1, len1,
-											  arg2, len2,
-											  &status);
-					if (U_FAILURE(status))
-						ereport(ERROR,
-								(errmsg("collation failed: %s", u_errorName(status))));
-				}
-				else
-#endif
-				{
-					int32_t		ulen1,
-								ulen2;
-					UChar	   *uchar1,
-							   *uchar2;
-
-					ulen1 = icu_to_uchar(&uchar1, arg1, len1);
-					ulen2 = icu_to_uchar(&uchar2, arg2, len2);
-
-					result = ucol_strcoll(mylocale->info.icu.ucol,
-										  uchar1, ulen1,
-										  uchar2, ulen2);
-
-					pfree(uchar1);
-					pfree(uchar2);
-				}
-#else							/* not USE_ICU */
-				/* shouldn't happen */
-				elog(ERROR, "unsupported collprovider: %c", mylocale->provider);
-#endif							/* not USE_ICU */
-			}
-			else
-			{
-#ifdef HAVE_LOCALE_T
-				result = strcoll_l(a1p, a2p, mylocale->info.lt);
-#else
-				/* shouldn't happen */
-				elog(ERROR, "unsupported collprovider: %c", mylocale->provider);
-#endif
-			}
-		}
-		else
-			result = strcoll(a1p, a2p);
-
-		/* Break tie if necessary. */
-		if (result == 0 &&
-			(!mylocale || mylocale->deterministic))
-			result = strcmp(a1p, a2p);
+		result = pg_strcoll(a1p, len1, a2p, len2, mylocale);
 
 		if (a1p != a1buf)
 			pfree(a1p);
@@ -2377,65 +2232,7 @@ varstrfastcmp_locale(char *a1p, int len1, char *a2p, int len2, SortSupport ssup)
 		return sss->last_returned;
 	}
 
-	if (sss->locale)
-	{
-		if (sss->locale->provider == COLLPROVIDER_ICU)
-		{
-#ifdef USE_ICU
-#ifdef HAVE_UCOL_STRCOLLUTF8
-			if (GetDatabaseEncoding() == PG_UTF8)
-			{
-				UErrorCode	status;
-
-				status = U_ZERO_ERROR;
-				result = ucol_strcollUTF8(sss->locale->info.icu.ucol,
-										  a1p, len1,
-										  a2p, len2,
-										  &status);
-				if (U_FAILURE(status))
-					ereport(ERROR,
-							(errmsg("collation failed: %s", u_errorName(status))));
-			}
-			else
-#endif
-			{
-				int32_t		ulen1,
-							ulen2;
-				UChar	   *uchar1,
-						   *uchar2;
-
-				ulen1 = icu_to_uchar(&uchar1, a1p, len1);
-				ulen2 = icu_to_uchar(&uchar2, a2p, len2);
-
-				result = ucol_strcoll(sss->locale->info.icu.ucol,
-									  uchar1, ulen1,
-									  uchar2, ulen2);
-
-				pfree(uchar1);
-				pfree(uchar2);
-			}
-#else							/* not USE_ICU */
-			/* shouldn't happen */
-			elog(ERROR, "unsupported collprovider: %c", sss->locale->provider);
-#endif							/* not USE_ICU */
-		}
-		else
-		{
-#ifdef HAVE_LOCALE_T
-			result = strcoll_l(sss->buf1, sss->buf2, sss->locale->info.lt);
-#else
-			/* shouldn't happen */
-			elog(ERROR, "unsupported collprovider: %c", sss->locale->provider);
-#endif
-		}
-	}
-	else
-		result = strcoll(sss->buf1, sss->buf2);
-
-	/* Break tie if necessary. */
-	if (result == 0 &&
-		(!sss->locale || sss->locale->deterministic))
-		result = strcmp(sss->buf1, sss->buf2);
+	result = pg_strcoll(sss->buf1, len1, sss->buf2, len2, sss->locale);
 
 	/* Cache result, perhaps saving an expensive strcoll() call next time */
 	sss->cache_blob = false;

@@ -1640,6 +1640,186 @@ pg_newlocale_from_collation(Oid collid)
 }
 
 /*
+ * win32_utf8_wcscoll
+ *
+ * Convert UTF8 arguments to wide characters and invoke wcscoll() or
+ * wcscoll_l(). Will allocate on large input.
+ */
+#ifdef WIN32
+#define TEXTBUFLEN		1024
+static int
+win32_utf8_wcscoll(const char *arg1, size_t len1, const char *arg2,
+				   size_t len2, pg_locale_t locale)
+{
+	char		a1buf[TEXTBUFLEN];
+	char		a2buf[TEXTBUFLEN];
+	char	   *a1p,
+			   *a2p;
+	int			a1len;
+	int			a2len;
+	int			r;
+	int			result;
+
+	if (len1 >= TEXTBUFLEN / 2)
+	{
+		a1len = len1 * 2 + 2;
+		a1p = palloc(a1len);
+	}
+	else
+	{
+		a1len = TEXTBUFLEN;
+		a1p = a1buf;
+	}
+	if (len2 >= TEXTBUFLEN / 2)
+	{
+		a2len = len2 * 2 + 2;
+		a2p = palloc(a2len);
+	}
+	else
+	{
+		a2len = TEXTBUFLEN;
+		a2p = a2buf;
+	}
+
+	/* API does not work for zero-length input */
+	if (len1 == 0)
+		r = 0;
+	else
+	{
+		r = MultiByteToWideChar(CP_UTF8, 0, arg1, len1,
+								(LPWSTR) a1p, a1len / 2);
+		if (!r)
+			ereport(ERROR,
+					(errmsg("could not convert string to UTF-16: error code %lu",
+							GetLastError())));
+	}
+	((LPWSTR) a1p)[r] = 0;
+
+	if (len2 == 0)
+		r = 0;
+	else
+	{
+		r = MultiByteToWideChar(CP_UTF8, 0, arg2, len2,
+								(LPWSTR) a2p, a2len / 2);
+		if (!r)
+			ereport(ERROR,
+					(errmsg("could not convert string to UTF-16: error code %lu",
+							GetLastError())));
+	}
+	((LPWSTR) a2p)[r] = 0;
+
+	errno = 0;
+#ifdef HAVE_LOCALE_T
+	if (locale)
+		result = wcscoll_l((LPWSTR) a1p, (LPWSTR) a2p, locale->info.lt);
+	else
+#endif
+		result = wcscoll((LPWSTR) a1p, (LPWSTR) a2p);
+	if (result == 2147483647)	/* _NLSCMPERROR; missing from mingw
+								 * headers */
+		ereport(ERROR,
+				(errmsg("could not compare Unicode strings: %m")));
+
+	if (a1p != a1buf)
+		pfree(a1p);
+	if (a2p != a2buf)
+		pfree(a2p);
+
+	return result;
+}
+#endif
+
+/*
+ * pg_strcoll
+ *
+ * Call ucol_strcollUTF8(), ucol_strcoll(), strcoll(), strcoll_l(), wcscoll(),
+ * or wcscoll_l() as appropriate for the given locale, platform, and database
+ * encoding. If the locale is not specified, use the database collation.
+ *
+ * Arguments must be NUL-terminated so they can be passed directly to
+ * strcoll(); but we also need the lengths to pass to ucol_strcoll().
+ *
+ * If the collation is deterministic, break ties with memcmp(), and then with
+ * the string length.
+ */
+int
+pg_strcoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
+		   pg_locale_t locale)
+{
+	int result;
+
+#ifdef WIN32
+	/* Win32 does not have UTF-8, so we need to map to UTF-16 */
+	if (GetDatabaseEncoding() == PG_UTF8
+		&& (!locale || locale->provider == COLLPROVIDER_LIBC))
+	{
+		result = win32_utf8_wcscoll(arg1, len1, arg2, len2, locale);
+	}
+	else
+#endif							/* WIN32 */
+	if (locale)
+	{
+		if (locale->provider == COLLPROVIDER_ICU)
+		{
+#ifdef USE_ICU
+#ifdef HAVE_UCOL_STRCOLLUTF8
+			if (GetDatabaseEncoding() == PG_UTF8)
+			{
+				UErrorCode	status;
+
+				status = U_ZERO_ERROR;
+				result = ucol_strcollUTF8(locale->info.icu.ucol,
+										  arg1, len1,
+										  arg2, len2,
+										  &status);
+				if (U_FAILURE(status))
+					ereport(ERROR,
+							(errmsg("collation failed: %s", u_errorName(status))));
+			}
+			else
+#endif
+			{
+				int32_t		ulen1,
+							ulen2;
+				UChar	   *uchar1,
+						   *uchar2;
+
+				ulen1 = icu_to_uchar(&uchar1, arg1, len1);
+				ulen2 = icu_to_uchar(&uchar2, arg2, len2);
+
+				result = ucol_strcoll(locale->info.icu.ucol,
+									  uchar1, ulen1,
+									  uchar2, ulen2);
+
+				pfree(uchar1);
+				pfree(uchar2);
+			}
+#else							/* not USE_ICU */
+			/* shouldn't happen */
+			elog(ERROR, "unsupported collprovider: %c", locale->provider);
+#endif							/* not USE_ICU */
+		}
+		else
+		{
+#ifdef HAVE_LOCALE_T
+			result = strcoll_l(arg1, arg2, locale->info.lt);
+#else
+			/* shouldn't happen */
+			elog(ERROR, "unsupported collprovider: %c", locale->provider);
+#endif
+		}
+	}
+	else
+		result = strcoll(arg1, arg2);
+
+	/* Break tie if necessary. */
+	if (result == 0 && (!locale || locale->deterministic))
+		result = strcmp(arg1, arg2);
+
+	return result;
+}
+
+/*
  * Get provider-specific collation version string for the given collation from
  * the operating system/library.
  */

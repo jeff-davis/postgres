@@ -98,7 +98,8 @@ extern void make_icu_collator(const char *iculocstr,
 							  struct pg_locale_struct *resultp);
 
 extern pg_locale_t pg_newlocale_from_collation(Oid collid);
-
+extern int pg_strcoll(const char *arg1, size_t len1, const char *arg2,
+					  size_t len2, pg_locale_t locale);
 extern char *get_collation_actual_version(char collprovider, const char *collcollate);
 
 #ifdef USE_ICU
