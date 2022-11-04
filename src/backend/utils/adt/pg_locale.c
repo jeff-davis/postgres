@@ -79,6 +79,7 @@
 #include <shlwapi.h>
 #endif
 
+#define		TEXTBUFLEN			1024
 #define		MAX_L10N_DATA		80
 
 
@@ -1646,7 +1647,6 @@ pg_newlocale_from_collation(Oid collid)
  * wcscoll_l(). Will allocate on large input.
  */
 #ifdef WIN32
-#define TEXTBUFLEN		1024
 static int
 win32_utf8_wcscoll(const char *arg1, size_t len1, const char *arg2,
 				   size_t len2, pg_locale_t locale)
@@ -1730,6 +1730,34 @@ win32_utf8_wcscoll(const char *arg1, size_t len1, const char *arg2,
 #endif
 
 /*
+ * Convert arguments to UChar strings, and compare with ucol_strcoll().
+ */
+#ifdef USE_ICU
+static int
+icu_strcoll_no_utf8(const char *arg1, size_t len1, const char *arg2, size_t len2,
+					pg_locale_t locale)
+{
+	int32_t	 ulen1;
+	int32_t  ulen2;
+	UChar	*uchar1;
+	UChar	*uchar2;
+	int		 result;
+
+	ulen1 = icu_to_uchar(&uchar1, arg1, len1);
+	ulen2 = icu_to_uchar(&uchar2, arg2, len2);
+
+	result = ucol_strcoll(locale->info.icu.ucol,
+						  uchar1, ulen1,
+						  uchar2, ulen2);
+
+	pfree(uchar1);
+	pfree(uchar2);
+
+	return result;
+}
+#endif
+
+/*
  * pg_strcoll
  *
  * Call ucol_strcollUTF8(), ucol_strcoll(), strcoll(), strcoll_l(), wcscoll(),
@@ -1779,20 +1807,7 @@ pg_strcoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 			else
 #endif
 			{
-				int32_t		ulen1,
-							ulen2;
-				UChar	   *uchar1,
-						   *uchar2;
-
-				ulen1 = icu_to_uchar(&uchar1, arg1, len1);
-				ulen2 = icu_to_uchar(&uchar2, arg2, len2);
-
-				result = ucol_strcoll(locale->info.icu.ucol,
-									  uchar1, ulen1,
-									  uchar2, ulen2);
-
-				pfree(uchar1);
-				pfree(uchar2);
+				result = icu_strcoll_no_utf8(arg1, len1, arg2, len2, locale);
 			}
 #else							/* not USE_ICU */
 			/* shouldn't happen */
