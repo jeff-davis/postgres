@@ -124,6 +124,14 @@ static char *IsoLocaleName(const char *);
 #endif
 
 #ifdef USE_ICU
+/*
+ * Converter object for converting between ICU's UChar strings and C strings
+ * in database encoding.  Since the database encoding doesn't change, we only
+ * need one of these per session.
+ */
+static UConverter *icu_converter = NULL;
+
+static void init_icu_converter(void);
 static void icu_set_collation_attributes(UCollator *collator, const char *loc);
 #endif
 
@@ -1737,21 +1745,58 @@ static int
 icu_strcoll_no_utf8(const char *arg1, size_t len1, const char *arg2, size_t len2,
 					pg_locale_t locale)
 {
-	int32_t	 ulen1;
-	int32_t  ulen2;
-	UChar	*uchar1;
-	UChar	*uchar2;
-	int		 result;
+	char		 sbuf1[128];
+	char		 sbuf2[128];
+	size_t		 bufsize1;
+	size_t		 bufsize2;
+	int32_t		 ulen1;
+	int32_t		 ulen2;
+	UChar		*uchar1 = (UChar *) sbuf1;
+	UChar		*uchar2 = (UChar *) sbuf2;
+	UErrorCode	 status;
+	int			 result;
 
-	ulen1 = icu_to_uchar(&uchar1, arg1, len1);
-	ulen2 = icu_to_uchar(&uchar2, arg2, len2);
 
-	result = ucol_strcoll(locale->info.icu.ucol,
-						  uchar1, ulen1,
-						  uchar2, ulen2);
+	init_icu_converter();
 
-	pfree(uchar1);
-	pfree(uchar2);
+	status = U_ZERO_ERROR;
+	ulen1 = ucnv_toUChars(icu_converter, NULL, 0, arg1, len1, &status);
+	if (U_FAILURE(status) && status != U_BUFFER_OVERFLOW_ERROR)
+		ereport(ERROR,
+				(errmsg("%s failed: %s", "ucnv_toUChars", u_errorName(status))));
+
+	bufsize1 = (ulen1 + 1) * sizeof(UChar);
+	if (bufsize1 > TEXTBUFLEN)
+		uchar1 = (UChar *) palloc(bufsize1);
+
+	status = U_ZERO_ERROR;
+	ulen1 = ucnv_toUChars(icu_converter, uchar1, ulen1 + 1, arg1, len1, &status);
+	if (U_FAILURE(status))
+		ereport(ERROR,
+				(errmsg("%s failed: %s", "ucnv_toUChars", u_errorName(status))));
+
+	status = U_ZERO_ERROR;
+	ulen2 = ucnv_toUChars(icu_converter, NULL, 0, arg2, len2, &status);
+	if (U_FAILURE(status) && status != U_BUFFER_OVERFLOW_ERROR)
+		ereport(ERROR,
+				(errmsg("%s failed: %s", "ucnv_toUChars", u_errorName(status))));
+
+	bufsize2 = (ulen2 + 1) * sizeof(UChar);
+	if (bufsize2 > TEXTBUFLEN)
+		uchar2 = (UChar *) palloc(bufsize2);
+
+	status = U_ZERO_ERROR;
+	ulen2 = ucnv_toUChars(icu_converter, uchar2, ulen2 + 1, arg2, len2, &status);
+	if (U_FAILURE(status))
+		ereport(ERROR,
+				(errmsg("%s failed: %s", "ucnv_toUChars", u_errorName(status))));
+
+	result = ucol_strcoll(locale->info.icu.ucol, uchar1, ulen1, uchar2, ulen2);
+
+	if (uchar1 != (UChar *) sbuf1)
+		pfree(uchar1);
+	if (uchar2 != (UChar *) sbuf2)
+		pfree(uchar2);
 
 	return result;
 }
@@ -1764,7 +1809,7 @@ icu_strcoll_no_utf8(const char *arg1, size_t len1, const char *arg2, size_t len2
  * or wcscoll_l() as appropriate for the given locale, platform, and database
  * encoding. If the locale is not specified, use the database collation.
  *
- * Arguments must be NUL-terminated so they can be passed directly to
+ * Arguments must be NUL-terminated so they can be passed directly t
  * strcoll(); but we also need the lengths to pass to ucol_strcoll().
  *
  * If the collation is deterministic, break ties with memcmp(), and then with
@@ -1928,13 +1973,6 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 
 
 #ifdef USE_ICU
-/*
- * Converter object for converting between ICU's UChar strings and C strings
- * in database encoding.  Since the database encoding doesn't change, we only
- * need one of these per session.
- */
-static UConverter *icu_converter = NULL;
-
 static void
 init_icu_converter(void)
 {
