@@ -1738,6 +1738,104 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 }
 
 /*
+ * win32_utf8_wcscoll
+ *
+ * Convert UTF8 arguments to wide characters and invoke wcscoll() or
+ * wcscoll_l().
+ */
+#ifdef WIN32
+static int
+win32_utf8_wcscoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
+				   pg_locale_t locale)
+{
+	char		a1buf[TEXTBUFLEN];
+	char		a2buf[TEXTBUFLEN];
+	char	   *a1p,
+			   *a2p;
+	int			a1len;
+	int			a2len;
+	int			r;
+	int			result;
+
+	if (len1 >= TEXTBUFLEN / 2)
+	{
+		a1len = len1 * 2 + 2;
+		a1p = palloc(a1len);
+	}
+	else
+	{
+		a1len = TEXTBUFLEN;
+		a1p = a1buf;
+	}
+	if (len2 >= TEXTBUFLEN / 2)
+	{
+		a2len = len2 * 2 + 2;
+		a2p = palloc(a2len);
+	}
+	else
+	{
+		a2len = TEXTBUFLEN;
+		a2p = a2buf;
+	}
+
+	/* API does not work for zero-length input */
+	if (len1 == 0)
+		r = 0;
+	else
+	{
+		r = MultiByteToWideChar(CP_UTF8, 0, arg1, len1,
+								(LPWSTR) a1p, a1len / 2);
+		if (!r)
+			ereport(ERROR,
+					(errmsg("could not convert string to UTF-16: error code %lu",
+							GetLastError())));
+	}
+	((LPWSTR) a1p)[r] = 0;
+
+	if (len2 == 0)
+		r = 0;
+	else
+	{
+		r = MultiByteToWideChar(CP_UTF8, 0, arg2, len2,
+								(LPWSTR) a2p, a2len / 2);
+		if (!r)
+			ereport(ERROR,
+					(errmsg("could not convert string to UTF-16: error code %lu",
+							GetLastError())));
+	}
+	((LPWSTR) a2p)[r] = 0;
+
+	errno = 0;
+#ifdef HAVE_LOCALE_T
+	if (locale)
+		result = wcscoll_l((LPWSTR) a1p, (LPWSTR) a2p, locale->info.lt);
+	else
+#endif
+		result = wcscoll((LPWSTR) a1p, (LPWSTR) a2p);
+	if (result == 2147483647)	/* _NLSCMPERROR; missing from mingw
+								 * headers */
+		ereport(ERROR,
+				(errmsg("could not compare Unicode strings: %m")));
+
+	/* Break tie if necessary. */
+	if (result == 0 &&
+		(!locale || locale->deterministic))
+	{
+		result = memcmp(arg1, arg2, Min(len1, len2));
+		if ((result == 0) && (len1 != len2))
+			result = (len1 < len2) ? -1 : 1;
+	}
+
+	if (a1p != a1buf)
+		pfree(a1p);
+	if (a2p != a2buf)
+		pfree(a2p);
+
+	return result;
+}
+#endif							/* WIN32 */
+
+/*
  * pg_strcoll
  *
  * Call ucol_strcollUTF8(), ucol_strcoll(), strcoll(), strcoll_l(), wcscoll(),
@@ -1760,89 +1858,7 @@ pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
 	if (GetDatabaseEncoding() == PG_UTF8
 		&& (!locale || locale->provider == COLLPROVIDER_LIBC))
 	{
-		char		a1buf[TEXTBUFLEN];
-		char		a2buf[TEXTBUFLEN];
-		char	   *a1p,
-				   *a2p;
-		int			a1len;
-		int			a2len;
-		int			r;
-
-		if (len1 >= TEXTBUFLEN / 2)
-		{
-			a1len = len1 * 2 + 2;
-			a1p = palloc(a1len);
-		}
-		else
-		{
-			a1len = TEXTBUFLEN;
-			a1p = a1buf;
-		}
-		if (len2 >= TEXTBUFLEN / 2)
-		{
-			a2len = len2 * 2 + 2;
-			a2p = palloc(a2len);
-		}
-		else
-		{
-			a2len = TEXTBUFLEN;
-			a2p = a2buf;
-		}
-
-		/* API does not work for zero-length input */
-		if (len1 == 0)
-			r = 0;
-		else
-		{
-			r = MultiByteToWideChar(CP_UTF8, 0, arg1, len1,
-									(LPWSTR) a1p, a1len / 2);
-			if (!r)
-				ereport(ERROR,
-						(errmsg("could not convert string to UTF-16: error code %lu",
-								GetLastError())));
-		}
-		((LPWSTR) a1p)[r] = 0;
-
-		if (len2 == 0)
-			r = 0;
-		else
-		{
-			r = MultiByteToWideChar(CP_UTF8, 0, arg2, len2,
-									(LPWSTR) a2p, a2len / 2);
-			if (!r)
-				ereport(ERROR,
-						(errmsg("could not convert string to UTF-16: error code %lu",
-								GetLastError())));
-		}
-		((LPWSTR) a2p)[r] = 0;
-
-		errno = 0;
-#ifdef HAVE_LOCALE_T
-		if (locale)
-			result = wcscoll_l((LPWSTR) a1p, (LPWSTR) a2p, locale->info.lt);
-		else
-#endif
-			result = wcscoll((LPWSTR) a1p, (LPWSTR) a2p);
-		if (result == 2147483647)	/* _NLSCMPERROR; missing from mingw
-									 * headers */
-			ereport(ERROR,
-					(errmsg("could not compare Unicode strings: %m")));
-
-		/* Break tie if necessary. */
-		if (result == 0 &&
-			(!locale || locale->deterministic))
-		{
-			result = memcmp(arg1, arg2, Min(len1, len2));
-			if ((result == 0) && (len1 != len2))
-				result = (len1 < len2) ? -1 : 1;
-		}
-
-		if (a1p != a1buf)
-			pfree(a1p);
-		if (a2p != a2buf)
-			pfree(a2p);
-
-		return result;
+		return win32_utf8_wcscoll(arg1, len1, arg2, len2, locale);
 	}
 #endif							/* WIN32 */
 
