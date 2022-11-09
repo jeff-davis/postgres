@@ -1761,35 +1761,20 @@ static int
 win32_utf8_wcscoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 				   pg_locale_t locale)
 {
-	char		a1buf[TEXTBUFLEN];
-	char		a2buf[TEXTBUFLEN];
+	char		sbuf[TEXTBUFLEN];
+	char	   *buf = sbuf;
 	char	   *a1p,
 			   *a2p;
-	int			a1len;
-	int			a2len;
+	int			a1len = len1 * 2 + 2;
+	int			a2len = len2 * 2 + 2;
 	int			r;
 	int			result;
 
-	if (len1 >= TEXTBUFLEN / 2)
-	{
-		a1len = len1 * 2 + 2;
-		a1p = palloc(a1len);
-	}
-	else
-	{
-		a1len = TEXTBUFLEN;
-		a1p = a1buf;
-	}
-	if (len2 >= TEXTBUFLEN / 2)
-	{
-		a2len = len2 * 2 + 2;
-		a2p = palloc(a2len);
-	}
-	else
-	{
-		a2len = TEXTBUFLEN;
-		a2p = a2buf;
-	}
+	if (a1len + a2len > TEXTBUFLEN)
+		buf = palloc(a1len + a2len);
+
+	a1p = buf;
+	a2p = buf + a1len;
 
 	/* API does not work for zero-length input */
 	if (len1 == 0)
@@ -1830,10 +1815,8 @@ win32_utf8_wcscoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 		ereport(ERROR,
 				(errmsg("could not compare Unicode strings: %m")));
 
-	if (a1p != a1buf)
-		pfree(a1p);
-	if (a2p != a2buf)
-		pfree(a2p);
+	if (buf != sbuf)
+		pfree(buf);
 
 	return result;
 }
@@ -1880,6 +1863,8 @@ static int
 pg_collate_icu_no_utf8(const char *arg1, size_t len1,
 					   const char *arg2, size_t len2, pg_locale_t locale)
 {
+	char	 sbuf[TEXTBUFLEN];
+	char	*buf = sbuf;
 	int32_t	 ulen1;
 	int32_t	 ulen2;
 	size_t   bufsize1;
@@ -1896,8 +1881,11 @@ pg_collate_icu_no_utf8(const char *arg1, size_t len1,
 	bufsize1 = (ulen1 + 1) * sizeof(UChar);
 	bufsize2 = (ulen2 + 1) * sizeof(UChar);
 
-	uchar1 = palloc(bufsize1);
-	uchar2 = palloc(bufsize2);
+	if (bufsize1 + bufsize2 > TEXTBUFLEN)
+		buf = palloc(bufsize1 + bufsize2);
+
+	uchar1 = (UChar *) buf;
+	uchar2 = (UChar *) (buf + bufsize1);
 
 	ulen1 = uchar_convert(icu_converter, uchar1, ulen1 + 1, arg1, len1);
 	ulen2 = uchar_convert(icu_converter, uchar2, ulen2 + 1, arg2, len2);
@@ -1906,8 +1894,8 @@ pg_collate_icu_no_utf8(const char *arg1, size_t len1,
 						  uchar1, ulen1,
 						  uchar2, ulen2);
 
-	pfree(uchar1);
-	pfree(uchar2);
+	if (buf != sbuf)
+		pfree(buf);
 
 	return result;
 }
@@ -2010,8 +1998,18 @@ pg_strncoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 	}
 	else
 	{
-		char	*arg1n = palloc(len1 + 1);
-		char	*arg2n = palloc(len2 + 1);
+		char	 sbuf[TEXTBUFLEN];
+		char	*buf = sbuf;
+		size_t	 bufsize1 = len1 + 1;
+		size_t	 bufsize2 = len2 + 1;
+		char	*arg1n;
+		char	*arg2n;
+
+		if (bufsize1 + bufsize2 > TEXTBUFLEN)
+			buf = palloc(bufsize1 + bufsize2);
+
+		arg1n = buf;
+		arg2n = buf + bufsize1;
 
 		/* nul-terminate arguments */
 		memcpy(arg1n, arg1, len1);
@@ -2021,8 +2019,8 @@ pg_strncoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 
 		result = pg_collate_libc(arg1n, arg2n, locale);
 
-		pfree(arg1n);
-		pfree(arg2n);
+		if (buf != sbuf)
+			pfree(buf);
 	}
 
 	/* Break tie if necessary. */
