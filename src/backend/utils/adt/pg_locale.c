@@ -1880,14 +1880,27 @@ static int
 pg_collate_icu_no_utf8(const char *arg1, size_t len1,
 					   const char *arg2, size_t len2, pg_locale_t locale)
 {
-	int32_t	 ulen1,
-			 ulen2;
+	int32_t	 ulen1;
+	int32_t	 ulen2;
+	size_t   bufsize1;
+	size_t   bufsize2;
 	UChar	*uchar1,
 			*uchar2;
 	int		 result;
 
-	ulen1 = icu_to_uchar(&uchar1, arg1, len1);
-	ulen2 = icu_to_uchar(&uchar2, arg2, len2);
+	init_icu_converter();
+
+	ulen1 = uchar_length(icu_converter, arg1, len1);
+	ulen2 = uchar_length(icu_converter, arg2, len2);
+
+	bufsize1 = (ulen1 + 1) * sizeof(UChar);
+	bufsize2 = (ulen2 + 1) * sizeof(UChar);
+
+	uchar1 = palloc(bufsize1);
+	uchar2 = palloc(bufsize2);
+
+	ulen1 = uchar_convert(icu_converter, uchar1, ulen1 + 1, arg1, len1);
+	ulen2 = uchar_convert(icu_converter, uchar2, ulen2 + 1, arg2, len2);
 
 	result = ucol_strcoll(locale->info.icu.ucol,
 						  uchar1, ulen1,
