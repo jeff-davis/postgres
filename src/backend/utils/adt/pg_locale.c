@@ -1817,15 +1817,6 @@ win32_utf8_wcscoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 		ereport(ERROR,
 				(errmsg("could not compare Unicode strings: %m")));
 
-	/* Break tie if necessary. */
-	if (result == 0 &&
-		(!locale || locale->deterministic))
-	{
-		result = memcmp(arg1, arg2, Min(len1, len2));
-		if ((result == 0) && (len1 != len2))
-			result = (len1 < len2) ? -1 : 1;
-	}
-
 	if (a1p != a1buf)
 		pfree(a1p);
 	if (a2p != a2buf)
@@ -1858,8 +1849,9 @@ pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
 	if (GetDatabaseEncoding() == PG_UTF8
 		&& (!locale || locale->provider == COLLPROVIDER_LIBC))
 	{
-		return win32_utf8_wcscoll(arg1, len1, arg2, len2, locale);
+		result = win32_utf8_wcscoll(arg1, len1, arg2, len2, locale);
 	}
+	else
 #endif							/* WIN32 */
 
 	if (locale)
@@ -1918,8 +1910,7 @@ pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
 		result = strcoll(arg1, arg2);
 
 	/* Break tie if necessary. */
-	if (result == 0 &&
-		(!locale || locale->deterministic))
+	if (result == 0 && (!locale || locale->deterministic))
 		result = strcmp(arg1, arg2);
 
 	return result;
@@ -1955,6 +1946,14 @@ pg_strncoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 
 	pfree(arg1n);
 	pfree(arg2n);
+
+	/* Break tie if necessary. */
+	if (result == 0 && (!locale || locale->deterministic))
+	{
+		result = memcmp(arg1, arg2, Min(len1, len2));
+		if ((result == 0) && (len1 != len2))
+			result = (len1 < len2) ? -1 : 1;
+	}
 
 	return result;
 }
