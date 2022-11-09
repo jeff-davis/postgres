@@ -1873,6 +1873,34 @@ pg_collate_libc(const char *arg1, const char *arg2, pg_locale_t locale)
 }
 
 /*
+ * Collate using the icu provider when the database encoding is not UTF-8.
+ */
+#ifdef USE_ICU
+static int
+pg_collate_icu_no_utf8(const char *arg1, size_t len1,
+					   const char *arg2, size_t len2, pg_locale_t locale)
+{
+	int32_t	 ulen1,
+			 ulen2;
+	UChar	*uchar1,
+			*uchar2;
+	int		 result;
+
+	ulen1 = icu_to_uchar(&uchar1, arg1, len1);
+	ulen2 = icu_to_uchar(&uchar2, arg2, len2);
+
+	result = ucol_strcoll(locale->info.icu.ucol,
+						  uchar1, ulen1,
+						  uchar2, ulen2);
+
+	pfree(uchar1);
+	pfree(uchar2);
+
+	return result;
+}
+#endif
+
+/*
  * Collate using the icu provider.
  */
 static int
@@ -1901,20 +1929,7 @@ pg_collate_icu(const char *arg1, size_t len1, const char *arg2, size_t len2,
 	else
 #endif
 	{
-		int32_t		ulen1,
-					ulen2;
-		UChar	   *uchar1,
-				   *uchar2;
-
-		ulen1 = icu_to_uchar(&uchar1, arg1, len1);
-		ulen2 = icu_to_uchar(&uchar2, arg2, len2);
-
-		result = ucol_strcoll(locale->info.icu.ucol,
-							  uchar1, ulen1,
-							  uchar2, ulen2);
-
-		pfree(uchar1);
-		pfree(uchar2);
+		result = pg_collate_icu_no_utf8(arg1, len1, arg2, len2, locale);
 	}
 
 	return result;
