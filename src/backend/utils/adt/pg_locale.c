@@ -1961,20 +1961,28 @@ int
 pg_strncoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 			pg_locale_t locale)
 {
-	char	*arg1n = palloc(len1 + 1);
-	char	*arg2n = palloc(len2 + 1);
 	int		 result;
 
-	/* nul-terminate arguments and call pg_strcoll() */
-	memcpy(arg1n, arg1, len1);
-	arg1n[len1] = '\0';
-	memcpy(arg2n, arg2, len2);
-	arg2n[len2] = '\0';
+	if (locale && locale->provider == COLLPROVIDER_ICU)
+	{
+		result = pg_collate_icu(arg1, len1, arg2, len2, locale);
+	}
+	else
+	{
+		char	*arg1n = palloc(len1 + 1);
+		char	*arg2n = palloc(len2 + 1);
 
-	result = pg_strcoll(arg1n, arg2n, locale);
+		/* nul-terminate arguments */
+		memcpy(arg1n, arg1, len1);
+		arg1n[len1] = '\0';
+		memcpy(arg2n, arg2, len2);
+		arg2n[len2] = '\0';
 
-	pfree(arg1n);
-	pfree(arg2n);
+		result = pg_collate_libc(arg1n, arg2n, locale);
+
+		pfree(arg1n);
+		pfree(arg2n);
+	}
 
 	/* Break tie if necessary. */
 	if (result == 0 && (!locale || locale->deterministic))
