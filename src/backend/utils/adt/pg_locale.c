@@ -123,6 +123,19 @@ static char *IsoLocaleName(const char *);
 #endif
 
 #ifdef USE_ICU
+/*
+ * Converter object for converting between ICU's UChar strings and C strings
+ * in database encoding.  Since the database encoding doesn't change, we only
+ * need one of these per session.
+ */
+static UConverter *icu_converter = NULL;
+
+static void init_icu_converter(void);
+static size_t uchar_length(UConverter *converter,
+						   const char *str, size_t len);
+static int32_t uchar_convert(UConverter *converter,
+							 UChar *dest, int32_t destlen,
+							 const char *str, size_t srclen);
 static void icu_set_collation_attributes(UCollator *collator, const char *loc);
 #endif
 
@@ -1733,13 +1746,6 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 
 
 #ifdef USE_ICU
-/*
- * Converter object for converting between ICU's UChar strings and C strings
- * in database encoding.  Since the database encoding doesn't change, we only
- * need one of these per session.
- */
-static UConverter *icu_converter = NULL;
-
 static void
 init_icu_converter(void)
 {
@@ -1768,6 +1774,39 @@ init_icu_converter(void)
 }
 
 /*
+ * Find length, in UChars, of given string if converted to UChar string.
+ */
+static size_t
+uchar_length(UConverter *converter, const char *str, size_t len)
+{
+	UErrorCode	status = U_ZERO_ERROR;
+	int32_t		ulen;
+	ulen = ucnv_toUChars(converter, NULL, 0, str, len, &status);
+	if (U_FAILURE(status) && status != U_BUFFER_OVERFLOW_ERROR)
+		ereport(ERROR,
+				(errmsg("%s failed: %s", "ucnv_toUChars", u_errorName(status))));
+	return ulen;
+}
+
+/*
+ * Convert the given source string into a UChar string, stored in dest, and
+ * return the length (in UChars).
+ */
+static int32_t
+uchar_convert(UConverter *converter, UChar *dest, int32_t destlen,
+			  const char *src, size_t srclen)
+{
+	UErrorCode	status = U_ZERO_ERROR;
+	int32_t		ulen;
+	status = U_ZERO_ERROR;
+	ulen = ucnv_toUChars(converter, dest, destlen, src, srclen, &status);
+	if (U_FAILURE(status))
+		ereport(ERROR,
+				(errmsg("%s failed: %s", "ucnv_toUChars", u_errorName(status))));
+	return ulen;
+}
+
+/*
  * Convert a string in the database encoding into a string of UChars.
  *
  * The source string at buff is of length nbytes
@@ -1782,26 +1821,15 @@ init_icu_converter(void)
 int32_t
 icu_to_uchar(UChar **buff_uchar, const char *buff, size_t nbytes)
 {
-	UErrorCode	status;
-	int32_t		len_uchar;
+	int32_t len_uchar;
 
 	init_icu_converter();
 
-	status = U_ZERO_ERROR;
-	len_uchar = ucnv_toUChars(icu_converter, NULL, 0,
-							  buff, nbytes, &status);
-	if (U_FAILURE(status) && status != U_BUFFER_OVERFLOW_ERROR)
-		ereport(ERROR,
-				(errmsg("%s failed: %s", "ucnv_toUChars", u_errorName(status))));
+	len_uchar = uchar_length(icu_converter, buff, nbytes);
 
 	*buff_uchar = palloc((len_uchar + 1) * sizeof(**buff_uchar));
-
-	status = U_ZERO_ERROR;
-	len_uchar = ucnv_toUChars(icu_converter, *buff_uchar, len_uchar + 1,
-							  buff, nbytes, &status);
-	if (U_FAILURE(status))
-		ereport(ERROR,
-				(errmsg("%s failed: %s", "ucnv_toUChars", u_errorName(status))));
+	len_uchar = uchar_convert(icu_converter,
+							  *buff_uchar, len_uchar + 1, buff, nbytes);
 
 	return len_uchar;
 }
