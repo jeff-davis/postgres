@@ -2056,20 +2056,6 @@ varstr_sortsupport(SortSupport ssup, Oid typid, Oid collid)
 		locale = pg_newlocale_from_collation(collid);
 
 		/*
-		 * There is a further exception on Windows.  When the database
-		 * encoding is UTF-8 and we are not using the C collation, complex
-		 * hacks are required.  We don't currently have a comparator that
-		 * handles that case, so we fall back on the slow method of having the
-		 * sort code invoke bttextcmp() (in the case of text) via the fmgr
-		 * trampoline.  ICU locales work just the same on Windows, however.
-		 */
-#ifdef WIN32
-		if (GetDatabaseEncoding() == PG_UTF8 &&
-			!(locale && locale->provider == COLLPROVIDER_ICU))
-			return;
-#endif
-
-		/*
 		 * We use varlenafastcmp_locale except for type NAME.
 		 */
 		if (typid == NAMEOID)
