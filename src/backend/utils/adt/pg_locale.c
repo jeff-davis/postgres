@@ -1751,12 +1751,8 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 int
 pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
 {
-	char		a1buf[TEXTBUFLEN];
-	char		a2buf[TEXTBUFLEN];
 	size_t		len1 = strlen(arg1);
 	size_t		len2 = strlen(arg2);
-	char	   *a1p,
-			   *a2p;
 	int			result;
 
 #ifdef WIN32
@@ -1764,6 +1760,10 @@ pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
 	if (GetDatabaseEncoding() == PG_UTF8
 		&& (!locale || locale->provider == COLLPROVIDER_LIBC))
 	{
+		char		a1buf[TEXTBUFLEN];
+		char		a2buf[TEXTBUFLEN];
+		char	   *a1p,
+				   *a2p;
 		int			a1len;
 		int			a2len;
 		int			r;
@@ -1846,20 +1846,6 @@ pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
 	}
 #endif							/* WIN32 */
 
-	if (len1 >= TEXTBUFLEN)
-		a1p = (char *) palloc(len1 + 1);
-	else
-		a1p = a1buf;
-	if (len2 >= TEXTBUFLEN)
-		a2p = (char *) palloc(len2 + 1);
-	else
-		a2p = a2buf;
-
-	memcpy(a1p, arg1, len1);
-	a1p[len1] = '\0';
-	memcpy(a2p, arg2, len2);
-	a2p[len2] = '\0';
-
 	if (locale)
 	{
 		if (locale->provider == COLLPROVIDER_ICU)
@@ -1905,7 +1891,7 @@ pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
 		else
 		{
 #ifdef HAVE_LOCALE_T
-			result = strcoll_l(a1p, a2p, locale->info.lt);
+			result = strcoll_l(arg1, arg2, locale->info.lt);
 #else
 			/* shouldn't happen */
 			elog(ERROR, "unsupported collprovider: %c", locale->provider);
@@ -1913,17 +1899,12 @@ pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
 		}
 	}
 	else
-		result = strcoll(a1p, a2p);
+		result = strcoll(arg1, arg2);
 
 	/* Break tie if necessary. */
 	if (result == 0 &&
 		(!locale || locale->deterministic))
-		result = strcmp(a1p, a2p);
-
-	if (a1p != a1buf)
-		pfree(a1p);
-	if (a2p != a2buf)
-		pfree(a2p);
+		result = strcmp(arg1, arg2);
 
 	return result;
 }
