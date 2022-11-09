@@ -1827,6 +1827,58 @@ win32_utf8_wcscoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 #endif							/* WIN32 */
 
 /*
+ * Collate using the icu provider.
+ */
+static int
+pg_collate_icu(const char *arg1, size_t len1, const char *arg2, size_t len2,
+			   pg_locale_t locale)
+{
+#ifdef USE_ICU
+	int result;
+
+	Assert(locale->provider == COLLPROVIDER_ICU);
+
+#ifdef HAVE_UCOL_STRCOLLUTF8
+	if (GetDatabaseEncoding() == PG_UTF8)
+	{
+		UErrorCode	status;
+
+		status = U_ZERO_ERROR;
+		result = ucol_strcollUTF8(locale->info.icu.ucol,
+								  arg1, len1,
+								  arg2, len2,
+								  &status);
+		if (U_FAILURE(status))
+			ereport(ERROR,
+					(errmsg("collation failed: %s", u_errorName(status))));
+	}
+	else
+#endif
+	{
+		int32_t		ulen1,
+					ulen2;
+		UChar	   *uchar1,
+				   *uchar2;
+
+		ulen1 = icu_to_uchar(&uchar1, arg1, len1);
+		ulen2 = icu_to_uchar(&uchar2, arg2, len2);
+
+		result = ucol_strcoll(locale->info.icu.ucol,
+							  uchar1, ulen1,
+							  uchar2, ulen2);
+
+		pfree(uchar1);
+		pfree(uchar2);
+	}
+
+	return result;
+#else							/* not USE_ICU */
+	/* shouldn't happen */
+	elog(ERROR, "unsupported collprovider: %c", locale->provider);
+#endif							/* not USE_ICU */
+}
+
+/*
  * pg_strcoll
  *
  * Call ucol_strcollUTF8(), ucol_strcoll(), strcoll(), strcoll_l(), wcscoll(),
@@ -1840,8 +1892,6 @@ win32_utf8_wcscoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 int
 pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
 {
-	size_t		len1 = strlen(arg1);
-	size_t		len2 = strlen(arg2);
 	int			result;
 
 #ifdef WIN32
@@ -1858,43 +1908,9 @@ pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
 	{
 		if (locale->provider == COLLPROVIDER_ICU)
 		{
-#ifdef USE_ICU
-#ifdef HAVE_UCOL_STRCOLLUTF8
-			if (GetDatabaseEncoding() == PG_UTF8)
-			{
-				UErrorCode	status;
-
-				status = U_ZERO_ERROR;
-				result = ucol_strcollUTF8(locale->info.icu.ucol,
-										  arg1, len1,
-										  arg2, len2,
-										  &status);
-				if (U_FAILURE(status))
-					ereport(ERROR,
-							(errmsg("collation failed: %s", u_errorName(status))));
-			}
-			else
-#endif
-			{
-				int32_t		ulen1,
-					ulen2;
-				UChar	   *uchar1,
-					*uchar2;
-
-				ulen1 = icu_to_uchar(&uchar1, arg1, len1);
-				ulen2 = icu_to_uchar(&uchar2, arg2, len2);
-
-				result = ucol_strcoll(locale->info.icu.ucol,
-									  uchar1, ulen1,
-									  uchar2, ulen2);
-
-				pfree(uchar1);
-				pfree(uchar2);
-			}
-#else							/* not USE_ICU */
-			/* shouldn't happen */
-			elog(ERROR, "unsupported collprovider: %c", locale->provider);
-#endif							/* not USE_ICU */
+			size_t		len1 = strlen(arg1);
+			size_t		len2 = strlen(arg2);
+			result = pg_collate_icu(arg1, len1, arg2, len2, locale);
 		}
 		else
 		{
