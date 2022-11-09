@@ -1661,13 +1661,14 @@ pg_newlocale_from_collation(Oid collid)
  */
 #ifdef WIN32
 static int
-win32_utf8_wcscoll(const char *arg1, size_t len1, const char *arg2,
-				   size_t len2, pg_locale_t locale)
+win32_utf8_wcscoll(const char *arg1, const char *arg2, pg_locale_t locale)
 {
 	char	 sbuf[TEXTBUFLEN];
 	char	*buf = sbuf;
 	char	*a1p,
 			*a2p;
+	size_t	 len1 = strlen(arg1);
+	size_t	 len2 = strlen(arg2);
 	int		 a1len = len1 * 2 + 2;
 	int		 a2len = len2 * 2 + 2;
 	int		 r;
@@ -1825,7 +1826,7 @@ pg_collate_libc(const char *arg1, const char *arg2, pg_locale_t locale)
 	/* Win32 does not have UTF-8, so we need to map to UTF-16 */
 	if (GetDatabaseEncoding() == PG_UTF8)
 	{
-		result = win32_utf8_wcscoll(arg1, len1, arg2, len2, locale);
+		result = win32_utf8_wcscoll(arg1, arg2, locale);
 	}
 	else
 #endif							/* WIN32 */
