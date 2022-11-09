@@ -1827,6 +1827,39 @@ win32_utf8_wcscoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 #endif							/* WIN32 */
 
 /*
+ * Collate using the libc provider. Arguments must be nul-terminated.
+ */
+static int
+pg_collate_libc(const char *arg1, const char *arg2, pg_locale_t locale)
+{
+	int result;
+
+#ifdef WIN32
+	/* Win32 does not have UTF-8, so we need to map to UTF-16 */
+	if (GetDatabaseEncoding() == PG_UTF8)
+	{
+		size_t len1 = strlen(arg1);
+		size_t len2 = strlen(arg2);
+		result = win32_utf8_wcscoll(arg1, len1, arg2, len2, locale);
+	}
+	else
+#endif							/* WIN32 */
+	if (locale)
+	{
+#ifdef HAVE_LOCALE_T
+		result = strcoll_l(arg1, arg2, locale->info.lt);
+#else
+		/* shouldn't happen */
+		elog(ERROR, "unsupported collprovider: %c", locale->provider);
+#endif
+	}
+	else
+		result = strcoll(arg1, arg2);
+
+	return result;
+}
+
+/*
  * Collate using the icu provider.
  */
 static int
@@ -1894,36 +1927,16 @@ pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
 {
 	int			result;
 
-#ifdef WIN32
-	/* Win32 does not have UTF-8, so we need to map to UTF-16 */
-	if (GetDatabaseEncoding() == PG_UTF8
-		&& (!locale || locale->provider == COLLPROVIDER_LIBC))
+	if (locale && locale->provider == COLLPROVIDER_ICU)
 	{
-		result = win32_utf8_wcscoll(arg1, len1, arg2, len2, locale);
+		size_t		len1 = strlen(arg1);
+		size_t		len2 = strlen(arg2);
+		result = pg_collate_icu(arg1, len1, arg2, len2, locale);
 	}
 	else
-#endif							/* WIN32 */
-
-	if (locale)
 	{
-		if (locale->provider == COLLPROVIDER_ICU)
-		{
-			size_t		len1 = strlen(arg1);
-			size_t		len2 = strlen(arg2);
-			result = pg_collate_icu(arg1, len1, arg2, len2, locale);
-		}
-		else
-		{
-#ifdef HAVE_LOCALE_T
-			result = strcoll_l(arg1, arg2, locale->info.lt);
-#else
-			/* shouldn't happen */
-			elog(ERROR, "unsupported collprovider: %c", locale->provider);
-#endif
-		}
+		result = pg_collate_libc(arg1, arg2, locale);
 	}
-	else
-		result = strcoll(arg1, arg2);
 
 	/* Break tie if necessary. */
 	if (result == 0 && (!locale || locale->deterministic))
