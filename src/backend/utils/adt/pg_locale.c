@@ -1824,8 +1824,10 @@ win32_utf8_wcscoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 
 /*
  * Collate using the libc provider. Arguments must be nul-terminated.
+ *
+ * If the collation is deterministic, break ties with strcmp().
  */
-static int
+int
 pg_collate_libc(const char *arg1, const char *arg2, pg_locale_t locale)
 {
 	int result;
@@ -1852,6 +1854,10 @@ pg_collate_libc(const char *arg1, const char *arg2, pg_locale_t locale)
 	else
 		result = strcoll(arg1, arg2);
 
+	/* Break tie if necessary. */
+	if (result == 0 && (!locale || locale->deterministic))
+		result = strcmp(arg1, arg2);
+
 	return result;
 }
 
@@ -1865,8 +1871,8 @@ pg_collate_icu_no_utf8(const char *arg1, size_t len1,
 {
 	char	 sbuf[TEXTBUFLEN];
 	char	*buf = sbuf;
-	int32_t	 ulen1;
-	int32_t	 ulen2;
+	int32_t	 ulen1 = len1 * 2;
+	int32_t	 ulen2 = len2 * 2;
 	size_t   bufsize1;
 	size_t   bufsize2;
 	UChar	*uchar1,
@@ -1874,9 +1880,6 @@ pg_collate_icu_no_utf8(const char *arg1, size_t len1,
 	int		 result;
 
 	init_icu_converter();
-
-	ulen1 = uchar_length(icu_converter, arg1, len1);
-	ulen2 = uchar_length(icu_converter, arg2, len2);
 
 	bufsize1 = (ulen1 + 1) * sizeof(UChar);
 	bufsize2 = (ulen2 + 1) * sizeof(UChar);
@@ -1903,8 +1906,11 @@ pg_collate_icu_no_utf8(const char *arg1, size_t len1,
 
 /*
  * Collate using the icu provider.
+ *
+ * If the collation is deterministic, break ties with memcmp(), and then with
+ * the string length.
  */
-static int
+int
 pg_collate_icu(const char *arg1, size_t len1, const char *arg2, size_t len2,
 			   pg_locale_t locale)
 {
@@ -1931,6 +1937,14 @@ pg_collate_icu(const char *arg1, size_t len1, const char *arg2, size_t len2,
 #endif
 	{
 		result = pg_collate_icu_no_utf8(arg1, len1, arg2, len2, locale);
+	}
+
+	/* Break tie if necessary. */
+	if (result == 0 && (!locale || locale->deterministic))
+	{
+		result = memcmp(arg1, arg2, Min(len1, len2));
+		if ((result == 0) && (len1 != len2))
+			result = (len1 < len2) ? -1 : 1;
 	}
 
 	return result;
@@ -1966,10 +1980,6 @@ pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
 	{
 		result = pg_collate_libc(arg1, arg2, locale);
 	}
-
-	/* Break tie if necessary. */
-	if (result == 0 && (!locale || locale->deterministic))
-		result = strcmp(arg1, arg2);
 
 	return result;
 }
@@ -2021,14 +2031,6 @@ pg_strncoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 
 		if (buf != sbuf)
 			pfree(buf);
-	}
-
-	/* Break tie if necessary. */
-	if (result == 0 && (!locale || locale->deterministic))
-	{
-		result = memcmp(arg1, arg2, Min(len1, len2));
-		if ((result == 0) && (len1 != len2))
-			result = (len1 < len2) ? -1 : 1;
 	}
 
 	return result;

@@ -2209,7 +2209,11 @@ varstrfastcmp_locale(char *a1p, int len1, char *a2p, int len2, SortSupport ssup)
 		return sss->last_returned;
 	}
 
-	result = pg_strcoll(sss->buf1, sss->buf2, sss->locale);
+	if (sss->locale && sss->locale->provider == COLLPROVIDER_ICU)
+		result = pg_collate_icu(sss->buf1, len1, sss->buf2, len2,
+								sss->locale);
+	else
+		result = pg_collate_libc(sss->buf1, sss->buf2, sss->locale);
 
 	/* Cache result, perhaps saving an expensive strcoll() call next time */
 	sss->cache_blob = false;
