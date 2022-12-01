@@ -1934,6 +1934,17 @@ struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
+		{"trust_strxfrm", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Allow use of strxfrm() for abbreviated keys optimization for libc provider."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&trust_strxfrm,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"data_sync_retry", PGC_POSTMASTER, ERROR_HANDLING_OPTIONS,
 			gettext_noop("Whether to continue running after a failure to sync data files."),
 		},
