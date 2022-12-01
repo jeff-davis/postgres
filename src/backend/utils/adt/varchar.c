@@ -1024,21 +1024,17 @@ hashbpchar(PG_FUNCTION_ARGS)
 #ifdef USE_ICU
 		if (mylocale->provider == COLLPROVIDER_ICU)
 		{
-			int32_t		ulen = -1;
-			UChar	   *uchar = NULL;
-			Size		bsize;
-			uint8_t    *buf;
+			Size		bsize, rsize;
+			char	   *buf;
 
-			ulen = icu_to_uchar(&uchar, keydata, keylen);
-
-			bsize = ucol_getSortKey(mylocale->info.icu.ucol,
-									uchar, ulen, NULL, 0);
+			bsize = pg_strnxfrm(NULL, 0, keydata, keylen, mylocale);
 			buf = palloc(bsize);
-			ucol_getSortKey(mylocale->info.icu.ucol,
-							uchar, ulen, buf, bsize);
-			pfree(uchar);
 
-			result = hash_any(buf, bsize);
+			rsize = pg_strnxfrm(buf, bsize, keydata, keylen, mylocale);
+			if (rsize != bsize)
+				elog(ERROR, "pg_strnxfrm() returned unexpected result");
+
+			result = hash_any((uint8_t *) buf, bsize);
 
 			pfree(buf);
 		}
@@ -1086,21 +1082,18 @@ hashbpcharextended(PG_FUNCTION_ARGS)
 #ifdef USE_ICU
 		if (mylocale->provider == COLLPROVIDER_ICU)
 		{
-			int32_t		ulen = -1;
-			UChar	   *uchar = NULL;
-			Size		bsize;
-			uint8_t    *buf;
+			Size		bsize, rsize;
+			char	   *buf;
 
-			ulen = icu_to_uchar(&uchar, keydata, keylen);
-
-			bsize = ucol_getSortKey(mylocale->info.icu.ucol,
-									uchar, ulen, NULL, 0);
+			bsize = pg_strnxfrm(NULL, 0, keydata, keylen, mylocale);
 			buf = palloc(bsize);
-			ucol_getSortKey(mylocale->info.icu.ucol,
-							uchar, ulen, buf, bsize);
-			pfree(uchar);
 
-			result = hash_any_extended(buf, bsize, PG_GETARG_INT64(1));
+			rsize = pg_strnxfrm(buf, bsize, keydata, keylen, mylocale);
+			if (rsize != bsize)
+				elog(ERROR, "pg_strnxfrm() returned unexpected result");
+
+			result = hash_any_extended((uint8_t *) buf, bsize,
+									   PG_GETARG_INT64(1));
 
 			pfree(buf);
 		}
