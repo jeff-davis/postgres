@@ -1890,20 +1890,6 @@ varstr_sortsupport(SortSupport ssup, Oid typid, Oid collid)
 		locale = pg_newlocale_from_collation(collid);
 
 		/*
-		 * There is a further exception on Windows.  When the database
-		 * encoding is UTF-8 and we are not using the C collation, complex
-		 * hacks are required.  We don't currently have a comparator that
-		 * handles that case, so we fall back on the slow method of having the
-		 * sort code invoke bttextcmp() (in the case of text) via the fmgr
-		 * trampoline.  ICU locales work just the same on Windows, however.
-		 */
-#ifdef WIN32
-		if (GetDatabaseEncoding() == PG_UTF8 &&
-			!(locale && locale->provider == COLLPROVIDER_ICU))
-			return;
-#endif
-
-		/*
 		 * We use varlenafastcmp_locale except for type NAME.
 		 */
 		if (typid == NAMEOID)
@@ -1918,13 +1904,7 @@ varstr_sortsupport(SortSupport ssup, Oid typid, Oid collid)
 
 	/*
 	 * Unfortunately, it seems that abbreviation for non-C collations is
-	 * broken on many common platforms; testing of multiple versions of glibc
-	 * reveals that, for many locales, strcoll() and strxfrm() do not return
-	 * consistent results, which is fatal to this optimization.  While no
-	 * other libc other than Cygwin has so far been shown to have a problem,
-	 * we take the conservative course of action for right now and disable
-	 * this categorically.  (Users who are certain this isn't a problem on
-	 * their system can define TRUST_STRXFRM.)
+	 * broken on many common platforms; see pg_strxfrm_enabled().
 	 *
 	 * Even apart from the risk of broken locales, it's possible that there
 	 * are platforms where the use of abbreviated keys should be disabled at
@@ -1937,10 +1917,8 @@ varstr_sortsupport(SortSupport ssup, Oid typid, Oid collid)
 	 * categorically, we may still want or need to disable it for particular
 	 * platforms.
 	 */
-#ifndef TRUST_STRXFRM
-	if (!collate_c && !(locale && locale->provider == COLLPROVIDER_ICU))
+	if (!collate_c && !pg_strxfrm_enabled(locale))
 		abbreviate = false;
-#endif
 
 	/*
 	 * If we're using abbreviated keys, or if we're using a locale-aware
@@ -2229,6 +2207,7 @@ varstrfastcmp_locale(char *a1p, int len1, char *a2p, int len2, SortSupport ssup)
 static Datum
 varstr_abbrev_convert(Datum original, SortSupport ssup)
 {
+	const size_t max_prefix_bytes = sizeof(Datum);
 	VarStringSortSupport *sss = (VarStringSortSupport *) ssup->ssup_extra;
 	VarString  *authoritative = DatumGetVarStringPP(original);
 	char	   *authoritative_data = VARDATA_ANY(authoritative);
@@ -2241,7 +2220,7 @@ varstr_abbrev_convert(Datum original, SortSupport ssup)
 
 	pres = (char *) &res;
 	/* memset(), so any non-overwritten bytes are NUL */
-	memset(pres, 0, sizeof(Datum));
+	memset(pres, 0, max_prefix_bytes);
 	len = VARSIZE_ANY_EXHDR(authoritative);
 
 	/* Get number of bytes, ignoring trailing spaces */
@@ -2276,14 +2255,10 @@ varstr_abbrev_convert(Datum original, SortSupport ssup)
 	 * thing: explicitly consider string length.
 	 */
 	if (sss->collate_c)
-		memcpy(pres, authoritative_data, Min(len, sizeof(Datum)));
+		memcpy(pres, authoritative_data, Min(len, max_prefix_bytes));
 	else
 	{
 		Size		bsize;
-#ifdef USE_ICU
-		int32_t		ulen = -1;
-		UChar	   *uchar = NULL;
-#endif
 
 		/*
 		 * We're not using the C collation, so fall back on strxfrm or ICU
@@ -2301,7 +2276,7 @@ varstr_abbrev_convert(Datum original, SortSupport ssup)
 		if (sss->last_len1 == len && sss->cache_blob &&
 			memcmp(sss->buf1, authoritative_data, len) == 0)
 		{
-			memcpy(pres, sss->buf2, Min(sizeof(Datum), sss->last_len2));
+			memcpy(pres, sss->buf2, Min(max_prefix_bytes, sss->last_len2));
 			/* No change affecting cardinality, so no hashing required */
 			goto done;
 		}
@@ -2309,81 +2284,49 @@ varstr_abbrev_convert(Datum original, SortSupport ssup)
 		memcpy(sss->buf1, authoritative_data, len);
 
 		/*
-		 * Just like strcoll(), strxfrm() expects a NUL-terminated string. Not
-		 * necessary for ICU, but doesn't hurt.
+		 * pg_strxfrm() and pg_strxfrm_prefix expect NUL-terminated
+		 * strings.
 		 */
 		sss->buf1[len] = '\0';
 		sss->last_len1 = len;
 
-#ifdef USE_ICU
-		/* When using ICU and not UTF8, convert string to UChar. */
-		if (sss->locale && sss->locale->provider == COLLPROVIDER_ICU &&
-			GetDatabaseEncoding() != PG_UTF8)
-			ulen = icu_to_uchar(&uchar, sss->buf1, len);
-#endif
-
-		/*
-		 * Loop: Call strxfrm() or ucol_getSortKey(), possibly enlarge buffer,
-		 * and try again.  Both of these functions have the result buffer
-		 * content undefined if the result did not fit, so we need to retry
-		 * until everything fits, even though we only need the first few bytes
-		 * in the end.  When using ucol_nextSortKeyPart(), however, we only
-		 * ask for as many bytes as we actually need.
-		 */
-		for (;;)
+		if (pg_strxfrm_prefix_enabled(sss->locale))
 		{
-#ifdef USE_ICU
-			if (sss->locale && sss->locale->provider == COLLPROVIDER_ICU)
+			if (sss->buflen2 < max_prefix_bytes)
 			{
-				/*
-				 * When using UTF8, use the iteration interface so we only
-				 * need to produce as many bytes as we actually need.
-				 */
-				if (GetDatabaseEncoding() == PG_UTF8)
-				{
-					UCharIterator iter;
-					uint32_t	state[2];
-					UErrorCode	status;
-
-					uiter_setUTF8(&iter, sss->buf1, len);
-					state[0] = state[1] = 0;	/* won't need that again */
-					status = U_ZERO_ERROR;
-					bsize = ucol_nextSortKeyPart(sss->locale->info.icu.ucol,
-												 &iter,
-												 state,
-												 (uint8_t *) sss->buf2,
-												 Min(sizeof(Datum), sss->buflen2),
-												 &status);
-					if (U_FAILURE(status))
-						ereport(ERROR,
-								(errmsg("sort key generation failed: %s",
-										u_errorName(status))));
-				}
-				else
-					bsize = ucol_getSortKey(sss->locale->info.icu.ucol,
-											uchar, ulen,
-											(uint8_t *) sss->buf2, sss->buflen2);
+				sss->buflen2 = Max(max_prefix_bytes,
+								   Min(sss->buflen2 * 2, MaxAllocSize));
+				sss->buf2 = repalloc(sss->buf2, sss->buflen2);
 			}
-			else
-#endif
-#ifdef HAVE_LOCALE_T
-			if (sss->locale && sss->locale->provider == COLLPROVIDER_LIBC)
-				bsize = strxfrm_l(sss->buf2, sss->buf1,
-								  sss->buflen2, sss->locale->info.lt);
-			else
-#endif
-				bsize = strxfrm(sss->buf2, sss->buf1, sss->buflen2);
 
-			sss->last_len2 = bsize;
-			if (bsize < sss->buflen2)
-				break;
-
+			bsize = pg_strxfrm_prefix(sss->buf2, sss->buf1,
+									  max_prefix_bytes, sss->locale);
+		}
+		else
+		{
 			/*
-			 * Grow buffer and retry.
+			 * Loop: Call pg_strxfrm(), possibly enlarge buffer, and try
+			 * again.  The pg_strxfrm() function leaves the result buffer
+			 * content undefined if the result did not fit, so we need to
+			 * retry until everything fits, even though we only need the first
+			 * few bytes in the end.
 			 */
-			sss->buflen2 = Max(bsize + 1,
-							   Min(sss->buflen2 * 2, MaxAllocSize));
-			sss->buf2 = repalloc(sss->buf2, sss->buflen2);
+			for (;;)
+			{
+				bsize = pg_strxfrm(sss->buf2, sss->buf1, sss->buflen2,
+								   sss->locale);
+
+				sss->last_len2 = bsize;
+				if (bsize < sss->buflen2)
+					break;
+
+				/*
+				 * Grow buffer and retry.
+				 */
+				sss->buflen2 = Max(bsize + 1,
+								   Min(sss->buflen2 * 2, MaxAllocSize));
+				sss->buf2 = repalloc(sss->buf2, sss->buflen2);
+			}
 		}
 
 		/*
@@ -2395,12 +2338,7 @@ varstr_abbrev_convert(Datum original, SortSupport ssup)
 		 * (Actually, even if there were NUL bytes in the blob it would be
 		 * okay.  See remarks on bytea case above.)
 		 */
-		memcpy(pres, sss->buf2, Min(sizeof(Datum), bsize));
-
-#ifdef USE_ICU
-		if (uchar)
-			pfree(uchar);
-#endif
+		memcpy(pres, sss->buf2, Min(max_prefix_bytes, bsize));
 	}
 
 	/*
