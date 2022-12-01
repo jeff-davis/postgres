@@ -2099,6 +2099,388 @@ pg_strncoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 }
 
 
+static size_t
+pg_strxfrm_libc(char *dest, const char *src, size_t destsize,
+				pg_locale_t locale)
+{
+	Assert(!locale || locale->provider == COLLPROVIDER_LIBC);
+
+#ifdef TRUST_STXFRM
+#ifdef HAVE_LOCALE_T
+	if (locale)
+		return strxfrm_l(dest, src, destsize, locale->info.lt);
+	else
+#endif
+		return strxfrm(dest, src, destsize);
+#else
+	/* shouldn't happen */
+	elog(ERROR, "unsupported collprovider: %c", locale->provider);
+#endif
+}
+
+static size_t
+pg_strnxfrm_libc(char *dest, const char *src, size_t srclen, size_t destsize,
+				 pg_locale_t locale)
+{
+	char	 sbuf[TEXTBUFLEN];
+	char	*buf	 = sbuf;
+	size_t	 bufsize = srclen + 1;
+	size_t	 result;
+
+	Assert(!locale || locale->provider == COLLPROVIDER_LIBC);
+
+	if (bufsize > TEXTBUFLEN)
+		buf = palloc(bufsize);
+
+	/* nul-terminate arguments */
+	memcpy(buf, src, srclen);
+	buf[srclen] = '\0';
+
+	result = pg_strxfrm_libc(dest, buf, destsize, locale);
+
+	if (buf != sbuf)
+		pfree(buf);
+
+	return result;
+}
+
+static size_t
+pg_strxfrm_prefix_libc(char *dest, const char *src, size_t destsize,
+					   pg_locale_t locale)
+{
+	Assert(!locale || locale->provider == COLLPROVIDER_LIBC);
+	/* unsupported; shouldn't happen */
+	elog(ERROR, "collprovider '%c' does not support pg_strxfrm_prefix()",
+		 locale->provider);
+}
+
+static size_t
+pg_strnxfrm_prefix_libc(char *dest, const char *src, size_t srclen,
+						size_t destsize, pg_locale_t locale)
+{
+	Assert(!locale || locale->provider == COLLPROVIDER_LIBC);
+	/* unsupported; shouldn't happen */
+	elog(ERROR, "collprovider '%c' does not support pg_strnxfrm_prefix()",
+		 locale->provider);
+}
+
+#ifdef USE_ICU
+
+static size_t
+pg_strnxfrm_icu(char *dest, const char *src, size_t srclen, size_t destsize,
+				pg_locale_t locale)
+{
+	char	 sbuf[TEXTBUFLEN];
+	char	*buf	= sbuf;
+	UChar	*uchar;
+	int32_t	 ulen;
+	size_t   uchar_bsize;
+	Size	 result_bsize;
+
+	Assert(locale->provider == COLLPROVIDER_ICU);
+
+	init_icu_converter();
+
+	ulen = uchar_length(icu_converter, src, srclen);
+
+	uchar_bsize = (ulen + 1) * sizeof(UChar);
+
+	if (uchar_bsize > TEXTBUFLEN)
+		buf = palloc(uchar_bsize);
+
+	uchar = (UChar *) buf;
+
+	ulen = uchar_convert(icu_converter, uchar, ulen + 1, src, srclen);
+
+	result_bsize = ucol_getSortKey(locale->info.icu.ucol,
+								   uchar, ulen,
+								   (uint8_t *) dest, destsize);
+
+	if (buf != sbuf)
+		pfree(buf);
+
+	return result_bsize;
+}
+
+static size_t
+pg_strxfrm_icu(char *dest, const char *src, size_t destsize,
+			   pg_locale_t locale)
+{
+	Assert(locale->provider == COLLPROVIDER_ICU);
+	return pg_strnxfrm_icu(dest, src, -1, destsize, locale);
+}
+
+static size_t
+pg_strnxfrm_prefix_icu_no_utf8(char *dest, const char *src, size_t srclen,
+							   size_t destsize, pg_locale_t locale)
+{
+	char			 sbuf[TEXTBUFLEN];
+	char			*buf   = sbuf;
+	UCharIterator	 iter;
+	uint32_t		 state[2];
+	UErrorCode		 status;
+	int32_t			 ulen  = -1;
+	UChar			*uchar = NULL;
+	size_t			 uchar_bsize;
+	Size			 result_bsize;
+
+	Assert(locale->provider == COLLPROVIDER_ICU);
+	Assert(GetDatabaseEncoding() != PG_UTF8);
+
+	init_icu_converter();
+
+	ulen = uchar_length(icu_converter, src, srclen);
+
+	uchar_bsize = (ulen + 1) * sizeof(UChar);
+
+	if (uchar_bsize > TEXTBUFLEN)
+		buf = palloc(uchar_bsize);
+
+	uchar = (UChar *) buf;
+
+	ulen = uchar_convert(icu_converter, uchar, ulen + 1, src, srclen);
+
+	uiter_setString(&iter, uchar, ulen);
+	state[0] = state[1] = 0;	/* won't need that again */
+	status = U_ZERO_ERROR;
+	result_bsize = ucol_nextSortKeyPart(locale->info.icu.ucol,
+										&iter,
+										state,
+										(uint8_t *) dest,
+										destsize,
+										&status);
+	if (U_FAILURE(status))
+		ereport(ERROR,
+				(errmsg("sort key generation failed: %s",
+						u_errorName(status))));
+
+	return result_bsize;
+}
+
+static size_t
+pg_strnxfrm_prefix_icu(char *dest, const char *src, size_t srclen,
+					   size_t destsize, pg_locale_t locale)
+{
+	size_t result;
+
+	Assert(locale->provider == COLLPROVIDER_ICU);
+
+	if (GetDatabaseEncoding() == PG_UTF8)
+	{
+		UCharIterator iter;
+		uint32_t	state[2];
+		UErrorCode	status;
+
+		uiter_setUTF8(&iter, src, srclen);
+		state[0] = state[1] = 0;	/* won't need that again */
+		status = U_ZERO_ERROR;
+		result = ucol_nextSortKeyPart(locale->info.icu.ucol,
+									  &iter,
+									  state,
+									  (uint8_t *) dest,
+									  destsize,
+									  &status);
+		if (U_FAILURE(status))
+			ereport(ERROR,
+					(errmsg("sort key generation failed: %s",
+							u_errorName(status))));
+	}
+	else
+		result = pg_strnxfrm_prefix_icu_no_utf8(dest, src, srclen, destsize,
+												locale);
+
+	return result;
+}
+
+static size_t
+pg_strxfrm_prefix_icu(char *dest, const char *src, size_t destsize,
+					  pg_locale_t locale)
+{
+	Assert(locale->provider == COLLPROVIDER_ICU);
+	return pg_strnxfrm_prefix_icu(dest, src, -1, destsize, locale);
+}
+
+#endif
+
+/*
+ * Return true if the collation provider supports pg_strxfrm() and
+ * pg_strnxfrm(); otherwise false.
+ *
+ * Unfortunately, it seems that strxfrm() for non-C collations is broken on
+ * many common platforms; testing of multiple versions of glibc reveals that,
+ * for many locales, strcoll() and strxfrm() do not return consistent
+ * results. While no other libc other than Cygwin has so far been shown to
+ * have a problem, we take the conservative course of action for right now and
+ * disable this categorically.  (Users who are certain this isn't a problem on
+ * their system can define TRUST_STRXFRM.)
+ */
+bool
+pg_strxfrm_enabled(pg_locale_t locale)
+{
+	if (!locale || locale->provider == COLLPROVIDER_LIBC)
+	{
+#ifdef TRUST_STRXFRM
+		return true;
+#else
+		return false;
+#endif
+	}
+	else if (locale->provider == COLLPROVIDER_ICU)
+		return true;
+	else
+		/* shouldn't happen */
+		elog(ERROR, "unsupported collprovider: %c", locale->provider);
+}
+
+/*
+ * pg_strxfrm
+ *
+ * Transforms 'src' to a nul-terminated string stored in 'dest' such that
+ * ordinary strcmp() on transformed strings is equivalent to pg_strcoll() on
+ * untransformed strings.
+ *
+ * The provided 'src' must be nul-terminated.
+ *
+ * If destsize is large enough to hold the result, returns the number of bytes
+ * copied to 'dest'; otherwise, returns the number of bytes needed to hold the
+ * result and leaves the contents of 'dest' undefined. If destsize is zero,
+ * 'dest' may be NULL.
+ */
+size_t
+pg_strxfrm(char *dest, const char *src, size_t destsize, pg_locale_t locale)
+{
+	size_t result;
+
+	if (!locale || locale->provider == COLLPROVIDER_LIBC)
+		result = pg_strxfrm_libc(dest, src, destsize, locale);
+#ifdef USE_ICU
+	else if (locale->provider == COLLPROVIDER_ICU)
+		result = pg_strxfrm_icu(dest, src, destsize, locale);
+#endif
+	else
+		/* shouldn't happen */
+		elog(ERROR, "unsupported collprovider: %c", locale->provider);
+
+	return result;
+}
+
+/*
+ * pg_strnxfrm
+ *
+ * Transforms 'src' to a nul-terminated string stored in 'dest' such that
+ * ordinary strcmp() on transformed strings is equivalent to pg_strcoll() on
+ * untransformed strings.
+ *
+ * If destsize is large enough to hold the result, returns the number of bytes
+ * copied to 'dest'; otherwise, returns the number of bytes needed to hold the
+ * result and leaves the contents of 'dest' undefined. If destsize is zero,
+ * 'dest' may be NULL.
+ *
+ * This function may need to nul-terminate the argument for libc functions;
+ * so if the caller already has a nul-terminated string, it should call
+ * pg_strxfrm() instead.
+ */
+size_t
+pg_strnxfrm(char *dest, size_t destsize, const char *src, size_t srclen,
+			pg_locale_t locale)
+{
+	size_t result;
+
+	if (!locale || locale->provider == COLLPROVIDER_LIBC)
+		result = pg_strnxfrm_libc(dest, src, srclen, destsize, locale);
+#ifdef USE_ICU
+	else if (locale->provider == COLLPROVIDER_ICU)
+		result = pg_strnxfrm_icu(dest, src, srclen, destsize, locale);
+#endif
+	else
+		/* shouldn't happen */
+		elog(ERROR, "unsupported collprovider: %c", locale->provider);
+
+	return result;
+}
+
+/*
+ * Return true if the collation provider supports pg_strxfrm_prefix() and
+ * pg_strnxfrm_prefix(); otherwise false.
+ */
+bool
+pg_strxfrm_prefix_enabled(pg_locale_t locale)
+{
+	if (!locale || locale->provider == COLLPROVIDER_LIBC)
+		return false;
+	else if (locale->provider == COLLPROVIDER_ICU)
+		return true;
+	else
+		/* shouldn't happen */
+		elog(ERROR, "unsupported collprovider: %c", locale->provider);
+}
+
+/*
+ * pg_strxfrm_prefix
+ *
+ * Transforms 'src' to a byte sequence stored in 'dest' such that ordinary
+ * memcmp() on the byte sequence is equivalent to pg_strcoll() on
+ * untransformed strings. The result is not nul-terminated.
+ *
+ * The provided 'src' must be nul-terminated.
+ *
+ * If destsize is not large enough to hold the entire result, stores just the
+ * prefix in 'dest'. Returns the number of bytes actually copied to 'dest'.
+ */
+size_t
+pg_strxfrm_prefix(char *dest, const char *src, size_t destsize,
+				  pg_locale_t locale)
+{
+	size_t result;
+
+	if (!locale || locale->provider == COLLPROVIDER_LIBC)
+		result = pg_strxfrm_prefix_libc(dest, src, destsize, locale);
+#ifdef USE_ICU
+	else if (locale->provider == COLLPROVIDER_ICU)
+		result = pg_strxfrm_prefix_icu(dest, src, destsize, locale);
+#endif
+	else
+		/* shouldn't happen */
+		elog(ERROR, "unsupported collprovider: %c", locale->provider);
+
+	return result;
+}
+
+/*
+ * pg_strnxfrm_prefix
+ *
+ * Transforms 'src' to a byte sequence stored in 'dest' such that ordinary
+ * memcmp() on the byte sequence is equivalent to pg_strcoll() on
+ * untransformed strings. The result is not nul-terminated.
+ *
+ * The provided 'src' must be nul-terminated.
+ *
+ * If destsize is not large enough to hold the entire result, stores just the
+ * prefix in 'dest'. Returns the number of bytes actually copied to 'dest'.
+ *
+ * This function may need to nul-terminate the argument for libc functions;
+ * so if the caller already has a nul-terminated string, it should call
+ * pg_strxfrm_prefix() instead.
+ */
+size_t
+pg_strnxfrm_prefix(char *dest, size_t destsize, const char *src,
+				   size_t srclen, pg_locale_t locale)
+{
+	size_t result;
+
+	if (!locale || locale->provider == COLLPROVIDER_LIBC)
+		result = pg_strnxfrm_prefix_libc(dest, src, srclen, destsize, locale);
+#ifdef USE_ICU
+	else if (locale->provider == COLLPROVIDER_ICU)
+		result = pg_strnxfrm_prefix_icu(dest, src, srclen, destsize, locale);
+#endif
+	else
+		/* shouldn't happen */
+		elog(ERROR, "unsupported collprovider: %c", locale->provider);
+
+	return result;
+}
+
 #ifdef USE_ICU
 static void
 init_icu_converter(void)

@@ -103,6 +103,16 @@ extern char *get_collation_actual_version(char collprovider, const char *collcol
 extern int pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale);
 extern int pg_strncoll(const char *arg1, size_t len1,
 					   const char *arg2, size_t len2, pg_locale_t locale);
+extern bool pg_strxfrm_enabled(pg_locale_t locale);
+extern size_t pg_strxfrm(char *dest, const char *src, size_t destsize,
+						 pg_locale_t locale);
+extern size_t pg_strnxfrm(char *dest, size_t destsize, const char *src,
+						  size_t srclen, pg_locale_t locale);
+extern bool pg_strxfrm_prefix_enabled(pg_locale_t locale);
+extern size_t pg_strxfrm_prefix(char *dest, const char *src, size_t destsize,
+								pg_locale_t locale);
+extern size_t pg_strnxfrm_prefix(char *dest, size_t destsize, const char *src,
+								 size_t srclen, pg_locale_t locale);
 
 #ifdef USE_ICU
 extern int32_t icu_to_uchar(UChar **buff_uchar, const char *buff, size_t nbytes);
