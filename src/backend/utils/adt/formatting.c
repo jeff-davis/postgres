@@ -87,6 +87,7 @@
 #include "utils/memutils.h"
 #include "utils/numeric.h"
 #include "utils/pg_locale.h"
+#include "utils/pg_locale_internal.h"
 
 /* ----------
  * Convenience macros for error handling
@@ -1611,7 +1612,7 @@ icu_convert_case(ICU_Convert_Func func, pg_locale_t mylocale,
 	*buff_dest = palloc(len_dest * sizeof(**buff_dest));
 	status = U_ZERO_ERROR;
 	len_dest = func(*buff_dest, len_dest, buff_source, len_source,
-					mylocale->info.icu.locale, &status);
+					mylocale->ctype, &status);
 	if (status == U_BUFFER_OVERFLOW_ERROR)
 	{
 		/* try again with adjusted length */
@@ -1619,7 +1620,7 @@ icu_convert_case(ICU_Convert_Func func, pg_locale_t mylocale,
 		*buff_dest = palloc(len_dest * sizeof(**buff_dest));
 		status = U_ZERO_ERROR;
 		len_dest = func(*buff_dest, len_dest, buff_source, len_source,
-						mylocale->info.icu.locale, &status);
+						mylocale->ctype, &status);
 	}
 	if (U_FAILURE(status))
 		ereport(ERROR,
@@ -1732,7 +1733,7 @@ str_tolower(const char *buff, size_t nbytes, Oid collid)
 				{
 #ifdef HAVE_LOCALE_T
 					if (mylocale)
-						workspace[curr_char] = towlower_l(workspace[curr_char], mylocale->info.lt);
+						workspace[curr_char] = towlower_l(workspace[curr_char], mylocale->info.libc.lt);
 					else
 #endif
 						workspace[curr_char] = towlower(workspace[curr_char]);
@@ -1765,7 +1766,7 @@ str_tolower(const char *buff, size_t nbytes, Oid collid)
 				{
 #ifdef HAVE_LOCALE_T
 					if (mylocale)
-						*p = tolower_l((unsigned char) *p, mylocale->info.lt);
+						*p = tolower_l((unsigned char) *p, mylocale->info.libc.lt);
 					else
 #endif
 						*p = pg_tolower((unsigned char) *p);
@@ -1854,7 +1855,7 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 				{
 #ifdef HAVE_LOCALE_T
 					if (mylocale)
-						workspace[curr_char] = towupper_l(workspace[curr_char], mylocale->info.lt);
+						workspace[curr_char] = towupper_l(workspace[curr_char], mylocale->info.libc.lt);
 					else
 #endif
 						workspace[curr_char] = towupper(workspace[curr_char]);
@@ -1887,7 +1888,7 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 				{
 #ifdef HAVE_LOCALE_T
 					if (mylocale)
-						*p = toupper_l((unsigned char) *p, mylocale->info.lt);
+						*p = toupper_l((unsigned char) *p, mylocale->info.libc.lt);
 					else
 #endif
 						*p = pg_toupper((unsigned char) *p);
@@ -1979,10 +1980,10 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 					if (mylocale)
 					{
 						if (wasalnum)
-							workspace[curr_char] = towlower_l(workspace[curr_char], mylocale->info.lt);
+							workspace[curr_char] = towlower_l(workspace[curr_char], mylocale->info.libc.lt);
 						else
-							workspace[curr_char] = towupper_l(workspace[curr_char], mylocale->info.lt);
-						wasalnum = iswalnum_l(workspace[curr_char], mylocale->info.lt);
+							workspace[curr_char] = towupper_l(workspace[curr_char], mylocale->info.libc.lt);
+						wasalnum = iswalnum_l(workspace[curr_char], mylocale->info.libc.lt);
 					}
 					else
 #endif
@@ -2024,10 +2025,10 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 					if (mylocale)
 					{
 						if (wasalnum)
-							*p = tolower_l((unsigned char) *p, mylocale->info.lt);
+							*p = tolower_l((unsigned char) *p, mylocale->info.libc.lt);
 						else
-							*p = toupper_l((unsigned char) *p, mylocale->info.lt);
-						wasalnum = isalnum_l((unsigned char) *p, mylocale->info.lt);
+							*p = toupper_l((unsigned char) *p, mylocale->info.libc.lt);
+						wasalnum = isalnum_l((unsigned char) *p, mylocale->info.libc.lt);
 					}
 					else
 #endif

@@ -15,22 +15,6 @@
 #if defined(LOCALE_T_IN_XLOCALE) || defined(WCSTOMBS_L_IN_XLOCALE)
 #include <xlocale.h>
 #endif
-#ifdef USE_ICU
-#include <unicode/ucol.h>
-#endif
-
-#ifdef USE_ICU
-/*
- * ucol_strcollUTF8() was introduced in ICU 50, but it is buggy before ICU 53.
- * (see
- * <https://www.postgresql.org/message-id/flat/f1438ec6-22aa-4029-9a3b-26f79d330e72%40manitou-mail.org>)
- */
-#if U_ICU_VERSION_MAJOR_NUM >= 53
-#define HAVE_UCOL_STRCOLLUTF8 1
-#else
-#undef HAVE_UCOL_STRCOLLUTF8
-#endif
-#endif
 
 /* use for libc locale names */
 #define LOCALE_NAME_BUFLEN 128
@@ -64,39 +48,12 @@ extern struct lconv *PGLC_localeconv(void);
 extern void cache_locale_time(void);
 
 
-/*
- * We define our own wrapper around locale_t so we can keep the same
- * function signatures for all builds, while not having to create a
- * fake version of the standard type locale_t in the global namespace.
- * pg_locale_t is occasionally checked for truth, so make it a pointer.
- */
-struct pg_locale_struct
-{
-	char		provider;
-	bool		deterministic;
-	union
-	{
-#ifdef HAVE_LOCALE_T
-		locale_t	lt;
-#endif
-#ifdef USE_ICU
-		struct
-		{
-			const char *locale;
-			UCollator  *ucol;
-		}			icu;
-#endif
-		int			dummy;		/* in case we have neither LOCALE_T nor ICU */
-	}			info;
-};
-
 typedef struct pg_locale_struct *pg_locale_t;
 
-extern PGDLLIMPORT struct pg_locale_struct default_locale;
-
-extern void make_icu_collator(const char *iculocstr,
-							  struct pg_locale_struct *resultp);
-
+extern void init_default_locale(char provider, const char *collate,
+								const char *ctype, const char *version);
+extern char *default_locale_collation_version(void);
+extern bool pg_locale_deterministic(pg_locale_t locale);
 extern pg_locale_t pg_newlocale_from_collation(Oid collid);
 
 extern char *get_collation_actual_version(char collprovider, const char *collcollate);
@@ -114,10 +71,6 @@ extern size_t pg_strxfrm_prefix(char *dest, const char *src, size_t destsize,
 extern size_t pg_strnxfrm_prefix(char *dest, size_t destsize, const char *src,
 								 size_t srclen, pg_locale_t locale);
 
-#ifdef USE_ICU
-extern int32_t icu_to_uchar(UChar **buff_uchar, const char *buff, size_t nbytes);
-extern int32_t icu_from_uchar(char **result, const UChar *buff_uchar, int32_t len_uchar);
-#endif
 extern void check_icu_locale(const char *icu_locale);
 
 /* These functions convert from/to libc's wchar_t, *not* pg_wchar_t */
