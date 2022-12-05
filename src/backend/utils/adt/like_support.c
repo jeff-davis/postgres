@@ -52,6 +52,7 @@
 #include "utils/datum.h"
 #include "utils/lsyscache.h"
 #include "utils/pg_locale.h"
+#include "utils/pg_locale_internal.h"
 #include "utils/selfuncs.h"
 #include "utils/varlena.h"
 

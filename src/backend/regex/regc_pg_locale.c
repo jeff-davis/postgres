@@ -17,6 +17,7 @@
 
 #include "catalog/pg_collation.h"
 #include "utils/pg_locale.h"
+#include "utils/pg_locale_internal.h"
 
 /*
  * To provide as much functionality as possible on a variety of platforms,

@@ -87,6 +87,7 @@
 #include "utils/memutils.h"
 #include "utils/numeric.h"
 #include "utils/pg_locale.h"
+#include "utils/pg_locale_internal.h"
 
 /* ----------
  * Convenience macros for error handling

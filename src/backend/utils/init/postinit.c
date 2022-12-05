@@ -317,6 +317,7 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
 	char	   *collate;
 	char	   *ctype;
 	char	   *iculocale;
+	char	   *collversionstr;
 
 	/* Fetch our pg_database row normally, via syscache */
 	tup = SearchSysCache1(DATABASEOID, ObjectIdGetDatum(MyDatabaseId));
@@ -424,19 +425,9 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
 		datum = SysCacheGetAttr(DATABASEOID, tup, Anum_pg_database_daticulocale, &isnull);
 		Assert(!isnull);
 		iculocale = TextDatumGetCString(datum);
-		make_icu_collator(iculocale, &default_locale);
 	}
 	else
 		iculocale = NULL;
-
-	default_locale.provider = dbform->datlocprovider;
-
-	/*
-	 * Default locale is currently always deterministic.  Nondeterministic
-	 * locales currently don't support pattern matching, which would break a
-	 * lot of things if applied globally.
-	 */
-	default_locale.deterministic = true;
 
 	/*
 	 * Check collation version.  See similar code in
@@ -448,7 +439,6 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
 	if (!isnull)
 	{
 		char	   *actual_versionstr;
-		char	   *collversionstr;
 
 		collversionstr = TextDatumGetCString(datum);
 
@@ -470,6 +460,13 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
 							 "or build PostgreSQL with the right library version.",
 							 quote_identifier(name))));
 	}
+	else
+		collversionstr = NULL;
+
+	init_default_locale(dbform->datlocprovider,
+						dbform->datlocprovider == COLLPROVIDER_ICU ? iculocale : collate,
+						dbform->datlocprovider == COLLPROVIDER_ICU ? iculocale : ctype,
+						collversionstr);
 
 	/* Make the locale settings visible as GUC variables, too */
 	SetConfigOption("lc_collate", collate, PGC_INTERNAL, PGC_S_DYNAMIC_DEFAULT);

@@ -64,39 +64,11 @@ extern struct lconv *PGLC_localeconv(void);
 extern void cache_locale_time(void);
 
 
-/*
- * We define our own wrapper around locale_t so we can keep the same
- * function signatures for all builds, while not having to create a
- * fake version of the standard type locale_t in the global namespace.
- * pg_locale_t is occasionally checked for truth, so make it a pointer.
- */
-struct pg_locale_struct
-{
-	char		provider;
-	bool		deterministic;
-	union
-	{
-#ifdef HAVE_LOCALE_T
-		locale_t	lt;
-#endif
-#ifdef USE_ICU
-		struct
-		{
-			const char *locale;
-			UCollator  *ucol;
-		}			icu;
-#endif
-		int			dummy;		/* in case we have neither LOCALE_T nor ICU */
-	}			info;
-};
-
 typedef struct pg_locale_struct *pg_locale_t;
 
-extern PGDLLIMPORT struct pg_locale_struct default_locale;
-
-extern void make_icu_collator(const char *iculocstr,
-							  struct pg_locale_struct *resultp);
-
+extern void init_default_locale(char provider, const char *collate,
+								const char *ctype, const char *version);
+extern bool pg_locale_deterministic(pg_locale_t locale);
 extern pg_locale_t pg_newlocale_from_collation(Oid collid);
 
 extern char *get_collation_actual_version(char collprovider, const char *collcollate);
