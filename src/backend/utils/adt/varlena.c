@@ -1205,7 +1205,7 @@ text_position_setup(text *t1, text *t2, Oid collid, TextPositionState *state)
 	if (!lc_collate_is_c(collid))
 		mylocale = pg_newlocale_from_collation(collid);
 
-	if (mylocale && !mylocale->deterministic)
+	if (!pg_locale_deterministic(mylocale))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("nondeterministic collations are not supported for substring searches")));
@@ -1603,7 +1603,7 @@ texteq(PG_FUNCTION_ARGS)
 	else
 		mylocale = pg_newlocale_from_collation(collid);
 
-	if (locale_is_c || !mylocale || mylocale->deterministic)
+	if (locale_is_c || pg_locale_deterministic(mylocale))
 	{
 		Datum		arg1 = PG_GETARG_DATUM(0);
 		Datum		arg2 = PG_GETARG_DATUM(1);
@@ -1662,7 +1662,7 @@ textne(PG_FUNCTION_ARGS)
 	else
 		mylocale = pg_newlocale_from_collation(collid);
 
-	if (locale_is_c || !mylocale || mylocale->deterministic)
+	if (locale_is_c || pg_locale_deterministic(mylocale))
 	{
 		Datum		arg1 = PG_GETARG_DATUM(0);
 		Datum		arg2 = PG_GETARG_DATUM(1);
@@ -1776,7 +1776,7 @@ text_starts_with(PG_FUNCTION_ARGS)
 	if (!lc_collate_is_c(collid))
 		mylocale = pg_newlocale_from_collation(collid);
 
-	if (mylocale && !mylocale->deterministic)
+	if (!pg_locale_deterministic(mylocale))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("nondeterministic collations are not supported for substring searches")));
