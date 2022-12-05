@@ -65,6 +65,7 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/pg_locale.h"
+#include "utils/pg_locale_internal.h"
 #include "utils/syscache.h"
 
 #ifdef USE_ICU
@@ -127,6 +128,11 @@ static HTAB *collation_cache = NULL;
 #if defined(WIN32) && defined(LC_MESSAGES)
 static char *IsoLocaleName(const char *);
 #endif
+
+/*
+ * Database default locale.
+ */
+static pg_locale_t default_locale = NULL;
 
 #ifdef USE_ICU
 /*
@@ -1333,7 +1339,7 @@ lc_collate_is_c(Oid collation)
 		static int	result = -1;
 		char	   *localeptr;
 
-		if (default_locale.provider == COLLPROVIDER_ICU)
+		if (default_locale->provider == COLLPROVIDER_ICU)
 			return false;
 
 		if (result >= 0)
@@ -1386,7 +1392,7 @@ lc_ctype_is_c(Oid collation)
 		static int	result = -1;
 		char	   *localeptr;
 
-		if (default_locale.provider == COLLPROVIDER_ICU)
+		if (default_locale->provider == COLLPROVIDER_ICU)
 			return false;
 
 		if (result >= 0)
@@ -1416,38 +1422,6 @@ lc_ctype_is_c(Oid collation)
 	 */
 	return (lookup_collation_cache(collation, true))->ctype_is_c;
 }
-
-struct pg_locale_struct default_locale;
-
-void
-make_icu_collator(const char *iculocstr,
-				  struct pg_locale_struct *resultp)
-{
-#ifdef USE_ICU
-	UCollator  *collator;
-	UErrorCode	status;
-
-	status = U_ZERO_ERROR;
-	collator = ucol_open(iculocstr, &status);
-	if (U_FAILURE(status))
-		ereport(ERROR,
-				(errmsg("could not open collator for locale \"%s\": %s",
-						iculocstr, u_errorName(status))));
-
-	if (U_ICU_VERSION_MAJOR_NUM < 54)
-		icu_set_collation_attributes(collator, iculocstr);
-
-	/* We will leak this string if the caller errors later :-( */
-	resultp->info.icu.locale = MemoryContextStrdup(TopMemoryContext, iculocstr);
-	resultp->info.icu.ucol = collator;
-#else							/* not USE_ICU */
-	/* could get here if a collation was created by a build with ICU */
-	ereport(ERROR,
-			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			 errmsg("ICU is not supported in this build")));
-#endif							/* not USE_ICU */
-}
-
 
 /* simple subroutine for reporting errors from newlocale() */
 #ifdef HAVE_LOCALE_T
@@ -1483,6 +1457,163 @@ report_newlocale_failure(const char *localename)
 
 
 /*
+ * Construct a new pg_locale_t object.
+ *
+ * Passing NULL for the version is allowed; and even if it is specified, the
+ * result may or may not have an exactly matching version. Other parameters
+ * are required.
+ *
+ * Ordinarily, collate and ctype should be the same. If the provider is ICU,
+ * this is a requirement, and the 'collate' and 'ctype' arguments should both
+ * come from colliculocale (or daticulocale). If the provider is libc, the
+ * arguments should come from collcollate and collctype (or datcollate and
+ * datctype), respectively.
+ *
+ * Structures are allocated in TopMemoryContext, and the libc locale_t or
+ * UCollator is not allocated in any memory context, so the result is
+ * effectively permanent.
+ */
+static pg_locale_t
+pg_newlocale(char provider, bool deterministic, const char *collate,
+			 const char *ctype, const char *version)
+{
+	pg_locale_t result = MemoryContextAlloc(TopMemoryContext,
+											sizeof(struct pg_locale_struct));
+
+	/*
+	 * If COLLPROVIDER_DEFAULT, caller should use default_locale or NULL
+	 * instead.
+	 */
+	Assert(provider != COLLPROVIDER_DEFAULT);
+
+	result->provider = provider;
+	result->deterministic = deterministic;
+	result->collate = MemoryContextStrdup(TopMemoryContext, collate);
+	result->ctype = MemoryContextStrdup(TopMemoryContext, ctype);
+
+	if (provider == COLLPROVIDER_LIBC)
+	{
+#ifdef HAVE_LOCALE_T
+		locale_t        loc;
+
+		/* newlocale's result may be leaked if we encounter an error */
+
+		if (strcmp(collate, ctype) == 0)
+		{
+			/* Normal case where they're the same */
+			errno = 0;
+#ifndef WIN32
+			loc = newlocale(LC_COLLATE_MASK | LC_CTYPE_MASK, collate,
+							NULL);
+#else
+			loc = _create_locale(LC_ALL, collate);
+#endif
+			if (!loc)
+				report_newlocale_failure(collate);
+		}
+		else
+		{
+#ifndef WIN32
+			/* We need two newlocale() steps */
+			locale_t	loc1;
+
+			errno = 0;
+			loc1 = newlocale(LC_COLLATE_MASK, collate, NULL);
+			if (!loc1)
+				report_newlocale_failure(collate);
+			errno = 0;
+			loc = newlocale(LC_CTYPE_MASK, ctype, loc1);
+			if (!loc)
+				report_newlocale_failure(ctype);
+#else
+
+			/*
+			 * XXX The _create_locale() API doesn't appear to support
+			 * this. Could perhaps be worked around by changing
+			 * pg_locale_t to contain two separate fields.
+			 */
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("collations with different collate and ctype values are not supported on this platform")));
+#endif
+		}
+
+		result->info.libc.lt = loc;
+#else							/* not HAVE_LOCALE_T */
+		/* platform that doesn't support locale_t */
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("collation provider LIBC is not supported on this platform")));
+#endif							/* not HAVE_LOCALE_T */
+	}
+#ifdef USE_ICU
+	else if (provider == COLLPROVIDER_ICU)
+	{
+		UCollator  *collator;
+		UErrorCode	status;
+
+		/* collator may be leaked if we encounter an error */
+
+		status = U_ZERO_ERROR;
+		collator = ucol_open(collate, &status);
+		if (U_FAILURE(status))
+			ereport(ERROR,
+					(errmsg("could not open collator for locale \"%s\": %s",
+							collate, u_errorName(status))));
+
+		if (U_ICU_VERSION_MAJOR_NUM < 54)
+			icu_set_collation_attributes(collator, collate);
+
+		result->info.icu.ucol = collator;
+	}
+#endif
+	else
+		/* shouldn't happen */
+		elog(ERROR, "unsupported collprovider: %c", provider);
+
+	return result;
+}
+
+/*
+ * Accessor so that callers don't need to include pg_locale_internal.h.
+ */
+bool
+pg_locale_deterministic(pg_locale_t locale)
+{
+	if (locale == NULL)
+		return true;
+	else
+		return locale->deterministic;
+}
+
+/*
+ * Initialize default database locale.
+ */
+void
+init_default_locale(char provider, const char *collate, const char *ctype,
+					const char *iculocale, const char *version)
+{
+	/*
+	 * For the purposes of pg_locale_t, if the provider is ICU, we use
+	 * iculocale for both collate and ctype.
+	 */
+	if (provider == COLLPROVIDER_ICU)
+	{
+		collate = iculocale;
+		ctype = iculocale;
+	}
+	else
+		Assert(iculocale == NULL);
+
+	/*
+	 * Default locale is currently always deterministic.  Nondeterministic
+	 * locales currently don't support pattern matching, which would break a
+	 * lot of things if applied globally.
+	 */
+	default_locale = pg_newlocale(provider, true, collate, ctype, version);
+}
+
+/*
  * Create a locale_t from a collation OID.  Results are cached for the
  * lifetime of the backend.  Thus, do not free the result with freelocale().
  *
@@ -1506,8 +1637,8 @@ pg_newlocale_from_collation(Oid collid)
 
 	if (collid == DEFAULT_COLLATION_OID)
 	{
-		if (default_locale.provider == COLLPROVIDER_ICU)
-			return &default_locale;
+		if (default_locale->provider == COLLPROVIDER_ICU)
+			return default_locale;
 		else
 			return (pg_locale_t) 0;
 	}
@@ -1519,107 +1650,64 @@ pg_newlocale_from_collation(Oid collid)
 		/* We haven't computed this yet in this session, so do it */
 		HeapTuple	tp;
 		Form_pg_collation collform;
-		struct pg_locale_struct result;
-		pg_locale_t resultp;
+		pg_locale_t locale;
 		Datum		datum;
 		bool		isnull;
+		char	   *collate;
+		char	   *ctype;
+		char	   *collversionstr;
 
 		tp = SearchSysCache1(COLLOID, ObjectIdGetDatum(collid));
 		if (!HeapTupleIsValid(tp))
 			elog(ERROR, "cache lookup failed for collation %u", collid);
 		collform = (Form_pg_collation) GETSTRUCT(tp);
 
-		/* We'll fill in the result struct locally before allocating memory */
-		memset(&result, 0, sizeof(result));
-		result.provider = collform->collprovider;
-		result.deterministic = collform->collisdeterministic;
-
-		if (collform->collprovider == COLLPROVIDER_LIBC)
-		{
-#ifdef HAVE_LOCALE_T
-			const char *collcollate;
-			const char *collctype pg_attribute_unused();
-			locale_t	loc;
-
-			datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collcollate, &isnull);
-			Assert(!isnull);
-			collcollate = TextDatumGetCString(datum);
-			datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collctype, &isnull);
-			Assert(!isnull);
-			collctype = TextDatumGetCString(datum);
-
-			if (strcmp(collcollate, collctype) == 0)
-			{
-				/* Normal case where they're the same */
-				errno = 0;
-#ifndef WIN32
-				loc = newlocale(LC_COLLATE_MASK | LC_CTYPE_MASK, collcollate,
-								NULL);
-#else
-				loc = _create_locale(LC_ALL, collcollate);
-#endif
-				if (!loc)
-					report_newlocale_failure(collcollate);
-			}
-			else
-			{
-#ifndef WIN32
-				/* We need two newlocale() steps */
-				locale_t	loc1;
-
-				errno = 0;
-				loc1 = newlocale(LC_COLLATE_MASK, collcollate, NULL);
-				if (!loc1)
-					report_newlocale_failure(collcollate);
-				errno = 0;
-				loc = newlocale(LC_CTYPE_MASK, collctype, loc1);
-				if (!loc)
-					report_newlocale_failure(collctype);
-#else
-
-				/*
-				 * XXX The _create_locale() API doesn't appear to support
-				 * this. Could perhaps be worked around by changing
-				 * pg_locale_t to contain two separate fields.
-				 */
-				ereport(ERROR,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("collations with different collate and ctype values are not supported on this platform")));
-#endif
-			}
-
-			result.info.lt = loc;
-#else							/* not HAVE_LOCALE_T */
-			/* platform that doesn't support locale_t */
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("collation provider LIBC is not supported on this platform")));
-#endif							/* not HAVE_LOCALE_T */
-		}
-		else if (collform->collprovider == COLLPROVIDER_ICU)
-		{
-			const char *iculocstr;
-
-			datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_colliculocale, &isnull);
-			Assert(!isnull);
-			iculocstr = TextDatumGetCString(datum);
-			make_icu_collator(iculocstr, &result);
-		}
-
 		datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collversion,
 								&isnull);
 		if (!isnull)
+			collversionstr = TextDatumGetCString(datum);
+		else
+			collversionstr = NULL;
+
+		if (collform->collprovider == COLLPROVIDER_LIBC)
+		{
+			datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collcollate,
+									&isnull);
+			Assert(!isnull);
+			collate = TextDatumGetCString(datum);
+			datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collctype,
+									&isnull);
+			Assert(!isnull);
+			ctype = TextDatumGetCString(datum);
+		}
+#ifdef USE_ICU
+		else if (collform->collprovider == COLLPROVIDER_ICU)
+		{
+			datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_colliculocale,
+									&isnull);
+			Assert(!isnull);
+			collate = TextDatumGetCString(datum);
+
+			/* for ICU, collate and ctype are both set from iculocale */
+			ctype = collate;
+		}
+#endif
+		else
+			/* shouldn't happen */
+			elog(ERROR, "unsupported collprovider: %c", collform->collprovider);
+
+		locale = pg_newlocale(collform->collprovider,
+							  collform->collisdeterministic,
+							  collate, ctype, collversionstr);
+
+		ReleaseSysCache(tp);
+
+		if (collversionstr != NULL)
 		{
 			char	   *actual_versionstr;
-			char	   *collversionstr;
 
-			collversionstr = TextDatumGetCString(datum);
+			actual_versionstr = get_collation_actual_version(collform->collprovider, collate);
 
-			datum = SysCacheGetAttr(COLLOID, tp, collform->collprovider == COLLPROVIDER_ICU ? Anum_pg_collation_colliculocale : Anum_pg_collation_collcollate, &isnull);
-			Assert(!isnull);
-
-			actual_versionstr = get_collation_actual_version(collform->collprovider,
-															 TextDatumGetCString(datum));
 			if (!actual_versionstr)
 			{
 				/*
@@ -1646,13 +1734,7 @@ pg_newlocale_from_collation(Oid collid)
 															NameStr(collform->collname)))));
 		}
 
-		ReleaseSysCache(tp);
-
-		/* We'll keep the pg_locale_t structures in TopMemoryContext */
-		resultp = MemoryContextAlloc(TopMemoryContext, sizeof(*resultp));
-		*resultp = result;
-
-		cache_entry->locale = resultp;
+		cache_entry->locale = locale;
 	}
 
 	return cache_entry->locale;
@@ -1812,7 +1894,7 @@ pg_strncoll_libc_win32_utf8(const char *arg1, size_t len1, const char *arg2,
 	errno = 0;
 #ifdef HAVE_LOCALE_T
 	if (locale)
-		result = wcscoll_l((LPWSTR) a1p, (LPWSTR) a2p, locale->info.lt);
+		result = wcscoll_l((LPWSTR) a1p, (LPWSTR) a2p, locale->info.libc.lt);
 	else
 #endif
 		result = wcscoll((LPWSTR) a1p, (LPWSTR) a2p);
@@ -1855,7 +1937,7 @@ pg_strcoll_libc(const char *arg1, const char *arg2, pg_locale_t locale)
 	if (locale)
 	{
 #ifdef HAVE_LOCALE_T
-		result = strcoll_l(arg1, arg2, locale->info.lt);
+		result = strcoll_l(arg1, arg2, locale->info.libc.lt);
 #else
 		/* shouldn't happen */
 		elog(ERROR, "unsupported collprovider: %c", locale->provider);
@@ -2099,7 +2181,7 @@ pg_strxfrm_libc(char *dest, const char *src, size_t destsize,
 #ifdef TRUST_STXFRM
 #ifdef HAVE_LOCALE_T
 	if (locale)
-		return strxfrm_l(dest, src, destsize, locale->info.lt);
+		return strxfrm_l(dest, src, destsize, locale->info.libc.lt);
 	else
 #endif
 		return strxfrm(dest, src, destsize);
@@ -2700,8 +2782,8 @@ void
 check_icu_locale(const char *icu_locale)
 {
 #ifdef USE_ICU
-	UCollator  *collator;
-	UErrorCode	status;
+	UCollator	*collator;
+	UErrorCode   status;
 
 	status = U_ZERO_ERROR;
 	collator = ucol_open(icu_locale, &status);
@@ -2775,10 +2857,10 @@ wchar2char(char *to, const wchar_t *from, size_t tolen, pg_locale_t locale)
 #ifdef HAVE_LOCALE_T
 #ifdef HAVE_WCSTOMBS_L
 		/* Use wcstombs_l for nondefault locales */
-		result = wcstombs_l(to, from, tolen, locale->info.lt);
+		result = wcstombs_l(to, from, tolen, locale->info.libc.lt);
 #else							/* !HAVE_WCSTOMBS_L */
 		/* We have to temporarily set the locale as current ... ugh */
-		locale_t	save_locale = uselocale(locale->info.lt);
+		locale_t	save_locale = uselocale(locale->info.libc.lt);
 
 		result = wcstombs(to, from, tolen);
 
@@ -2852,10 +2934,10 @@ char2wchar(wchar_t *to, size_t tolen, const char *from, size_t fromlen,
 #ifdef HAVE_LOCALE_T
 #ifdef HAVE_MBSTOWCS_L
 			/* Use mbstowcs_l for nondefault locales */
-			result = mbstowcs_l(to, str, tolen, locale->info.lt);
+			result = mbstowcs_l(to, str, tolen, locale->info.libc.lt);
 #else							/* !HAVE_MBSTOWCS_L */
 			/* We have to temporarily set the locale as current ... ugh */
-			locale_t	save_locale = uselocale(locale->info.lt);
+			locale_t	save_locale = uselocale(locale->info.libc.lt);
 
 			result = mbstowcs(to, str, tolen);
 
