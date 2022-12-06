@@ -240,6 +240,10 @@ DefineCollation(ParseState *pstate, List *names, List *parameters, bool if_not_e
 		}
 		else if (collprovider == COLLPROVIDER_ICU)
 		{
+			if (!colliculocale && collcollate && collctype &&
+				strcmp(collcollate, collctype) == 0)
+				colliculocale = collcollate;
+
 			if (!colliculocale)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
