@@ -162,10 +162,18 @@ struct pg_locale_struct
 };
 
 #ifdef USE_ICU
+
+typedef bool (*get_icu_library_hook_type)(
+	pg_icu_library *lib, const char *collate, const char *ctype,
+	const char *version);
+
+extern PGDLLIMPORT get_icu_library_hook_type get_icu_library_hook;
+
 #define PG_ICU_LIB(x) ((x)->info.icu.lib)
 #define PG_ICU_COL(x) ((x)->info.icu.ucol)
 
-extern pg_icu_library *get_builtin_icu_library(void);
+extern pg_icu_library *get_icu_library(const char *collate, const char *ctype,
+									   const char *version);
 extern int32_t icu_to_uchar(pg_icu_library *lib, UChar **buff_uchar,
 							const char *buff, size_t nbytes);
 extern int32_t icu_from_uchar(pg_icu_library *lib, char **result,

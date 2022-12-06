@@ -109,6 +109,34 @@ char	   *localized_full_days[7 + 1];
 char	   *localized_abbrev_months[12 + 1];
 char	   *localized_full_months[12 + 1];
 
+/*
+ * get_icu_library_hook can be set to control how the pg_icu_library is
+ * constructed inside a pg_locale_t structure, and therefore which specific
+ * ICU symbols are called.
+ *
+ * Without the hook, Postgres constructs the pg_icu_library from the version
+ * of ICU that Postgres is linked against at build time.
+ *
+ * The hook can instead load the ICU symbols from a different version of the
+ * ICU library on the system, which can avoid problems when the collation
+ * subtly changes across different versions of ICU.
+ *
+ * If the hook returns true, it indicates that it has successfully filled in
+ * the pg_icu_library structure that was passed in. If it returns false,
+ * Postgres will fill in the structure itself. The version of the collation
+ * returned does not need to match exactly the version that was passed in;
+ * though if not, Postgres will issue a WARNING.
+ *
+ * XXX: For now, the only information the hook has access to is the ICU
+ * collation name, ICU ctype, and the ICU version string that was obtained at
+ * the time the collation was created (or when it was last refreshed). We
+ * should consider what other information can be provided to allow for greater
+ * control which library is loaded.
+ */
+#ifdef USE_ICU
+get_icu_library_hook_type get_icu_library_hook = NULL;
+#endif
+
 /* indicates whether locale information cache is valid */
 static bool CurrentLocaleConvValid = false;
 static bool CurrentLCTimeValid = false;
@@ -1463,18 +1491,15 @@ report_newlocale_failure(const char *localename)
 #endif							/* HAVE_LOCALE_T */
 
 #ifdef USE_ICU
-pg_icu_library *
-get_builtin_icu_library()
+static bool
+get_builtin_icu_library(pg_icu_library *lib)
 {
-	pg_icu_library *lib;
-
 	/*
 	 * These assignments will fail to compile if an incompatible API change is
 	 * made to some future version of ICU, at which point we might need to
 	 * consider special treatment for different major version ranges, with
 	 * intermediate trampoline functions.
 	 */
-	lib = palloc0(sizeof(*lib));
 	lib->getICUVersion = u_getVersion;
 	lib->getUnicodeVersion = u_getUnicodeVersion;
 	lib->getCLDRVersion = ulocdata_getCLDRVersion;
@@ -1512,8 +1537,25 @@ get_builtin_icu_library()
 	StaticAssertStmt(U_MAX_VERSION_LENGTH == 4,
 					 "ucol_getVersion output buffer size changed incompatibly");
 
+	return true;
+}
+
+pg_icu_library *
+get_icu_library(const char *collate, const char *ctype, const char *version)
+{
+	pg_icu_library *lib = palloc0(sizeof(*lib));
+	bool filled = false;
+
+	if (get_icu_library_hook != NULL)
+		filled = get_icu_library_hook(lib, collate, ctype, version);
+
+	if(!filled)
+		filled = get_builtin_icu_library(lib);
+
+	Assert(filled);
 	return lib;
 }
+
 #endif
 
 /*
@@ -1607,7 +1649,7 @@ pg_newlocale(char provider, bool isdefault, bool deterministic,
 	{
 		UCollator  *collator;
 		UErrorCode	status;
-		pg_icu_library *iculib = get_builtin_icu_library();
+		pg_icu_library *iculib = get_icu_library(collate, ctype, version);
 
 		/* collator may be leaked if we encounter an error */
 
@@ -1926,7 +1968,7 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 		UErrorCode	status;
 		UVersionInfo versioninfo;
 		char		buf[U_MAX_VERSION_STRING_LENGTH];
-		pg_icu_library	*iculib = get_builtin_icu_library();
+		pg_icu_library	*iculib = get_icu_library(NULL, NULL, NULL);
 
 		status = U_ZERO_ERROR;
 		collator = iculib->openCollator(collcollate, &status);

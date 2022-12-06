@@ -560,7 +560,7 @@ get_icu_language_tag(const char *localename)
 {
 	char		buf[ULOC_FULLNAME_CAPACITY];
 	UErrorCode	status;
-	pg_icu_library *iculib = get_builtin_icu_library();
+	pg_icu_library *iculib = get_icu_library(NULL, NULL, NULL);
 
 	status = U_ZERO_ERROR;
 	iculib->toLanguageTag(localename, buf, sizeof(buf), true, &status);
@@ -586,7 +586,7 @@ get_icu_locale_comment(const char *localename)
 	int32		len_uchar;
 	int32		i;
 	char	   *result;
-	pg_icu_library *iculib = get_builtin_icu_library();
+	pg_icu_library *iculib = get_icu_library(NULL, NULL, NULL);
 
 	status = U_ZERO_ERROR;
 	len_uchar = iculib->getDisplayName(localename, "en",
@@ -811,7 +811,7 @@ pg_import_system_collations(PG_FUNCTION_ARGS)
 #ifdef USE_ICU
 	{
 		int			i;
-		pg_icu_library *iculib = get_builtin_icu_library();
+		pg_icu_library *iculib = get_icu_library(NULL, NULL, NULL);
 
 		/*
 		 * Start the loop at -1 to sneak in the root locale without too much
