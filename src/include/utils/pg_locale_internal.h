@@ -39,4 +39,13 @@ struct pg_locale_struct
 	}			info;
 };
 
+typedef struct pg_locale_struct *(*pg_newlocale_hook_type)(
+	char provider, bool deterministic, const char *collate, const char *ctype,
+	const char *version);
+
+typedef char *(*pg_setlocale_hook_type)(int category, const char *locale);
+
+extern PGDLLIMPORT pg_newlocale_hook_type pg_newlocale_hook;
+extern PGDLLIMPORT pg_setlocale_hook_type pg_setlocale_hook;
+
 #endif							/* _PG_LOCALE_INTERNAL_ */

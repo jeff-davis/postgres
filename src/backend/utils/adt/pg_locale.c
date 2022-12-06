@@ -107,6 +107,25 @@ char	   *localized_full_days[7 + 1];
 char	   *localized_abbrev_months[12 + 1];
 char	   *localized_full_months[12 + 1];
 
+/*
+ * pg_newlocale_hook can be set to control how a pg_locale_t is
+ * constructed. For instance, the hook may search a specific version of the
+ * library for the collation, or search various library versions for the given
+ * collation version. If the hook returns non-NULL, the caller immediately
+ * returns the value. If the hook returns NULL, the caller proceeds as if the
+ * hook were not set.
+ */
+pg_newlocale_hook_type pg_newlocale_hook = NULL;
+
+/*
+ * pg_setlocale_hook can be set to control what happens during
+ * pg_perm_setlocale(). For instance, the hook may call setlocale() on
+ * non-default libc collation providers to keep them in sync. If the hook
+ * returns non-NULL, the caller immediately returns the value. If the hook
+ * returns NULL, the caller proceeds as if the hook were not set.
+ */
+pg_setlocale_hook_type pg_setlocale_hook = NULL;
+
 /* indicates whether locale information cache is valid */
 static bool CurrentLocaleConvValid = false;
 static bool CurrentLCTimeValid = false;
@@ -170,6 +189,13 @@ pg_perm_setlocale(int category, const char *locale)
 {
 	char	   *result;
 	const char *envvar;
+
+	if (pg_setlocale_hook != NULL)
+	{
+		result = pg_setlocale_hook(category, locale);
+		if (result != NULL)
+			return result;
+	}
 
 #ifndef WIN32
 	result = setlocale(category, locale);
@@ -1521,7 +1547,7 @@ static pg_locale_t
 pg_newlocale(char provider, bool deterministic, const char *collate,
 			 const char *ctype, const char *version)
 {
-	pg_locale_t result = palloc0(sizeof(struct pg_locale_struct));
+	pg_locale_t result = NULL;
 
 	/*
 	 * If COLLPROVIDER_DEFAULT, caller should use default_locale or NULL
@@ -1529,10 +1555,19 @@ pg_newlocale(char provider, bool deterministic, const char *collate,
 	 */
 	Assert(provider != COLLPROVIDER_DEFAULT);
 
+	if (pg_newlocale_hook != NULL)
+	{
+		result = pg_newlocale_hook(provider, deterministic, collate, ctype, version);
+		if (result != NULL)
+			return result;
+	}
+
 	if (provider == COLLPROVIDER_LIBC)
 	{
 #ifdef HAVE_LOCALE_T
 		locale_t        loc;
+
+		result = palloc0(sizeof(struct pg_locale_struct));
 
 		/* newlocale's result may be leaked if we encounter an error */
 
@@ -1589,6 +1624,8 @@ pg_newlocale(char provider, bool deterministic, const char *collate,
 	{
 		UCollator  *collator;
 		UErrorCode	status;
+
+		result = palloc0(sizeof(struct pg_locale_struct));
 
 		/* collator may be leaked if we encounter an error */
 
