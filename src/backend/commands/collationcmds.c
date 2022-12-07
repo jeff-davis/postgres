@@ -566,13 +566,14 @@ get_icu_language_tag(const char *localename)
 {
 	char		buf[ULOC_FULLNAME_CAPACITY];
 	UErrorCode	status;
+	pg_icu_library *iculib = get_default_icu_library();
 
 	status = U_ZERO_ERROR;
-	uloc_toLanguageTag(localename, buf, sizeof(buf), true, &status);
+	iculib->toLanguageTag(localename, buf, sizeof(buf), true, &status);
 	if (U_FAILURE(status))
 		ereport(ERROR,
 				(errmsg("could not convert locale name \"%s\" to language tag: %s",
-						localename, u_errorName(status))));
+						localename, iculib->errorName(status))));
 
 	return pstrdup(buf);
 }
@@ -591,11 +592,12 @@ get_icu_locale_comment(const char *localename)
 	int32		len_uchar;
 	int32		i;
 	char	   *result;
+	pg_icu_library *iculib = get_default_icu_library();
 
 	status = U_ZERO_ERROR;
-	len_uchar = uloc_getDisplayName(localename, "en",
-									displayname, lengthof(displayname),
-									&status);
+	len_uchar = iculib->getDisplayName(localename, "en",
+									   displayname, lengthof(displayname),
+									   &status);
 	if (U_FAILURE(status))
 		return NULL;			/* no good reason to raise an error */
 
@@ -921,12 +923,13 @@ pg_import_system_collations(PG_FUNCTION_ARGS)
 #ifdef USE_ICU
 	{
 		int			i;
+		pg_icu_library *iculib = get_default_icu_library();
 
 		/*
 		 * Start the loop at -1 to sneak in the root locale without too much
 		 * code duplication.
 		 */
-		for (i = -1; i < uloc_countAvailable(); i++)
+		for (i = -1; i < iculib->countAvailable(); i++)
 		{
 			const char *name;
 			char	   *langtag;
@@ -937,7 +940,7 @@ pg_import_system_collations(PG_FUNCTION_ARGS)
 			if (i == -1)
 				name = "";		/* ICU root locale */
 			else
-				name = uloc_getAvailable(i);
+				name = iculib->getAvailable(i);
 
 			langtag = get_icu_language_tag(name);
 			iculocstr = U_ICU_VERSION_MAJOR_NUM >= 54 ? langtag : name;
