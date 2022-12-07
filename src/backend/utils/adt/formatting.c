@@ -1566,6 +1566,11 @@ typedef int32_t (*ICU_Convert_Func) (UChar *dest, int32_t destCapacity,
 									 const UChar *src, int32_t srcLength,
 									 const char *locale,
 									 UErrorCode *pErrorCode);
+typedef int32_t (*ICU_Convert_BI_Func) (UChar *dest, int32_t destCapacity,
+										const UChar *src, int32_t srcLength,
+										UBreakIterator *bi,
+										const char *locale,
+										UErrorCode *pErrorCode);
 
 static int32_t
 icu_convert_case(ICU_Convert_Func func, pg_locale_t mylocale,
@@ -1573,6 +1578,7 @@ icu_convert_case(ICU_Convert_Func func, pg_locale_t mylocale,
 {
 	UErrorCode	status;
 	int32_t		len_dest;
+	pg_icu_library *iculib = PG_ICU_LIB(mylocale);
 
 	len_dest = len_source;		/* try first with same length */
 	*buff_dest = palloc(len_dest * sizeof(**buff_dest));
@@ -1590,18 +1596,42 @@ icu_convert_case(ICU_Convert_Func func, pg_locale_t mylocale,
 	}
 	if (U_FAILURE(status))
 		ereport(ERROR,
-				(errmsg("case conversion failed: %s", u_errorName(status))));
+				(errmsg("case conversion failed: %s",
+						iculib->errorName(status))));
 	return len_dest;
 }
 
+/*
+ * Like icu_convert_case, but func takes a break iterator (which we don't
+ * make use of).
+ */
 static int32_t
-u_strToTitle_default_BI(UChar *dest, int32_t destCapacity,
-						const UChar *src, int32_t srcLength,
-						const char *locale,
-						UErrorCode *pErrorCode)
+icu_convert_case_bi(ICU_Convert_BI_Func func, pg_locale_t mylocale,
+					UChar **buff_dest, UChar *buff_source, int32_t len_source)
 {
-	return u_strToTitle(dest, destCapacity, src, srcLength,
-						NULL, locale, pErrorCode);
+	UErrorCode	status;
+	int32_t		len_dest;
+	pg_icu_library *iculib = PG_ICU_LIB(mylocale);
+
+	len_dest = len_source;		/* try first with same length */
+	*buff_dest = palloc(len_dest * sizeof(**buff_dest));
+	status = U_ZERO_ERROR;
+	len_dest = func(*buff_dest, len_dest, buff_source, len_source, NULL,
+					mylocale->ctype, &status);
+	if (status == U_BUFFER_OVERFLOW_ERROR)
+	{
+		/* try again with adjusted length */
+		pfree(*buff_dest);
+		*buff_dest = palloc(len_dest * sizeof(**buff_dest));
+		status = U_ZERO_ERROR;
+		len_dest = func(*buff_dest, len_dest, buff_source, len_source, NULL,
+						mylocale->ctype, &status);
+	}
+	if (U_FAILURE(status))
+		ereport(ERROR,
+				(errmsg("case conversion failed: %s",
+						iculib->errorName(status))));
+	return len_dest;
 }
 
 #endif							/* USE_ICU */
@@ -1667,11 +1697,12 @@ str_tolower(const char *buff, size_t nbytes, Oid collid)
 			int32_t		len_conv;
 			UChar	   *buff_uchar;
 			UChar	   *buff_conv;
+			pg_icu_library *iculib = PG_ICU_LIB(mylocale);
 
-			len_uchar = icu_to_uchar(&buff_uchar, buff, nbytes);
-			len_conv = icu_convert_case(u_strToLower, mylocale,
+			len_uchar = icu_to_uchar(iculib, &buff_uchar, buff, nbytes);
+			len_conv = icu_convert_case(iculib->strToLower, mylocale,
 										&buff_conv, buff_uchar, len_uchar);
-			icu_from_uchar(&result, buff_conv, len_conv);
+			icu_from_uchar(iculib, &result, buff_conv, len_conv);
 			pfree(buff_uchar);
 			pfree(buff_conv);
 		}
@@ -1789,11 +1820,12 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 						len_conv;
 			UChar	   *buff_uchar;
 			UChar	   *buff_conv;
+			pg_icu_library *iculib = PG_ICU_LIB(mylocale);
 
-			len_uchar = icu_to_uchar(&buff_uchar, buff, nbytes);
-			len_conv = icu_convert_case(u_strToUpper, mylocale,
+			len_uchar = icu_to_uchar(iculib, &buff_uchar, buff, nbytes);
+			len_conv = icu_convert_case(iculib->strToUpper, mylocale,
 										&buff_conv, buff_uchar, len_uchar);
-			icu_from_uchar(&result, buff_conv, len_conv);
+			icu_from_uchar(iculib, &result, buff_conv, len_conv);
 			pfree(buff_uchar);
 			pfree(buff_conv);
 		}
@@ -1912,11 +1944,12 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 						len_conv;
 			UChar	   *buff_uchar;
 			UChar	   *buff_conv;
+			pg_icu_library *iculib = PG_ICU_LIB(mylocale);
 
-			len_uchar = icu_to_uchar(&buff_uchar, buff, nbytes);
-			len_conv = icu_convert_case(u_strToTitle_default_BI, mylocale,
-										&buff_conv, buff_uchar, len_uchar);
-			icu_from_uchar(&result, buff_conv, len_conv);
+			len_uchar = icu_to_uchar(iculib, &buff_uchar, buff, nbytes);
+			len_conv = icu_convert_case_bi(iculib->strToTitle, mylocale,
+										   &buff_conv, buff_uchar, len_uchar);
+			icu_from_uchar(iculib, &result, buff_conv, len_conv);
 			pfree(buff_uchar);
 			pfree(buff_conv);
 		}
