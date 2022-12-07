@@ -1918,6 +1918,7 @@ varstr_sortsupport(SortSupport ssup, Oid typid, Oid collid)
 	if (!collate_c && !pg_strxfrm_enabled(locale))
 		abbreviate = false;
 
+	abbreviate=false;
 	/*
 	 * If we're using abbreviated keys, or if we're using a locale-aware
 	 * comparison, we need to initialize a VarStringSortSupport object. Both
