@@ -70,6 +70,8 @@
 
 #ifdef USE_ICU
 #include <unicode/ucnv.h>
+#include <unicode/ulocdata.h>
+#include <unicode/ustring.h>
 #endif
 
 #ifdef __GLIBC__
@@ -135,6 +137,7 @@ static char *IsoLocaleName(const char *);
 static pg_locale_t default_locale = NULL;
 
 #ifdef USE_ICU
+
 /*
  * Converter object for converting between ICU's UChar strings and C strings
  * in database encoding.  Since the database encoding doesn't change, we only
@@ -142,13 +145,17 @@ static pg_locale_t default_locale = NULL;
  */
 static UConverter *icu_converter = NULL;
 
-static void init_icu_converter(void);
-static size_t uchar_length(UConverter *converter,
+static void init_icu_converter(pg_icu_library *iculib);
+static size_t uchar_length(pg_icu_library *iculib,
+						   UConverter *converter,
 						   const char *str, size_t len);
-static int32_t uchar_convert(UConverter *converter,
+static int32_t uchar_convert(pg_icu_library *iculib,
+							 UConverter *converter,
 							 UChar *dest, int32_t destlen,
 							 const char *str, size_t srclen);
-static void icu_set_collation_attributes(UCollator *collator, const char *loc);
+static void icu_set_collation_attributes(pg_icu_library *iculib,
+										 UCollator *collator,
+										 const char *loc);
 #endif
 
 /*
@@ -1455,6 +1462,59 @@ report_newlocale_failure(const char *localename)
 }
 #endif							/* HAVE_LOCALE_T */
 
+#ifdef USE_ICU
+pg_icu_library *
+get_builtin_icu_library()
+{
+	pg_icu_library *lib;
+
+	/*
+	 * These assignments will fail to compile if an incompatible API change is
+	 * made to some future version of ICU, at which point we might need to
+	 * consider special treatment for different major version ranges, with
+	 * intermediate trampoline functions.
+	 */
+	lib = palloc0(sizeof(*lib));
+	lib->getICUVersion = u_getVersion;
+	lib->getUnicodeVersion = u_getUnicodeVersion;
+	lib->getCLDRVersion = ulocdata_getCLDRVersion;
+	lib->openCollator = ucol_open;
+	lib->closeCollator = ucol_close;
+	lib->getCollatorVersion = ucol_getVersion;
+	lib->getUCAVersion = ucol_getUCAVersion;
+	lib->versionToString = u_versionToString;
+	lib->strcoll = ucol_strcoll;
+	lib->strcollUTF8 = ucol_strcollUTF8;
+	lib->getSortKey = ucol_getSortKey;
+	lib->nextSortKeyPart = ucol_nextSortKeyPart;
+	lib->setUTF8 = uiter_setUTF8;
+	lib->errorName = u_errorName;
+	lib->strToUpper = u_strToUpper;
+	lib->strToLower = u_strToLower;
+	lib->strToTitle = u_strToTitle;
+	lib->setAttribute = ucol_setAttribute;
+	lib->openConverter = ucnv_open;
+	lib->closeConverter = ucnv_close;
+	lib->fromUChars = ucnv_fromUChars;
+	lib->toUChars = ucnv_toUChars;
+	lib->toLanguageTag = uloc_toLanguageTag;
+	lib->getDisplayName = uloc_getDisplayName;
+	lib->countAvailable = uloc_countAvailable;
+	lib->getAvailable = uloc_getAvailable;
+
+	/*
+	 * Also assert the size of a couple of types used as output buffers, as a
+	 * canary to tell us to add extra padding in the (unlikely) event that a
+	 * later release makes these values smaller.
+	 */
+	StaticAssertStmt(U_MAX_VERSION_STRING_LENGTH == 20,
+					 "u_versionToString output buffer size changed incompatibly");
+	StaticAssertStmt(U_MAX_VERSION_LENGTH == 4,
+					 "ucol_getVersion output buffer size changed incompatibly");
+
+	return lib;
+}
+#endif
 
 /*
  * Construct a new pg_locale_t object.
@@ -1547,20 +1607,22 @@ pg_newlocale(char provider, bool isdefault, bool deterministic,
 	{
 		UCollator  *collator;
 		UErrorCode	status;
+		pg_icu_library *iculib = get_builtin_icu_library();
 
 		/* collator may be leaked if we encounter an error */
 
 		status = U_ZERO_ERROR;
-		collator = ucol_open(collate, &status);
+		collator = iculib->openCollator(collate, &status);
 		if (U_FAILURE(status))
 			ereport(ERROR,
 					(errmsg("could not open collator for locale \"%s\": %s",
-							collate, u_errorName(status))));
+							collate, iculib->errorName(status))));
 
 		if (U_ICU_VERSION_MAJOR_NUM < 54)
-			icu_set_collation_attributes(collator, collate);
+			icu_set_collation_attributes(iculib, collator, collate);
 
 		result->info.icu.ucol = collator;
+		result->info.icu.lib = iculib;
 	}
 #endif
 	else
@@ -1607,6 +1669,10 @@ pg_movelocale(MemoryContext mcxt, pg_locale_t *plocale)
 	{
 		/* not in a memory context; just reassign the pointer */
 		result->info.icu.ucol = locale->info.icu.ucol;
+
+		result->info.icu.lib = MemoryContextAlloc(mcxt, sizeof(pg_icu_library));
+		memcpy(result->info.icu.lib, locale->info.icu.lib, sizeof(pg_icu_library));
+		pfree(locale->info.icu.lib);
 	}
 #endif
 	else
@@ -1656,7 +1722,9 @@ pg_freelocale(pg_locale_t locale)
 #ifdef USE_ICU
 	else if (locale->provider == COLLPROVIDER_ICU)
 	{
-		ucol_close(locale->info.icu.ucol);
+		pg_icu_library *iculib = PG_ICU_LIB(locale);
+		iculib->closeCollator(locale->info.icu.ucol);
+		pfree(locale->info.icu.lib);
 	}
 #endif
 	else
@@ -1858,17 +1926,18 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 		UErrorCode	status;
 		UVersionInfo versioninfo;
 		char		buf[U_MAX_VERSION_STRING_LENGTH];
+		pg_icu_library	*iculib = get_builtin_icu_library();
 
 		status = U_ZERO_ERROR;
-		collator = ucol_open(collcollate, &status);
+		collator = iculib->openCollator(collcollate, &status);
 		if (U_FAILURE(status))
 			ereport(ERROR,
 					(errmsg("could not open collator for locale \"%s\": %s",
-							collcollate, u_errorName(status))));
-		ucol_getVersion(collator, versioninfo);
-		ucol_close(collator);
+							collcollate, iculib->errorName(status))));
+		iculib->getCollatorVersion(collator, versioninfo);
+		iculib->closeCollator(collator);
 
-		u_versionToString(versioninfo, buf);
+		iculib->versionToString(versioninfo, buf);
 		collversion = pstrdup(buf);
 	}
 	else
@@ -2120,16 +2189,17 @@ pg_strncoll_icu_no_utf8(const char *arg1, size_t len1,
 	UChar	*uchar1,
 			*uchar2;
 	int		 result;
+	pg_icu_library *iculib = PG_ICU_LIB(locale);
 
 	Assert(locale->provider == COLLPROVIDER_ICU);
 #ifdef HAVE_UCOL_STRCOLLUTF8
 	Assert(GetDatabaseEncoding() != PG_UTF8);
 #endif
 
-	init_icu_converter();
+	init_icu_converter(iculib);
 
-	ulen1 = uchar_length(icu_converter, arg1, len1);
-	ulen2 = uchar_length(icu_converter, arg2, len2);
+	ulen1 = uchar_length(iculib, icu_converter, arg1, len1);
+	ulen2 = uchar_length(iculib, icu_converter, arg2, len2);
 
 	bufsize1 = (ulen1 + 1) * sizeof(UChar);
 	bufsize2 = (ulen2 + 1) * sizeof(UChar);
@@ -2140,12 +2210,12 @@ pg_strncoll_icu_no_utf8(const char *arg1, size_t len1,
 	uchar1 = (UChar *) buf;
 	uchar2 = (UChar *) (buf + bufsize1);
 
-	ulen1 = uchar_convert(icu_converter, uchar1, ulen1 + 1, arg1, len1);
-	ulen2 = uchar_convert(icu_converter, uchar2, ulen2 + 1, arg2, len2);
+	ulen1 = uchar_convert(iculib, icu_converter, uchar1, ulen1 + 1, arg1, len1);
+	ulen2 = uchar_convert(iculib, icu_converter, uchar2, ulen2 + 1, arg2, len2);
 
-	result = ucol_strcoll(locale->info.icu.ucol,
-						  uchar1, ulen1,
-						  uchar2, ulen2);
+	result = iculib->strcoll(locale->info.icu.ucol,
+							 uchar1, ulen1,
+							 uchar2, ulen2);
 
 	if (buf != sbuf)
 		pfree(buf);
@@ -2166,6 +2236,7 @@ pg_strncoll_icu(const char *arg1, size_t len1, const char *arg2, size_t len2,
 				pg_locale_t locale)
 {
 	int result;
+	pg_icu_library *iculib = PG_ICU_LIB(locale);
 
 	Assert(locale->provider == COLLPROVIDER_ICU);
 
@@ -2175,13 +2246,14 @@ pg_strncoll_icu(const char *arg1, size_t len1, const char *arg2, size_t len2,
 		UErrorCode	status;
 
 		status = U_ZERO_ERROR;
-		result = ucol_strcollUTF8(locale->info.icu.ucol,
-								  arg1, len1,
-								  arg2, len2,
-								  &status);
+		result = iculib->strcollUTF8(locale->info.icu.ucol,
+									 arg1, len1,
+									 arg2, len2,
+									 &status);
 		if (U_FAILURE(status))
 			ereport(ERROR,
-					(errmsg("collation failed: %s", u_errorName(status))));
+					(errmsg("collation failed: %s",
+							iculib->errorName(status))));
 	}
 	else
 #endif
@@ -2360,12 +2432,13 @@ pg_strnxfrm_icu(char *dest, const char *src, size_t srclen, size_t destsize,
 	int32_t	 ulen;
 	size_t   uchar_bsize;
 	Size	 result_bsize;
+	pg_icu_library *iculib = PG_ICU_LIB(locale);
 
 	Assert(locale->provider == COLLPROVIDER_ICU);
 
-	init_icu_converter();
+	init_icu_converter(iculib);
 
-	ulen = uchar_length(icu_converter, src, srclen);
+	ulen = uchar_length(iculib, icu_converter, src, srclen);
 
 	uchar_bsize = (ulen + 1) * sizeof(UChar);
 
@@ -2374,11 +2447,11 @@ pg_strnxfrm_icu(char *dest, const char *src, size_t srclen, size_t destsize,
 
 	uchar = (UChar *) buf;
 
-	ulen = uchar_convert(icu_converter, uchar, ulen + 1, src, srclen);
+	ulen = uchar_convert(iculib, icu_converter, uchar, ulen + 1, src, srclen);
 
-	result_bsize = ucol_getSortKey(locale->info.icu.ucol,
-								   uchar, ulen,
-								   (uint8_t *) dest, destsize);
+	result_bsize = iculib->getSortKey(locale->info.icu.ucol,
+									  uchar, ulen,
+									  (uint8_t *) dest, destsize);
 
 	if (buf != sbuf)
 		pfree(buf);
@@ -2407,13 +2480,14 @@ pg_strnxfrm_prefix_icu_no_utf8(char *dest, const char *src, size_t srclen,
 	UChar			*uchar = NULL;
 	size_t			 uchar_bsize;
 	Size			 result_bsize;
+	pg_icu_library	*iculib = PG_ICU_LIB(locale);
 
 	Assert(locale->provider == COLLPROVIDER_ICU);
 	Assert(GetDatabaseEncoding() != PG_UTF8);
 
-	init_icu_converter();
+	init_icu_converter(iculib);
 
-	ulen = uchar_length(icu_converter, src, srclen);
+	ulen = uchar_length(iculib, icu_converter, src, srclen);
 
 	uchar_bsize = (ulen + 1) * sizeof(UChar);
 
@@ -2422,21 +2496,19 @@ pg_strnxfrm_prefix_icu_no_utf8(char *dest, const char *src, size_t srclen,
 
 	uchar = (UChar *) buf;
 
-	ulen = uchar_convert(icu_converter, uchar, ulen + 1, src, srclen);
+	ulen = uchar_convert(iculib, icu_converter, uchar, ulen + 1, src, srclen);
 
 	uiter_setString(&iter, uchar, ulen);
 	state[0] = state[1] = 0;	/* won't need that again */
 	status = U_ZERO_ERROR;
-	result_bsize = ucol_nextSortKeyPart(locale->info.icu.ucol,
-										&iter,
-										state,
-										(uint8_t *) dest,
-										destsize,
-										&status);
+	result_bsize = iculib->nextSortKeyPart(
+		locale->info.icu.ucol, &iter, state,
+		(uint8_t *) dest, destsize, &status);
+
 	if (U_FAILURE(status))
 		ereport(ERROR,
 				(errmsg("sort key generation failed: %s",
-						u_errorName(status))));
+						iculib->errorName(status))));
 
 	return result_bsize;
 }
@@ -2445,6 +2517,7 @@ static size_t
 pg_strnxfrm_prefix_icu(char *dest, const char *src, size_t srclen,
 					   size_t destsize, pg_locale_t locale)
 {
+	pg_icu_library *iculib = PG_ICU_LIB(locale);
 	size_t result;
 
 	Assert(locale->provider == COLLPROVIDER_ICU);
@@ -2455,19 +2528,17 @@ pg_strnxfrm_prefix_icu(char *dest, const char *src, size_t srclen,
 		uint32_t	state[2];
 		UErrorCode	status;
 
-		uiter_setUTF8(&iter, src, srclen);
+		iculib->setUTF8(&iter, src, srclen);
 		state[0] = state[1] = 0;	/* won't need that again */
 		status = U_ZERO_ERROR;
-		result = ucol_nextSortKeyPart(locale->info.icu.ucol,
-									  &iter,
-									  state,
-									  (uint8_t *) dest,
-									  destsize,
-									  &status);
+		result = iculib->nextSortKeyPart(
+			locale->info.icu.ucol, &iter, state,
+			(uint8_t *) dest, destsize, &status);
+
 		if (U_FAILURE(status))
 			ereport(ERROR,
 					(errmsg("sort key generation failed: %s",
-							u_errorName(status))));
+							iculib->errorName(status))));
 	}
 	else
 		result = pg_strnxfrm_prefix_icu_no_utf8(dest, src, srclen, destsize,
@@ -2667,7 +2738,7 @@ pg_strnxfrm_prefix(char *dest, size_t destsize, const char *src,
 
 #ifdef USE_ICU
 static void
-init_icu_converter(void)
+init_icu_converter(pg_icu_library *iculib)
 {
 	const char *icu_encoding_name;
 	UErrorCode	status;
@@ -2684,11 +2755,11 @@ init_icu_converter(void)
 						pg_encoding_to_char(GetDatabaseEncoding()))));
 
 	status = U_ZERO_ERROR;
-	conv = ucnv_open(icu_encoding_name, &status);
+	conv = iculib->openConverter(icu_encoding_name, &status);
 	if (U_FAILURE(status))
 		ereport(ERROR,
 				(errmsg("could not open ICU converter for encoding \"%s\": %s",
-						icu_encoding_name, u_errorName(status))));
+						icu_encoding_name, iculib->errorName(status))));
 
 	icu_converter = conv;
 }
@@ -2697,14 +2768,15 @@ init_icu_converter(void)
  * Find length, in UChars, of given string if converted to UChar string.
  */
 static size_t
-uchar_length(UConverter *converter, const char *str, size_t len)
+uchar_length(pg_icu_library *iculib, UConverter *converter, const char *str, size_t len)
 {
 	UErrorCode	status = U_ZERO_ERROR;
 	int32_t		ulen;
-	ulen = ucnv_toUChars(converter, NULL, 0, str, len, &status);
+	ulen = iculib->toUChars(converter, NULL, 0, str, len, &status);
 	if (U_FAILURE(status) && status != U_BUFFER_OVERFLOW_ERROR)
 		ereport(ERROR,
-				(errmsg("%s failed: %s", "ucnv_toUChars", u_errorName(status))));
+				(errmsg("%s failed: %s", "ucnv_toUChars",
+						iculib->errorName(status))));
 	return ulen;
 }
 
@@ -2713,16 +2785,17 @@ uchar_length(UConverter *converter, const char *str, size_t len)
  * return the length (in UChars).
  */
 static int32_t
-uchar_convert(UConverter *converter, UChar *dest, int32_t destlen,
-			  const char *src, size_t srclen)
+uchar_convert(pg_icu_library *iculib, UConverter *converter, UChar *dest,
+			  int32_t destlen, const char *src, size_t srclen)
 {
 	UErrorCode	status = U_ZERO_ERROR;
 	int32_t		ulen;
 	status = U_ZERO_ERROR;
-	ulen = ucnv_toUChars(converter, dest, destlen, src, srclen, &status);
+	ulen = iculib->toUChars(converter, dest, destlen, src, srclen, &status);
 	if (U_FAILURE(status))
 		ereport(ERROR,
-				(errmsg("%s failed: %s", "ucnv_toUChars", u_errorName(status))));
+				(errmsg("%s failed: %s", "ucnv_toUChars",
+						iculib->errorName(status))));
 	return ulen;
 }
 
@@ -2739,16 +2812,17 @@ uchar_convert(UConverter *converter, UChar *dest, int32_t destlen,
  * result length instead.
  */
 int32_t
-icu_to_uchar(UChar **buff_uchar, const char *buff, size_t nbytes)
+icu_to_uchar(pg_icu_library *iculib, UChar **buff_uchar, const char *buff,
+			 size_t nbytes)
 {
 	int32_t len_uchar;
 
-	init_icu_converter();
+	init_icu_converter(iculib);
 
-	len_uchar = uchar_length(icu_converter, buff, nbytes);
+	len_uchar = uchar_length(iculib, icu_converter, buff, nbytes);
 
 	*buff_uchar = palloc((len_uchar + 1) * sizeof(**buff_uchar));
-	len_uchar = uchar_convert(icu_converter,
+	len_uchar = uchar_convert(iculib, icu_converter,
 							  *buff_uchar, len_uchar + 1, buff, nbytes);
 
 	return len_uchar;
@@ -2766,30 +2840,32 @@ icu_to_uchar(UChar **buff_uchar, const char *buff, size_t nbytes)
  * The result string is nul-terminated.
  */
 int32_t
-icu_from_uchar(char **result, const UChar *buff_uchar, int32_t len_uchar)
+icu_from_uchar(pg_icu_library *iculib, char **result, const UChar *buff_uchar,
+			   int32_t len_uchar)
 {
 	UErrorCode	status;
 	int32_t		len_result;
 
-	init_icu_converter();
+	init_icu_converter(iculib);
 
 	status = U_ZERO_ERROR;
-	len_result = ucnv_fromUChars(icu_converter, NULL, 0,
-								 buff_uchar, len_uchar, &status);
+	len_result = iculib->fromUChars(icu_converter, NULL, 0,
+									buff_uchar, len_uchar, &status);
 	if (U_FAILURE(status) && status != U_BUFFER_OVERFLOW_ERROR)
 		ereport(ERROR,
 				(errmsg("%s failed: %s", "ucnv_fromUChars",
-						u_errorName(status))));
+						iculib->errorName(status))));
 
 	*result = palloc(len_result + 1);
 
 	status = U_ZERO_ERROR;
-	len_result = ucnv_fromUChars(icu_converter, *result, len_result + 1,
-								 buff_uchar, len_uchar, &status);
+	len_result = iculib->fromUChars(icu_converter, *result,
+									len_result + 1, buff_uchar,
+									len_uchar, &status);
 	if (U_FAILURE(status))
 		ereport(ERROR,
 				(errmsg("%s failed: %s", "ucnv_fromUChars",
-						u_errorName(status))));
+						iculib->errorName(status))));
 
 	return len_result;
 }
@@ -2805,7 +2881,8 @@ icu_from_uchar(char **result, const UChar *buff_uchar, int32_t len_uchar)
  */
 pg_attribute_unused()
 static void
-icu_set_collation_attributes(UCollator *collator, const char *loc)
+icu_set_collation_attributes(pg_icu_library *iculib, UCollator *collator,
+							 const char *loc)
 {
 	char	   *str = asc_tolower(loc, strlen(loc));
 
@@ -2879,7 +2956,7 @@ icu_set_collation_attributes(UCollator *collator, const char *loc)
 				status = U_ILLEGAL_ARGUMENT_ERROR;
 
 			if (status == U_ZERO_ERROR)
-				ucol_setAttribute(collator, uattr, uvalue, &status);
+				iculib->setAttribute(collator, uattr, uvalue, &status);
 
 			/*
 			 * Pretend the error came from ucol_open(), for consistent error
@@ -2888,7 +2965,7 @@ icu_set_collation_attributes(UCollator *collator, const char *loc)
 			if (U_FAILURE(status))
 				ereport(ERROR,
 						(errmsg("could not open collator for locale \"%s\": %s",
-								loc, u_errorName(status))));
+								loc, iculib->errorName(status))));
 		}
 	}
 }
