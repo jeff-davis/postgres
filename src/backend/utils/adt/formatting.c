@@ -69,7 +69,6 @@
 #include <math.h>
 #include <float.h>
 #include <limits.h>
-#include <wctype.h>
 
 #ifdef USE_ICU
 #include <unicode/ustring.h>
@@ -1729,10 +1728,16 @@ str_tolower(const char *buff, size_t nbytes, Oid collid)
 				{
 #ifdef HAVE_LOCALE_T
 					if (mylocale)
-						workspace[curr_char] = towlower_l(workspace[curr_char], mylocale->info.libc.lt);
+					{
+						pg_libc_library *libc = PG_LIBC_LIB(mylocale);
+						workspace[curr_char] = libc->c_towlower_l(workspace[curr_char], mylocale->info.libc.lt);
+					}
 					else
 #endif
-						workspace[curr_char] = towlower(workspace[curr_char]);
+					{
+						pg_libc_library *libc = get_default_libc_library();
+						workspace[curr_char] = libc->c_towlower(workspace[curr_char]);
+					}
 				}
 
 				/*
@@ -1852,10 +1857,16 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 				{
 #ifdef HAVE_LOCALE_T
 					if (mylocale)
-						workspace[curr_char] = towupper_l(workspace[curr_char], mylocale->info.libc.lt);
+					{
+						pg_libc_library *libc = PG_LIBC_LIB(mylocale);
+						workspace[curr_char] = libc->c_towupper_l(workspace[curr_char], mylocale->info.libc.lt);
+					}
 					else
 #endif
-						workspace[curr_char] = towupper(workspace[curr_char]);
+					{
+						pg_libc_library *libc = get_default_libc_library();
+						workspace[curr_char] = libc->c_towupper(workspace[curr_char]);
+					}
 				}
 
 				/*
@@ -1977,19 +1988,21 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 #ifdef HAVE_LOCALE_T
 					if (mylocale)
 					{
+						pg_libc_library *libc = PG_LIBC_LIB(mylocale);
 						if (wasalnum)
-							workspace[curr_char] = towlower_l(workspace[curr_char], mylocale->info.libc.lt);
+							workspace[curr_char] = libc->c_towlower_l(workspace[curr_char], mylocale->info.libc.lt);
 						else
-							workspace[curr_char] = towupper_l(workspace[curr_char], mylocale->info.libc.lt);
+							workspace[curr_char] = libc->c_towupper_l(workspace[curr_char], mylocale->info.libc.lt);
 						wasalnum = iswalnum_l(workspace[curr_char], mylocale->info.libc.lt);
 					}
 					else
 #endif
 					{
+						pg_libc_library *libc = get_default_libc_library();
 						if (wasalnum)
-							workspace[curr_char] = towlower(workspace[curr_char]);
+							workspace[curr_char] = libc->c_towlower(workspace[curr_char]);
 						else
-							workspace[curr_char] = towupper(workspace[curr_char]);
+							workspace[curr_char] = libc->c_towupper(workspace[curr_char]);
 						wasalnum = iswalnum(workspace[curr_char]);
 					}
 				}
