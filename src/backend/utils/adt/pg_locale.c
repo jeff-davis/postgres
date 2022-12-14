@@ -115,19 +115,19 @@ char	   *localized_full_months[12 + 1];
 /*
  * The precise version of a collation provider library is important, because
  * subtle changes in collation between library versions can corrupt
- * indexes. This hook allows control over how collation provider libraries are
- * loaded.
+ * indexes. These hooks allows control over how collation provider libraries
+ * are loaded.
  *
  * If the hook is not set, or if it returns NULL, Postgres constructs the
- * pg_icu_library structure from the symbols Postgres is linked with at build
- * time.
+ * pg_libc_library or pg_icu_library structures from the symbols Postgres is
+ * linked with at build time.
  *
- * If the hook is set, it can instead construct the pg_icu_library structure
- * using custom logic. Ordinarily, this custom logic would involve finding a
- * specific known version of the collation provider library, and dynamically
- * loading the necessary symbols. If the collation version obtained from the
- * library does not match the collation version recorded in the catalog,
- * Postgres will issue a WARNING.
+ * If the hook is set, it can instead construct the pg_libc_library or
+ * pg_icu_library structures using custom logic. Ordinarily, this custom logic
+ * would involve finding a specific known version of the collation provider
+ * library, and dynamically loading the necessary symbols. If the collation
+ * version obtained from the library does not match the collation version
+ * recorded in the catalog, Postgres will issue a WARNING.
  *
  * The returned structure must be allocated in TopMemoryContext, and the
  * associated symbols must remain valid permanently. It's expected that the
@@ -139,10 +139,12 @@ char	   *localized_full_months[12 + 1];
  * consider what other information can be provided to allow for greater
  * control over which library is loaded.
  */
+get_libc_library_hook_type get_libc_library_hook = NULL;
 #ifdef USE_ICU
 get_icu_library_hook_type get_icu_library_hook = NULL;
 #endif
 
+static pg_libc_library *builtin_libc_library = NULL;
 #ifdef USE_ICU
 static pg_icu_library *builtin_icu_library = NULL;
 #endif
@@ -173,6 +175,7 @@ static char *IsoLocaleName(const char *);
  * Database default locale.
  */
 static pg_locale_t default_locale = NULL;
+static pg_libc_library *default_libc = NULL;
 #ifdef USE_ICU
 static pg_icu_library *default_icu = NULL;
 #endif
@@ -1392,7 +1395,7 @@ lc_collate_is_c(Oid collation)
 
 		if (result >= 0)
 			return (bool) result;
-		localeptr = setlocale(LC_COLLATE, NULL);
+		localeptr = default_libc->c_setlocale(LC_COLLATE, NULL);
 		if (!localeptr)
 			elog(ERROR, "invalid LC_COLLATE setting");
 
@@ -1445,7 +1448,7 @@ lc_ctype_is_c(Oid collation)
 
 		if (result >= 0)
 			return (bool) result;
-		localeptr = setlocale(LC_CTYPE, NULL);
+		localeptr = default_libc->c_setlocale(LC_CTYPE, NULL);
 		if (!localeptr)
 			elog(ERROR, "invalid LC_CTYPE setting");
 
@@ -1502,6 +1505,82 @@ report_newlocale_failure(const char *localename)
 						localename) : 0)));
 }
 #endif							/* HAVE_LOCALE_T */
+
+static pg_libc_library *
+get_builtin_libc_library()
+{
+	pg_libc_library *lib = NULL;
+
+	if (builtin_libc_library != NULL)
+		return builtin_libc_library;
+
+	lib = MemoryContextAllocZero(TopMemoryContext, sizeof(pg_libc_library));
+#if defined(__GLIBC__)
+	lib->libc_version = gnu_get_libc_version;
+#elif defined(WIN32)
+	lib->GetNLSVersionEx = GetNLSVersionEx;
+#endif
+	lib->c_setlocale = setlocale;
+#ifdef HAVE_LOCALE_T
+#ifndef WIN32
+	lib->c_newlocale = newlocale;
+	lib->c_freelocale = freelocale;
+	lib->c_uselocale = uselocale;
+#ifdef LC_VERSION_MASK
+	lib->c_querylocale = querylocale;
+#endif		/* LC_VERSION_MASK */
+#else
+	lib->_create_locale = _create_locale;
+#endif		/* WIN32 */
+#endif		/* HAVE_LOCALE_T */
+	lib->c_wcstombs = wcstombs;
+	lib->c_mbstowcs = mbstowcs;
+#ifdef HAVE_LOCALE_T
+#ifdef HAVE_WCSTOMBS_L
+	lib->c_wcstombs_l = wcstombs_l;
+#endif
+#ifdef HAVE_MBSTOWCS_L
+	lib->c_mbstowcs_l = mbstowcs_l;
+#endif
+#endif
+	lib->c_strcoll = strcoll;
+	lib->c_wcscoll = wcscoll;
+	lib->c_strxfrm = strxfrm;
+#ifdef HAVE_LOCALE_T
+	lib->c_strcoll_l = strcoll_l;
+	lib->c_wcscoll_l = wcscoll_l;
+	lib->c_strxfrm_l = strxfrm_l;
+#endif
+	lib->c_tolower = tolower;
+	lib->c_toupper = toupper;
+	lib->c_iswalnum = iswalnum;
+	lib->c_towlower = towlower;
+	lib->c_towupper = towupper;
+#ifdef HAVE_LOCALE_T
+	lib->c_tolower_l = tolower_l;
+	lib->c_toupper_l = toupper_l;
+	lib->c_iswalnum_l = iswalnum_l;
+	lib->c_towlower_l = towlower_l;
+	lib->c_towupper_l = towupper_l;
+#endif
+
+	builtin_libc_library = lib;
+	return lib;
+}
+
+static pg_libc_library *
+get_libc_library(const char *collate, const char *ctype, const char *version)
+{
+	pg_libc_library *lib = NULL;
+
+	if (get_libc_library_hook != NULL)
+		lib = get_libc_library_hook(collate, ctype, version);
+
+	if(!lib)
+		lib = get_builtin_libc_library();
+
+	return lib;
+}
 
 #ifdef USE_ICU
 static pg_icu_library *
@@ -1614,6 +1693,7 @@ pg_newlocale(char provider, bool deterministic, const char *collate,
 	if (provider == COLLPROVIDER_LIBC)
 	{
 #ifdef HAVE_LOCALE_T
+		pg_libc_library *libc = get_libc_library(collate, ctype, version);
 		locale_t        loc;
 
 		/* newlocale's result may be leaked if we encounter an error */
@@ -1623,10 +1703,10 @@ pg_newlocale(char provider, bool deterministic, const char *collate,
 			/* Normal case where they're the same */
 			errno = 0;
 #ifndef WIN32
-			loc = newlocale(LC_COLLATE_MASK | LC_CTYPE_MASK, collate,
+			loc = libc->c_newlocale(LC_COLLATE_MASK | LC_CTYPE_MASK, collate,
 							NULL);
 #else
-			loc = _create_locale(LC_ALL, collate);
+			loc = libc->_create_locale(LC_ALL, collate);
 #endif
 			if (!loc)
 				report_newlocale_failure(collate);
@@ -1638,11 +1718,11 @@ pg_newlocale(char provider, bool deterministic, const char *collate,
 			locale_t	loc1;
 
 			errno = 0;
-			loc1 = newlocale(LC_COLLATE_MASK, collate, NULL);
+			loc1 = libc->c_newlocale(LC_COLLATE_MASK, collate, NULL);
 			if (!loc1)
 				report_newlocale_failure(collate);
 			errno = 0;
-			loc = newlocale(LC_CTYPE_MASK, ctype, loc1);
+			loc = libc->c_newlocale(LC_CTYPE_MASK, ctype, loc1);
 			if (!loc)
 				report_newlocale_failure(ctype);
 #else
@@ -1659,6 +1739,7 @@ pg_newlocale(char provider, bool deterministic, const char *collate,
 		}
 
 		result->info.libc.lt = loc;
+		result->info.libc.lib = libc;
 #else							/* not HAVE_LOCALE_T */
 		/* platform that doesn't support locale_t */
 		ereport(ERROR,
@@ -1710,6 +1791,12 @@ pg_locale_deterministic(pg_locale_t locale)
 		return locale->deterministic;
 }
 
+pg_libc_library *
+get_default_libc_library()
+{
+	return default_libc;
+}
+
 #ifdef USE_ICU
 pg_icu_library *
 get_default_icu_library()
@@ -1725,6 +1812,19 @@ void
 init_default_locale(char provider, const char *collate, const char *ctype,
 					const char *iculocale, const char *version)
 {
+	default_libc = get_libc_library(collate, ctype, version);
+
+	/*
+	 * If it's the builtin libc, pg_perm_setlocale() will handle
+	 * setlocale(). Otherwise, it must be done here so that the collate and
+	 * ctype take effect.
+	 */
+	if (default_libc != builtin_libc_library)
+	{
+		default_libc->c_setlocale(LC_COLLATE, collate);
+		default_libc->c_setlocale(LC_CTYPE, ctype);
+	}
+
 #ifdef USE_ICU
 	default_icu = get_icu_library(iculocale, version);
 #endif
@@ -1913,19 +2013,23 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 			pg_strncasecmp("C.", collcollate, 2) != 0 &&
 			pg_strcasecmp("POSIX", collcollate) != 0)
 	{
+		pg_libc_library *libc = get_libc_library(collcollate, NULL, NULL);
+
 #if defined(__GLIBC__)
 		/* Use the glibc version because we don't have anything better. */
-		collversion = pstrdup(gnu_get_libc_version());
+		if (libc->libc_version != NULL)
+			collversion = pstrdup(libc->libc_version());
 #elif defined(LC_VERSION_MASK)
 		locale_t	loc;
 
 		/* Look up FreeBSD collation version. */
-		loc = newlocale(LC_COLLATE, collcollate, NULL);
+		loc = libc->c_newlocale(LC_COLLATE, collcollate, NULL);
 		if (loc)
 		{
-			collversion =
-				pstrdup(querylocale(LC_COLLATE_MASK | LC_VERSION_MASK, loc));
-			freelocale(loc);
+			const char *query = libc->c_querylocale(
+				LC_COLLATE_MASK | LC_VERSION_MASK, loc);
+			collversion = pstrdup(query);
+			libc->c_freelocale(loc);
 		}
 		else
 			ereport(ERROR,
@@ -1941,7 +2045,7 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 
 		MultiByteToWideChar(CP_ACP, 0, collcollate, -1, wide_collcollate,
 							LOCALE_NAME_MAX_LENGTH);
-		if (!GetNLSVersionEx(COMPARE_STRING, wide_collcollate, &version))
+		if (!libc->GetNLSVersionEx(COMPARE_STRING, wide_collcollate, &version))
 		{
 			/*
 			 * GetNLSVersionEx() wants a language tag such as "en-US", not a
@@ -2031,10 +2135,14 @@ pg_strncoll_libc_win32_utf8(const char *arg1, size_t len1, const char *arg2,
 	errno = 0;
 #ifdef HAVE_LOCALE_T
 	if (locale)
-		result = wcscoll_l((LPWSTR) a1p, (LPWSTR) a2p, locale->info.libc.lt);
+	{
+		pg_libc_library *libc = PG_LIBC_LIB(locale);
+		result = libc->c_wcscoll_l((LPWSTR) a1p, (LPWSTR) a2p, locale->info.libc.lt);
+	}
 	else
 #endif
-		result = wcscoll((LPWSTR) a1p, (LPWSTR) a2p);
+		result = default_libc->c_wcscoll((LPWSTR) a1p, (LPWSTR) a2p);
+
 	if (result == 2147483647)	/* _NLSCMPERROR; missing from mingw
 								 * headers */
 		ereport(ERROR,
@@ -2060,7 +2168,6 @@ static int
 pg_strcoll_libc(const char *arg1, const char *arg2, pg_locale_t locale)
 {
 	int result;
-
 	Assert(!locale || locale->provider == COLLPROVIDER_LIBC);
 #ifdef WIN32
 	if (GetDatabaseEncoding() == PG_UTF8)
@@ -2074,14 +2181,16 @@ pg_strcoll_libc(const char *arg1, const char *arg2, pg_locale_t locale)
 	if (locale)
 	{
 #ifdef HAVE_LOCALE_T
-		result = strcoll_l(arg1, arg2, locale->info.libc.lt);
+		pg_libc_library *libc = PG_LIBC_LIB(locale);
+
+		result = libc->c_strcoll_l(arg1, arg2, locale->info.libc.lt);
 #else
 		/* shouldn't happen */
 		elog(ERROR, "unsupported collprovider: %c", locale->provider);
 #endif
 	}
 	else
-		result = strcoll(arg1, arg2);
+		result = default_libc->c_strcoll(arg1, arg2);
 
 	return result;
 }
@@ -2327,17 +2436,15 @@ pg_strxfrm_libc(char *dest, const char *src, size_t destsize,
 {
 	Assert(!locale || locale->provider == COLLPROVIDER_LIBC);
 
-#ifdef TRUST_STXFRM
 #ifdef HAVE_LOCALE_T
 	if (locale)
-		return strxfrm_l(dest, src, destsize, locale->info.libc.lt);
+	{
+		pg_libc_library *libc = PG_LIBC_LIB(locale);
+		return libc->c_strxfrm_l(dest, src, destsize, locale->info.libc.lt);
+	}
 	else
 #endif
-		return strxfrm(dest, src, destsize);
-#else
-	/* shouldn't happen */
-	elog(ERROR, "unsupported collprovider: %c", locale->provider);
-#endif
+		return default_libc->c_strxfrm(dest, src, destsize);
 }
 
 static size_t
@@ -3010,21 +3117,23 @@ wchar2char(char *to, const wchar_t *from, size_t tolen, pg_locale_t locale)
 	if (locale == (pg_locale_t) 0)
 	{
 		/* Use wcstombs directly for the default locale */
-		result = wcstombs(to, from, tolen);
+		result = default_libc->c_wcstombs(to, from, tolen);
 	}
 	else
 	{
 #ifdef HAVE_LOCALE_T
+		pg_libc_library *libc = PG_LIBC_LIB(locale);
+
 #ifdef HAVE_WCSTOMBS_L
 		/* Use wcstombs_l for nondefault locales */
-		result = wcstombs_l(to, from, tolen, locale->info.libc.lt);
+		result = libc->c_wcstombs_l(to, from, tolen, locale->info.libc.lt);
 #else							/* !HAVE_WCSTOMBS_L */
 		/* We have to temporarily set the locale as current ... ugh */
-		locale_t	save_locale = uselocale(locale->info.libc.lt);
+		locale_t	save_locale = libc->c_uselocale(locale->info.libc.lt);
 
-		result = wcstombs(to, from, tolen);
+		result = libc->c_wcstombs(to, from, tolen);
 
-		uselocale(save_locale);
+		libc->c_uselocale(save_locale);
 #endif							/* HAVE_WCSTOMBS_L */
 #else							/* !HAVE_LOCALE_T */
 		/* Can't have locale != 0 without HAVE_LOCALE_T */
@@ -3087,21 +3196,23 @@ char2wchar(wchar_t *to, size_t tolen, const char *from, size_t fromlen,
 		if (locale == (pg_locale_t) 0)
 		{
 			/* Use mbstowcs directly for the default locale */
-			result = mbstowcs(to, str, tolen);
+			result = default_libc->c_mbstowcs(to, str, tolen);
 		}
 		else
 		{
 #ifdef HAVE_LOCALE_T
+			pg_libc_library *libc = PG_LIBC_LIB(locale);
+
 #ifdef HAVE_MBSTOWCS_L
 			/* Use mbstowcs_l for nondefault locales */
-			result = mbstowcs_l(to, str, tolen, locale->info.libc.lt);
+			result = libc->c_mbstowcs_l(to, str, tolen, locale->info.libc.lt);
 #else							/* !HAVE_MBSTOWCS_L */
 			/* We have to temporarily set the locale as current ... ugh */
-			locale_t	save_locale = uselocale(locale->info.libc.lt);
+			locale_t	save_locale = libc->c_uselocale(locale->info.libc.lt);
 
-			result = mbstowcs(to, str, tolen);
+			result = libc->c_mbstowcs(to, str, tolen);
 
-			uselocale(save_locale);
+			libc->c_uselocale(save_locale);
 #endif							/* HAVE_MBSTOWCS_L */
 #else							/* !HAVE_LOCALE_T */
 			/* Can't have locale != 0 without HAVE_LOCALE_T */
