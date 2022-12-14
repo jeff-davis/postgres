@@ -13,6 +13,9 @@
 #ifndef _PG_LOCALE_INTERNAL_
 #define _PG_LOCALE_INTERNAL_
 
+#include <wchar.h>
+#include <wctype.h>
+
 #ifdef USE_ICU
 #include <unicode/ubrk.h>
 #include <unicode/ucnv.h>
@@ -31,6 +34,75 @@
 #undef HAVE_UCOL_STRCOLLUTF8
 #endif
 #endif
+
+typedef struct pg_libc_library
+{
+	/* version */
+#if defined(__GLIBC__)
+	const char *(*libc_version) (void);
+#elif defined(WIN32)
+	BOOL (*GetNLSVersionEx) (NLS_FUNCTION function, LPCWSTR lpLocaleName,
+							 LPNLSVERSIONINFOEX lpVersionInformation);
+#endif
+
+	/* locale */
+	char *(*c_setlocale) (int category, const char *locale);
+#ifdef HAVE_LOCALE_T
+#ifndef WIN32
+	locale_t (*c_newlocale) (int category_mask, const char *locale,
+						   locale_t base);
+	void (*c_freelocale) (locale_t locobj);
+	locale_t (*c_uselocale) (locale_t newloc);
+#ifdef LC_VERSION_MASK
+	const char *(*c_querylocale) (int mask, locale_t locale);
+#endif
+#else
+	locale_t (*_create_locale) (int category, const char *locale);
+#endif
+#endif
+
+	/* encoding */
+	size_t (*c_wcstombs) (char *dest, const wchar_t *src, size_t n);
+	size_t (*c_mbstowcs) (wchar_t *dest, const char *src, size_t n);
+#ifdef HAVE_LOCALE_T
+#ifdef HAVE_WCSTOMBS_L
+	size_t (*c_wcstombs_l) (char *dest, const wchar_t *src, size_t n,
+						  locale_t loc);
+#endif
+#ifdef HAVE_MBSTOWCS_L
+	size_t (*c_mbstowcs_l) (wchar_t *dest, const char *src, size_t n,
+						  locale_t loc);
+#endif
+#endif
+
+	/* collation */
+	int (*c_strcoll) (const char *s1, const char *s2);
+	int (*c_wcscoll) (const wchar_t *ws1, const wchar_t *ws2);
+	size_t (*c_strxfrm) (char *s1, const char * s2, size_t n);
+#ifdef HAVE_LOCALE_T
+	int (*c_strcoll_l) (const char *s1, const char *s2, locale_t locale);
+	int (*c_wcscoll_l) (const wchar_t *ws1, const wchar_t *ws2,
+					  locale_t locale);
+	size_t (*c_strxfrm_l) (char *s1, const char * s2, size_t n,
+						 locale_t locale);
+#endif
+
+	/* ctype */
+	int (*c_tolower) (int c);
+	int (*c_toupper) (int c);
+	int (*c_iswalnum) (wint_t wc);
+	wint_t (*c_towlower) (wint_t wc);
+	wint_t (*c_towupper) (wint_t wc);
+#ifdef HAVE_LOCALE_T
+	int (*c_tolower_l) (int c, locale_t locale);
+	int (*c_toupper_l) (int c, locale_t locale);
+	int (*c_iswalnum_l) (wint_t wc, locale_t locale);
+	wint_t (*c_towlower_l) (wint_t wc, locale_t locale);
+	wint_t (*c_towupper_l) (wint_t wc, locale_t locale);
+#endif
+} pg_libc_library;
+
+#define PG_LIBC_LIB(x) ((x)->info.libc.lib)
 
 #ifdef USE_ICU
 /*
@@ -146,12 +218,13 @@ struct pg_locale_struct
 	char	   *ctype;
 	union
 	{
-#ifdef HAVE_LOCALE_T
 		struct
 		{
+#ifdef HAVE_LOCALE_T
 			locale_t	lt;
-		}			libc;
 #endif
+			pg_libc_library *lib;
+		}			libc;
 #ifdef USE_ICU
 		struct
 		{
@@ -159,9 +232,15 @@ struct pg_locale_struct
 			pg_icu_library	*lib;
 		}			icu;
 #endif
-		int			dummy;		/* in case we have neither LOCALE_T nor ICU */
 	}			info;
 };
+
+typedef pg_libc_library *(*get_libc_library_hook_type)(
+	const char *collate, const char *ctype, const char *version);
+
+extern PGDLLIMPORT get_libc_library_hook_type get_libc_library_hook;
+
+extern pg_libc_library *get_default_libc_library(void);
 
 #ifdef USE_ICU
 
