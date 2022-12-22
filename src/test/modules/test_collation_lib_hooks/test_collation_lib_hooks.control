@@ -1,0 +1,4 @@
+comment = 'Test code for collation provider library hooks'
+default_version = '1.0'
+module_pathname = '$libdir/test_collation_lib_hooks'
+
