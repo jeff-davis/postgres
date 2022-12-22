@@ -3,7 +3,7 @@
 MODULE_big = test_collation_lib_hooks
 OBJS = \
 	$(WIN32RES) \
-	test_collation_lib_hooks.o test_icu_hook.o
+	test_collation_lib_hooks.o test_icu_hook.o test_libc_hook.o
 PGFILEDESC = "test_collation_lib_hooks - test collation provider library hooks"
 
 EXTENSION = test_collation_lib_hooks
@@ -22,3 +22,11 @@ include $(top_srcdir)/contrib/contrib-global.mk
 endif
 
 export with_icu
+
+# TODO set environment variables:
+#  determine if built with glibc
+#  determine if LC_VERSION_MASK is defined
+
+ifeq ($(PORTNAME), win32)
+	export win32 = yes
+endif
