@@ -92,7 +92,8 @@ static void vac_truncate_clog(TransactionId frozenXID,
 							  MultiXactId minMulti,
 							  TransactionId lastSaneFrozenXid,
 							  MultiXactId lastSaneMinMulti);
-static bool vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params);
+static bool vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params,
+					   bool skip_privs);
 static double compute_parallel_delay(void);
 static VacOptValue get_vacoptval_from_boolean(DefElem *def);
 static bool vac_tid_reaped(ItemPointer itemptr, void *state);
@@ -502,7 +503,7 @@ vacuum(List *relations, VacuumParams *params,
 
 			if (params->options & VACOPT_VACUUM)
 			{
-				if (!vacuum_rel(vrel->oid, vrel->relation, params))
+				if (!vacuum_rel(vrel->oid, vrel->relation, params, false))
 					continue;
 			}
 
@@ -1831,7 +1832,7 @@ vac_truncate_clog(TransactionId frozenXID,
  *		At entry and exit, we are not inside a transaction.
  */
 static bool
-vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
+vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params, bool skip_privs)
 {
 	LOCKMODE	lmode;
 	Relation	rel;
@@ -1918,7 +1919,8 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 	 * happen across multiple transactions where privileges could have changed
 	 * in-between.  Make sure to only generate logs for VACUUM in this case.
 	 */
-	if (!vacuum_is_permitted_for_relation(RelationGetRelid(rel),
+	if (!skip_privs &&
+		!vacuum_is_permitted_for_relation(RelationGetRelid(rel),
 										  rel->rd_rel,
 										  params->options & VACOPT_VACUUM))
 	{
@@ -2092,7 +2094,7 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 	 * totally unimportant for toast relations.
 	 */
 	if (toast_relid != InvalidOid)
-		vacuum_rel(toast_relid, NULL, params);
+		vacuum_rel(toast_relid, NULL, params, true);
 
 	/*
 	 * Now release the session-level lock on the main table.
