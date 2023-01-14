@@ -65,6 +65,12 @@ else
 ALWAYS_SUBDIRS += uuid-ossp
 endif
 
+ifeq ($(with_icu),yes)
+SUBDIRS += icu_multilib
+else
+ALWAYS_SUBDIRS += icu_multilib
+endif
+
 ifeq ($(with_libxml),yes)
 SUBDIRS += xml2
 else
