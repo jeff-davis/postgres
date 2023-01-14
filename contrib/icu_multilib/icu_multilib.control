@@ -1,0 +1,7 @@
+# icu_multlib extension
+comment = 'support multiple ICU library versions'
+default_version = '1.0'
+module_pathname = '$libdir/icu_multilib'
+relocatable = false
+schema = icu_multilib
+trusted = true
