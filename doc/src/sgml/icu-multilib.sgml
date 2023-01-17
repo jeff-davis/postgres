@@ -1,0 +1,23 @@
+<!-- doc/src/sgml/icu-multilib.sgml -->
+
+<sect1 id="icu-multilib" xreflabel="icu_multilib">
+ <title>icu_multilib</title>
+
+ <indexterm zone="icu-multilib">
+  <primary>icu_multilib</primary>
+ </indexterm>
+
+ <para>
+  Useful for managing multiple ICU libraries.
+ </para>
+
+
+ <sect2 id="icu-multilib-author">
+  <title>Authors</title>
+
+  <para>
+   Jeff Davis <email>jdavis@postgresql.org</email>, Thomas Munro <email>thomas.munro@gmail.com</email>
+  </para>
+ </sect2>
+
+</sect1>
