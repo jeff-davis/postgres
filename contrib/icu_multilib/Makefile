@@ -5,6 +5,8 @@ OBJS = \
 	$(WIN32RES) \
 	icu_multilib.o
 
+EXTENSION = icu_multilib
+DATA = icu_multilib--1.0.sql
 PGFILEDESC = "icu_multilib -- support multiple ICU library versions"
 
 ifdef USE_PGXS

@@ -15,3 +15,10 @@ icu_multilib = shared_module('icu_multilib',
   kwargs: contrib_mod_args,
 )
 contrib_targets += icu_multilib
+
+install_data(
+  'icu_multilib.control',
+  'icu_multilib--1.0.sql',
+  kwargs: contrib_data_args,
+)
+
