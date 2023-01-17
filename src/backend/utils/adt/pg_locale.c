@@ -1504,9 +1504,10 @@ report_newlocale_failure(const char *localename)
 #endif							/* HAVE_LOCALE_T */
 
 #ifdef USE_ICU
-static pg_icu_library *
+pg_icu_library *
 get_builtin_icu_library()
 {
+	UVersionInfo version_info;
 	pg_icu_library *lib;
 
 	if (builtin_icu_library != NULL)
@@ -1545,6 +1546,12 @@ get_builtin_icu_library()
 	lib->getDisplayName = uloc_getDisplayName;
 	lib->countAvailable = uloc_countAvailable;
 	lib->getAvailable = uloc_getAvailable;
+
+	lib->getICUVersion(version_info);
+	lib->major_version = version_info[0];
+	lib->minor_version = version_info[1];
+	lib->libicui18n_name = "<builtin>";
+	lib->libicuuc_name = "<builtin>";
 
 	/*
 	 * Also assert the size of a couple of types used as output buffers, as a

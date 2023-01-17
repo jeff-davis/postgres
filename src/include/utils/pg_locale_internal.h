@@ -41,6 +41,8 @@ typedef struct pg_icu_library
 {
 	int			major_version;
 	int			minor_version;
+	char	   *libicui18n_name;
+	char	   *libicuuc_name;
 	void		(*getICUVersion) (UVersionInfo info);
 	void		(*getUnicodeVersion) (UVersionInfo into);
 	void		(*getCLDRVersion) (UVersionInfo info, UErrorCode *status);
@@ -171,6 +173,7 @@ typedef pg_icu_library *(*get_icu_library_hook_type)(
 extern PGDLLIMPORT get_icu_library_hook_type get_icu_library_hook;
 
 extern pg_icu_library *get_default_icu_library(void);
+extern pg_icu_library *get_builtin_icu_library(void);
 extern int32_t icu_to_uchar(pg_icu_library *lib, UChar **buff_uchar,
 							const char *buff, size_t nbytes);
 extern int32_t icu_from_uchar(pg_icu_library *lib, char **result,
