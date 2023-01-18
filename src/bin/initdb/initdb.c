@@ -135,6 +135,7 @@ static char *lc_time = NULL;
 static char *lc_messages = NULL;
 static char locale_provider = COLLPROVIDER_LIBC;
 static char *icu_locale = NULL;
+static bool import_system_collations = true;
 static const char *default_text_search_config = NULL;
 static char *username = NULL;
 static bool pwprompt = false;
@@ -1491,7 +1492,8 @@ setup_collation(FILE *cmdfd)
 				  BOOTSTRAP_SUPERUSERID, COLLPROVIDER_LIBC, PG_UTF8);
 
 	/* Now import all collations we can find in the operating system */
-	PG_CMD_PUTS("SELECT pg_import_system_collations('pg_catalog');\n\n");
+	if (import_system_collations)
+		PG_CMD_PUTS("SELECT pg_import_system_collations('pg_catalog');\n\n");
 }
 
 /*
@@ -2116,6 +2118,8 @@ usage(const char *progname)
 	printf(_("      --no-locale           equivalent to --locale=C\n"));
 	printf(_("      --locale-provider={libc|icu}\n"
 			 "                            set default locale provider for new databases\n"));
+	printf(_("      --no-import-collations\n"
+			 "                            do not import collations from the system"));
 	printf(_("      --pwfile=FILE         read password for the new superuser from file\n"));
 	printf(_("  -T, --text-search-config=CFG\n"
 			 "                            default text search configuration\n"));
@@ -2767,6 +2771,7 @@ main(int argc, char *argv[])
 		{"discard-caches", no_argument, NULL, 14},
 		{"locale-provider", required_argument, NULL, 15},
 		{"icu-locale", required_argument, NULL, 16},
+		{"no-import-collations", no_argument, NULL, 17},
 		{NULL, 0, NULL, 0}
 	};
 
@@ -2923,6 +2928,9 @@ main(int argc, char *argv[])
 				break;
 			case 16:
 				icu_locale = pg_strdup(optarg);
+				break;
+			case 17:
+				import_system_collations = false;
 				break;
 			default:
 				/* getopt_long already emitted a complaint */
