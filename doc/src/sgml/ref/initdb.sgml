@@ -305,6 +305,17 @@ PostgreSQL documentation
       </listitem>
      </varlistentry>
 
+     <varlistentry id="app-initdb-option-no-import-collations">
+      <term><option>--no-import-collations</option></term>
+      <listitem>
+       <para>
+        Prevents <command>initdb</command> from importing collations from the
+        system. This can be used to more carefully control which collations
+        are initially loaded in each database.
+       </para>
+      </listitem>
+     </varlistentry>
+
      <varlistentry id="app-initdb-option-no-sync">
       <term><option>-N</option></term>
       <term><option>--no-sync</option></term>
