@@ -94,6 +94,9 @@ char	   *locale_monetary;
 char	   *locale_numeric;
 char	   *locale_time;
 
+/* GUC to enable use of strxfrm() for abbreviated keys */
+bool		trust_strxfrm = false;
+
 /*
  * lc_time localization cache.
  *
@@ -2105,17 +2108,16 @@ pg_strxfrm_libc(char *dest, const char *src, size_t destsize,
 {
 	Assert(!locale || locale->provider == COLLPROVIDER_LIBC);
 
-#ifdef TRUST_STRXFRM
+	/* shouldn't happen */
+	if (!trust_strxfrm)
+		elog(ERROR, "unsupported collprovider: %c", locale->provider);
+
 #ifdef HAVE_LOCALE_T
 	if (locale)
 		return strxfrm_l(dest, src, destsize, locale->info.lt);
 	else
 #endif
 		return strxfrm(dest, src, destsize);
-#else
-	/* shouldn't happen */
-	elog(ERROR, "unsupported collprovider: %c", locale->provider);
-#endif
 }
 
 static size_t
@@ -2302,7 +2304,7 @@ pg_strxfrm_prefix_icu(char *dest, const char *src, size_t destsize,
  * results. While no other libc other than Cygwin has so far been shown to
  * have a problem, we take the conservative course of action for right now and
  * disable this categorically.  (Users who are certain this isn't a problem on
- * their system can define TRUST_STRXFRM.)
+ * their system can set the developer GUC "trust_strxfrm".)
  *
  * No similar problem is known for the ICU provider.
  */
@@ -2310,11 +2312,7 @@ bool
 pg_strxfrm_enabled(pg_locale_t locale)
 {
 	if (!locale || locale->provider == COLLPROVIDER_LIBC)
-#ifdef TRUST_STRXFRM
-		return true;
-#else
-		return false;
-#endif
+		return trust_strxfrm;
 	else if (locale->provider == COLLPROVIDER_ICU)
 		return true;
 	else
