@@ -45,6 +45,9 @@
 /* GUC variable */
 int			bytea_output = BYTEA_OUTPUT_HEX;
 
+/* GUC to enable use of strxfrm() for abbreviated keys */
+bool		trust_strxfrm = false;
+
 typedef struct varlena unknown;
 typedef struct varlena VarString;
 
@@ -2092,7 +2095,7 @@ varstr_sortsupport(SortSupport ssup, Oid typid, Oid collid)
 	 * other libc other than Cygwin has so far been shown to have a problem,
 	 * we take the conservative course of action for right now and disable
 	 * this categorically.  (Users who are certain this isn't a problem on
-	 * their system can define TRUST_STRXFRM.)
+	 * their system can set the trust_strxfrm GUC to true.)
 	 *
 	 * Even apart from the risk of broken locales, it's possible that there
 	 * are platforms where the use of abbreviated keys should be disabled at
@@ -2105,10 +2108,9 @@ varstr_sortsupport(SortSupport ssup, Oid typid, Oid collid)
 	 * categorically, we may still want or need to disable it for particular
 	 * platforms.
 	 */
-#ifndef TRUST_STRXFRM
-	if (!collate_c && !(locale && locale->provider == COLLPROVIDER_ICU))
+	if (!trust_strxfrm && !collate_c &&
+		!(locale && locale->provider == COLLPROVIDER_ICU))
 		abbreviate = false;
-#endif
 
 	/*
 	 * If we're using abbreviated keys, or if we're using a locale-aware
