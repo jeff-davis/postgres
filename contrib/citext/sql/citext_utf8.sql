@@ -4,7 +4,9 @@
  */
 
 SELECT getdatabaseencoding() <> 'UTF8' OR
-       current_setting('lc_ctype') = 'C'
+       current_setting('lc_ctype') = 'C' OR
+       (SELECT datlocprovider='i' FROM pg_database
+        WHERE datname=current_database())
        AS skip_test \gset
 \if :skip_test
 \quit
