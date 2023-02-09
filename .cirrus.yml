@@ -565,10 +565,32 @@ task:
   setup_additional_packages_script: |
     REM choco install -y --no-progress ...
 
+  prereq_cache:
+    folder: vcpkg
+
+  prereq_install_script: |
+    vcvarsall x64
+    git clone https://github.com/Microsoft/vcpkg.git || true
+    cd vcpkg
+    git pull
+    bootstrap-vcpkg.bat
+    vcpkg.exe install --triplet x64-windows pkgconf icu zstd lz4 libxml2 libxslt zlib openssl
+    rm -r buildtrees || true
+    dir
+    du -sh * || true
+    find . -name '*.exe' -or -name '*.pc'|| true
+
+  always:
+    upload_caches: prereq
+
   # Use /DEBUG:FASTLINK to avoid high memory usage during linking
   configure_script: |
     vcvarsall x64
-    meson setup --backend ninja --buildtype debug -Dc_link_args=/DEBUG:FASTLINK -Dcassert=true -Db_pch=true -Dssl=openssl -Dextra_lib_dirs=c:\openssl\1.1\lib -Dextra_include_dirs=c:\openssl\1.1\include -DTAR=%TAR% -DPG_TEST_EXTRA="%PG_TEST_EXTRA%" build
+
+    set PATH=c:/cirrus/vcpkg/installed/x64-windows/tools/pkgconf;c:/cirrus/vcpkg/installed/x64-windows/debug/lib;c:/cirrus/vcpkg/installed/x64-windows/debug/bin;%PATH%
+    set PKG_CONFIG=pkgconf
+
+    meson setup --backend ninja --buildtype debug -Dc_link_args=/DEBUG:FASTLINK -Dcassert=true -Db_pch=true -Dssl=openssl -DTAR=%TAR% -DPG_TEST_EXTRA="%PG_TEST_EXTRA%" -Dpkg_config_path=c:/cirrus/vcpkg/installed/x64-windows/debug/lib/pkgconfig build
 
   build_script: |
     vcvarsall x64
@@ -576,6 +598,8 @@ task:
 
   check_world_script: |
     vcvarsall x64
+
+    set PATH=c:/cirrus/vcpkg/installed/x64-windows/tools/pkgconf;c:/cirrus/vcpkg/installed/x64-windows/debug/lib;c:/cirrus/vcpkg/installed/x64-windows/debug/bin;%PATH%
     meson test %MTEST_ARGS% --num-processes %TEST_JOBS%
 
   on_failure:
