@@ -82,7 +82,7 @@ option('dtrace', type : 'feature', value: 'disabled',
 option('gssapi', type : 'feature', value: 'auto',
   description: 'GSSAPI support')
 
-option('icu', type : 'feature', value: 'auto',
+option('icu', type : 'feature', value: 'enabled',
   description: 'ICU support')
 
 option('ldap', type : 'feature', value: 'auto',

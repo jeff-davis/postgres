@@ -721,8 +721,16 @@ endif
 
 icuopt = get_option('icu')
 if not icuopt.disabled()
-  icu = dependency('icu-uc', required: icuopt.enabled())
-  icu_i18n = dependency('icu-i18n', required: icuopt.enabled())
+  icu = dependency('icu-uc', required: false)
+  icu_i18n = dependency('icu-i18n', required: false)
+
+  icu_found = icu.found() and icu_i18n.found()
+  if icuopt.enabled() and not icu_found
+     error('''ICU library not found
+If you have ICU already installed, see meson-log/meson-log.txt for details on the
+failure. It is possible the compiler isn't looking in the proper directory.
+Use -Dicu=disabled to disable ICU support.''')
+  endif
 
   if icu.found()
     cdata.set('USE_ICU', 1)
