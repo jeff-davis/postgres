@@ -1477,12 +1477,12 @@ static pg_locale_t
 pg_newlocale(char provider, bool deterministic, const char *collate,
 			 const char *ctype, const char *version)
 {
-	pg_locale_t result = MemoryContextAlloc(TopMemoryContext,
-											sizeof(struct pg_locale_struct));
+	pg_locale_t result = MemoryContextAllocZero(
+		TopMemoryContext, sizeof(struct pg_locale_struct));
 
 	/*
-	 * If COLLPROVIDER_DEFAULT, caller should use default_locale or NULL
-	 * instead.
+	 * If COLLPROVIDER_DEFAULT, caller should use default_locale (for ICU) or
+	 * NULL (for libc) instead.
 	 */
 	Assert(provider != COLLPROVIDER_DEFAULT);
 
@@ -1594,6 +1594,21 @@ init_default_locale(char provider, const char *collate, const char *ctype,
 					const char *iculocale, const char *version)
 {
 	/*
+	 * Default locale is currently always deterministic.  Nondeterministic
+	 * locales currently don't support pattern matching, which would break a
+	 * lot of things if applied globally.
+	 */
+	const bool deterministic = true;
+
+	Assert(default_locale == NULL);
+
+	/*
+	 * If COLLPROVIDER_DEFAULT, caller should use default_locale (for ICU) or
+	 * NULL (for libc) instead.
+	 */
+	Assert(provider != COLLPROVIDER_DEFAULT);
+
+	/*
 	 * For the purposes of pg_locale_t, if the provider is ICU, we use
 	 * iculocale for both collate and ctype.
 	 */
@@ -1601,16 +1616,25 @@ init_default_locale(char provider, const char *collate, const char *ctype,
 	{
 		collate = iculocale;
 		ctype = iculocale;
+		default_locale = pg_newlocale(provider, deterministic, collate, ctype,
+									  version);
 	}
 	else
-		Assert(iculocale == NULL);
+	{
+		/*
+		 * For the libc default_locale, we don't initialize pg_locale_t->info
+		 * at all, because it's controlled by pg_perm_setlocale().
+		 */
+		Assert(provider == COLLPROVIDER_LIBC);
+		default_locale = MemoryContextAllocZero(
+			TopMemoryContext,sizeof(struct pg_locale_struct));
 
-	/*
-	 * Default locale is currently always deterministic.  Nondeterministic
-	 * locales currently don't support pattern matching, which would break a
-	 * lot of things if applied globally.
-	 */
-	default_locale = pg_newlocale(provider, true, collate, ctype, version);
+		default_locale->deterministic = deterministic;
+		default_locale->provider = provider;
+		default_locale->collate = MemoryContextStrdup(TopMemoryContext,
+													  collate);
+		default_locale->ctype = MemoryContextStrdup(TopMemoryContext, ctype);
+	}
 }
 
 /*
