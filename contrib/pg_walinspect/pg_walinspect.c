@@ -304,6 +304,8 @@ pg_get_wal_fpi_info(PG_FUNCTION_ARGS)
 	XLogRecPtr	start_lsn;
 	XLogRecPtr	end_lsn;
 	XLogReaderState *xlogreader;
+	MemoryContext old_cxt;
+	MemoryContext tmp_cxt;
 
 	start_lsn = PG_GETARG_LSN(0);
 	end_lsn = PG_GETARG_LSN(1);
@@ -314,14 +316,26 @@ pg_get_wal_fpi_info(PG_FUNCTION_ARGS)
 
 	xlogreader = InitXLogReaderState(start_lsn);
 
+	tmp_cxt = AllocSetContextCreate(CurrentMemoryContext,
+									"pg_get_wal_fpi_info temporary cxt",
+									ALLOCSET_DEFAULT_SIZES);
+
 	while (ReadNextXLogRecord(xlogreader) &&
 		   xlogreader->EndRecPtr <= end_lsn)
 	{
+		/* Use the tmp context so we can clean up after each tuple is done */
+		old_cxt = MemoryContextSwitchTo(tmp_cxt);
+
 		GetWALFPIInfo(fcinfo, xlogreader);
+
+		/* clean up and switch back */
+		MemoryContextSwitchTo(old_cxt);
+		MemoryContextReset(tmp_cxt);
 
 		CHECK_FOR_INTERRUPTS();
 	}
 
+	MemoryContextDelete(tmp_cxt);
 	pfree(xlogreader->private_data);
 	XLogReaderFree(xlogreader);
 
@@ -440,23 +454,37 @@ GetWALRecordsInfo(FunctionCallInfo fcinfo, XLogRecPtr start_lsn,
 	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
 	Datum		values[PG_GET_WAL_RECORDS_INFO_COLS] = {0};
 	bool		nulls[PG_GET_WAL_RECORDS_INFO_COLS] = {0};
+	MemoryContext old_cxt;
+	MemoryContext tmp_cxt;
 
 	InitMaterializedSRF(fcinfo, 0);
 
 	xlogreader = InitXLogReaderState(start_lsn);
 
+	tmp_cxt = AllocSetContextCreate(CurrentMemoryContext,
+									"GetWALRecordsInfo temporary cxt",
+									ALLOCSET_DEFAULT_SIZES);
+
 	while (ReadNextXLogRecord(xlogreader) &&
 		   xlogreader->EndRecPtr <= end_lsn)
 	{
+		/* Use the tmp context so we can clean up after each tuple is done */
+		old_cxt = MemoryContextSwitchTo(tmp_cxt);
+
 		GetWALRecordInfo(xlogreader, values, nulls,
 						 PG_GET_WAL_RECORDS_INFO_COLS);
 
 		tuplestore_putvalues(rsinfo->setResult, rsinfo->setDesc,
 							 values, nulls);
 
+		/* clean up and switch back */
+		MemoryContextSwitchTo(old_cxt);
+		MemoryContextReset(tmp_cxt);
+
 		CHECK_FOR_INTERRUPTS();
 	}
 
+	MemoryContextDelete(tmp_cxt);
 	pfree(xlogreader->private_data);
 	XLogReaderFree(xlogreader);
 
