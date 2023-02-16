@@ -2690,15 +2690,12 @@ icu_set_collation_attributes(UCollator *collator, const char *loc)
 	}
 }
 
-#endif							/* USE_ICU */
-
 /*
  * Check if the given locale ID is valid, and ereport(ERROR) if it isn't.
  */
 void
 check_icu_locale(const char *icu_locale)
 {
-#ifdef USE_ICU
 	UCollator  *collator;
 	UErrorCode	status;
 
@@ -2712,12 +2709,127 @@ check_icu_locale(const char *icu_locale)
 	if (U_ICU_VERSION_MAJOR_NUM < 54)
 		icu_set_collation_attributes(collator, icu_locale);
 	ucol_close(collator);
-#else
-	ereport(ERROR,
-			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			 errmsg("ICU is not supported in this build")));
-#endif
 }
+
+/*
+ * Check if the locale string represents the root locale. It represents the
+ * root locale if the language part is "und", "root", or the empty string.
+ */
+static bool
+icu_is_root_locale(const char *locale)
+{
+	UErrorCode	 status;
+	char		*lang_part;
+	int32_t		 len;
+	bool		 result	   = false;
+
+	status = U_ZERO_ERROR;
+	len  = uloc_getLanguage(locale, NULL, 0, &status);
+	lang_part = palloc(len + 1);
+	status = U_ZERO_ERROR;
+	uloc_getLanguage(locale, lang_part, len + 1, &status);
+	if (U_FAILURE(status))
+		ereport(ERROR,
+				(errmsg("could not get language name from locale string \"%s\": %s",
+						locale, u_errorName(status))));
+
+	if (pg_strcasecmp(lang_part, "root") == 0 ||
+		pg_strcasecmp(lang_part, "und") == 0 ||
+		pg_strcasecmp(lang_part, "") == 0)
+		result = true;
+
+	pfree(lang_part);
+	return result;
+}
+
+/*
+ * Special case to check for locales like "POSIX" or "C.UTF-8". These are not
+ * handled by ICU level 2 canonicalization.
+ */
+static bool
+icu_is_c_posix(const char *locale)
+{
+	if (pg_strcasecmp(locale, "c") == 0 ||
+		pg_strncasecmp(locale, "c.", sizeof("c.") - 1) == 0 ||
+		pg_strcasecmp(locale, "posix") == 0 ||
+		pg_strncasecmp(locale, "posix.", sizeof("posix.") - 1) == 0)
+		return true;
+
+	return false;
+}
+
+/*
+ * Check if the given language tag resolves to a valid locale in ICU.
+ *
+ * If the resulting collator falls back to the root locale, and the root
+ * locale was not explicitly requested, return false.
+ */
+bool
+icu_collator_exists(const char *langtag)
+{
+	UCollator	*collator;
+	const char	*valid_locale = NULL;
+	UErrorCode	 status;
+	bool		 result		  = false;
+
+	status = U_ZERO_ERROR;
+	collator = ucol_open(langtag, &status);
+	if (U_FAILURE(status))
+		return false;
+
+	status = U_ZERO_ERROR;
+	valid_locale = ucol_getLocaleByType(collator, ULOC_VALID_LOCALE, &status);
+	if (U_FAILURE(status))
+		goto cleanup;
+
+	if (icu_is_root_locale(langtag) ||
+		!icu_is_root_locale(valid_locale))
+		result = true;
+
+cleanup:
+	ucol_close(collator);
+	return result;
+}
+
+/*
+ * Return the BCP47 language tag representation of the requested locale; or
+ * NULL if a problem is encountered.
+ *
+ * This function should be called before passing the string to ucol_open(),
+ * because conversion to a language tag also performs "level 2
+ * canonicalization". In addition to producing a consistent result format,
+ * level 2 canonicalization is able to more accurately interpret different
+ * input locale string formats, such as POSIX and .NET IDs.
+ */
+char *
+icu_language_tag(const char *requested_locale)
+{
+	UErrorCode	 status;
+	char		*result;
+	int32_t		 len;
+	const bool	 strict = true;
+
+	/* c/posix locales aren't handled by uloc_getLanguageTag() */
+	if (icu_is_c_posix(requested_locale))
+		return pstrdup("en-US-u-va-posix");
+
+	status = U_ZERO_ERROR;
+	len = uloc_toLanguageTag(requested_locale, NULL, 0, strict, &status);
+
+	result = palloc(len + 1);
+
+	status = U_ZERO_ERROR;
+	uloc_toLanguageTag(requested_locale, result, len + 1, strict, &status);
+	if (U_FAILURE(status))
+	{
+		pfree(result);
+		return NULL;
+	}
+
+	return result;
+}
+
+#endif							/* USE_ICU */
 
 /*
  * These functions convert from/to libc's wchar_t, *not* pg_wchar_t.

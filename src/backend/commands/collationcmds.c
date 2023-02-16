@@ -47,6 +47,8 @@ typedef struct
 	int			enc;			/* encoding */
 } CollAliasData;
 
+extern bool icu_locale_validation;
+
 
 /*
  * CREATE COLLATION
@@ -240,10 +242,50 @@ DefineCollation(ParseState *pstate, List *names, List *parameters, bool if_not_e
 		}
 		else if (collprovider == COLLPROVIDER_ICU)
 		{
+#ifdef USE_ICU
+			char	*langtag;
+
 			if (!colliculocale)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
 						 errmsg("parameter \"locale\" must be specified")));
+
+			check_icu_locale(colliculocale);
+
+			/*
+			 * During binary upgrade, preserve locale string verbatim.
+			 * Otherwise, canonicalize to a language tag.
+			 */
+			if (!IsBinaryUpgrade)
+			{
+				int elevel = icu_locale_validation ? ERROR : WARNING;
+
+				langtag = icu_language_tag(colliculocale);
+				if (langtag)
+				{
+					ereport(NOTICE,
+							(errmsg("using language tag \"%s\" for locale \"%s\"",
+									langtag, colliculocale)));
+
+					if (!icu_collator_exists(langtag))
+						ereport(elevel,
+								(errmsg("ICU collator for language tag \"%s\" not found",
+										langtag)));
+
+					colliculocale = langtag;
+				}
+				else
+				{
+					ereport(elevel,
+							(errmsg("could not convert locale \"%s\" to language tag",
+									colliculocale)));
+				}
+			}
+#else
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("ICU is not supported in this build")));
+#endif
 		}
 
 		/*
@@ -556,26 +598,6 @@ cmpaliases(const void *a, const void *b)
 
 
 #ifdef USE_ICU
-/*
- * Get the ICU language tag for a locale name.
- * The result is a palloc'd string.
- */
-static char *
-get_icu_language_tag(const char *localename)
-{
-	char		buf[ULOC_FULLNAME_CAPACITY];
-	UErrorCode	status;
-
-	status = U_ZERO_ERROR;
-	uloc_toLanguageTag(localename, buf, sizeof(buf), true, &status);
-	if (U_FAILURE(status))
-		ereport(ERROR,
-				(errmsg("could not convert locale name \"%s\" to language tag: %s",
-						localename, u_errorName(status))));
-
-	return pstrdup(buf);
-}
-
 /*
  * Get a comment (specifically, the display name) for an ICU locale.
  * The result is a palloc'd string, or NULL if we can't get a comment
@@ -938,7 +960,11 @@ pg_import_system_collations(PG_FUNCTION_ARGS)
 			else
 				name = uloc_getAvailable(i);
 
-			langtag = get_icu_language_tag(name);
+			langtag = icu_language_tag(name);
+			if (langtag == NULL)
+				ereport(ERROR,
+						(errmsg("could not convert locale name \"%s\" to language tag",
+								name)));
 			iculocstr = U_ICU_VERSION_MAJOR_NUM >= 54 ? langtag : name;
 
 			/*
@@ -995,4 +1021,37 @@ pg_import_system_collations(PG_FUNCTION_ARGS)
 #endif							/* ENUM_SYSTEM_LOCALE */
 
 	PG_RETURN_INT32(ncreated);
+}
+
+/*
+ * pg_icu_language_tag
+ *
+ * Return the BCP47 language tag representation of the given locale string.
+ */
+Datum
+pg_icu_language_tag(PG_FUNCTION_ARGS)
+{
+#ifdef USE_ICU
+	text	*locale_text = PG_GETARG_TEXT_PP(0);
+	bool	 validate	 = PG_GETARG_BOOL(1);
+	char	*locale_cstr = text_to_cstring(locale_text);
+	char	*langtag	 = icu_language_tag(locale_cstr);
+
+	if (langtag == NULL)
+		ereport(ERROR,
+				(errmsg("could not convert locale \"%s\" to language tag",
+						locale_cstr)));
+
+	if (validate && !icu_collator_exists(langtag))
+		ereport(ERROR,
+				(errmsg("ICU collator for language tag \"%s\" not found",
+						langtag)));
+
+	PG_RETURN_TEXT_P(cstring_to_text(langtag));
+#else
+	ereport(ERROR,
+			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			 errmsg("ICU is not supported in this build")));
+	PG_RETURN_NULL();
+#endif
 }

@@ -9776,6 +9776,22 @@ SET XML OPTION { DOCUMENT | CONTENT };
       </listitem>
      </varlistentry>
 
+     <varlistentry id="guc-icu-locale-validation" xreflabel="icu_locale_validation">
+      <term><varname>icu_locale_validation</varname> (<type>boolean</type>)
+      <indexterm>
+       <primary><varname>icu_locale_validation</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        If set to <literal>true</literal>, validates that ICU locale strings
+        are well-formed, and that they represent valid locale in ICU. Does not
+        cause any locale string to be rejected during <xref
+        linkend="pgupgrade"/>. The default is <literal>false</literal>.
+       </para>
+      </listitem>
+     </varlistentry>
+
      <varlistentry id="guc-default-text-search-config" xreflabel="default_text_search_config">
       <term><varname>default_text_search_config</varname> (<type>string</type>)
       <indexterm>

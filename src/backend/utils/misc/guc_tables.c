@@ -481,6 +481,7 @@ char	   *event_source;
 
 bool		row_security;
 bool		check_function_bodies = true;
+bool		icu_locale_validation = false;
 
 /*
  * This GUC exists solely for backward compatibility, check its definition for
@@ -1584,6 +1585,15 @@ struct config_bool ConfigureNamesBool[] =
 		},
 		&check_function_bodies,
 		true,
+		NULL, NULL, NULL
+	},
+	{
+		{"icu_locale_validation", PGC_SUSET, CLIENT_CONN_LOCALE,
+			gettext_noop("Validate ICU locale strings."),
+			NULL
+		},
+		&icu_locale_validation,
+		false,
 		NULL, NULL, NULL
 	},
 	{

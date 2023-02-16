@@ -27406,6 +27406,23 @@ postgres=# SELECT '0/0'::pg_lsn + pd.segment_number * ps.setting::int + :offset 
         Use of this function is restricted to superusers.
        </para></entry>
       </row>
+
+      <row>
+       <entry role="func_table_entry"><para role="func_signature">
+        <indexterm>
+         <primary>pg_icu_language_tag</primary>
+        </indexterm>
+        <function>pg_icu_language_tag</function> ( <parameter>locale</parameter> <type>text</type>, <parameter>validate</parameter> <type>boolean</type> )
+        <returnvalue>text</returnvalue>
+       </para>
+       <para>
+        Canonicalizes the given <parameter>locale</parameter> string into a
+        BCP 47 language tag (see <xref
+        linkend="collation-managing-create-icu"/>). If
+        <parameter>validate</parameter> is <literal>true</literal>, check that
+        the resulting language tag represents a valid locale in ICU.
+       </para></entry>
+      </row>
      </tbody>
     </tgroup>
    </table>

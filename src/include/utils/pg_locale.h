@@ -118,8 +118,12 @@ extern size_t pg_strnxfrm_prefix(char *dest, size_t destsize, const char *src,
 #ifdef USE_ICU
 extern int32_t icu_to_uchar(UChar **buff_uchar, const char *buff, size_t nbytes);
 extern int32_t icu_from_uchar(char **result, const UChar *buff_uchar, int32_t len_uchar);
+extern bool check_equivalent_icu_locales(const char *locale1,
+										 const char *locale2);
 #endif
 extern void check_icu_locale(const char *icu_locale);
+extern bool icu_collator_exists(const char *requested_locale);
+extern char *icu_language_tag(const char *requested_locale);
 
 /* These functions convert from/to libc's wchar_t, *not* pg_wchar_t */
 extern size_t wchar2char(char *to, const wchar_t *from, size_t tolen,

@@ -15,6 +15,17 @@ SET client_encoding TO UTF8;
 CREATE SCHEMA collate_tests;
 SET search_path = collate_tests;
 
+-- test language tag canonicalization
+SELECT pg_icu_language_tag('en_US', true);
+SELECT pg_icu_language_tag('nonsense', false);
+SELECT pg_icu_language_tag('nonsense', true); -- error
+SELECT pg_icu_language_tag('C.UTF-8', true);
+SELECT pg_icu_language_tag('POSIX', true);
+SELECT pg_icu_language_tag('en_US_POSIX', true);
+SELECT pg_icu_language_tag('@colStrength=secondary', true);
+SELECT pg_icu_language_tag('', true);
+SELECT pg_icu_language_tag('fr_CA.UTF-8', true);
+SELECT pg_icu_language_tag('en_US@colStrength=primary', true);
 
 CREATE TABLE collate_test1 (
     a int,
@@ -357,6 +368,8 @@ CREATE ROLE regress_test_role;
 CREATE SCHEMA test_schema;
 
 -- We need to do this this way to cope with varying names for encodings:
+SET client_min_messages TO WARNING;
+
 do $$
 BEGIN
   EXECUTE 'CREATE COLLATION test0 (provider = icu, locale = ' ||
@@ -370,8 +383,17 @@ BEGIN
           quote_literal(current_setting('lc_collate')) || ');';
 END
 $$;
+
+RESET client_min_messages;
+
 CREATE COLLATION test3 (provider = icu, lc_collate = 'en_US.utf8'); -- fail, needs "locale"
-CREATE COLLATION testx (provider = icu, locale = 'nonsense'); /* never fails with ICU */  DROP COLLATION testx;
+
+SET icu_locale_validation = TRUE;
+CREATE COLLATION testx (provider = icu, locale = 'nonsense'); -- fails
+RESET icu_locale_validation;
+CREATE COLLATION testx (provider = icu, locale = 'nonsense@colStrength=primary');
+SELECT colliculocale FROM pg_collation WHERE collname='testx';
+DROP COLLATION testx;
 
 CREATE COLLATION test4 FROM nonsense;
 CREATE COLLATION test5 FROM test0;

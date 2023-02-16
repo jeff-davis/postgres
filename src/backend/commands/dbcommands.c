@@ -109,6 +109,7 @@ typedef struct CreateDBRelInfo
 	bool		permanent;		/* relation is permanent or unlogged */
 } CreateDBRelInfo;
 
+extern bool icu_locale_validation;
 
 /* non-export function prototypes */
 static void createdb_failure_callback(int code, Datum arg);
@@ -1029,6 +1030,9 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 
 	if (dblocprovider == COLLPROVIDER_ICU)
 	{
+#ifdef USE_ICU
+		char	*langtag;
+
 		if (!(is_encoding_supported_by_icu(encoding)))
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -1045,6 +1049,41 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 					 errmsg("ICU locale must be specified")));
 
 		check_icu_locale(dbiculocale);
+
+		/*
+		 * During binary upgrade, preserve locale string verbatim. Otherwise,
+		 * canonicalize to a language tag.
+		 */
+		if (!IsBinaryUpgrade)
+		{
+			int elevel = icu_locale_validation ? ERROR : WARNING;
+
+			langtag = icu_language_tag(dbiculocale);
+			if (langtag)
+			{
+				ereport(NOTICE,
+						(errmsg("using language tag \"%s\" for locale \"%s\"",
+								langtag, dbiculocale)));
+
+				if (!icu_collator_exists(langtag))
+					ereport(elevel,
+							(errmsg("ICU collator for language tag \"%s\" not found",
+									langtag)));
+
+				dbiculocale = langtag;
+			}
+			else
+			{
+				ereport(elevel,
+						(errmsg("could not convert locale \"%s\" to language tag",
+								dbiculocale)));
+			}
+		}
+#else
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("ICU is not supported in this build")));
+#endif
 	}
 	else
 	{

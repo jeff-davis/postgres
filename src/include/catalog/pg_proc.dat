@@ -11806,6 +11806,11 @@
   proname => 'pg_database_collation_actual_version', procost => '100',
   provolatile => 'v', prorettype => 'text', proargtypes => 'oid',
   prosrc => 'pg_database_collation_actual_version' },
+{ oid => '6273',
+  descr => 'get BCP47 language tag representation of locale',
+  proname => 'pg_icu_language_tag', procost => '100',
+  provolatile => 's', prorettype => 'text', proargtypes => 'text bool',
+  prosrc => 'pg_icu_language_tag' },
 
 # system management/monitoring related functions
 { oid => '3353', descr => 'list files in the log directory',
