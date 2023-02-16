@@ -1029,6 +1029,9 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 
 	if (dblocprovider == COLLPROVIDER_ICU)
 	{
+#ifdef USE_ICU
+		char *iculocale;
+
 		if (!(is_encoding_supported_by_icu(encoding)))
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -1045,6 +1048,14 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 					 errmsg("ICU locale must be specified")));
 
 		check_icu_locale(dbiculocale);
+		iculocale = get_icu_locale(dbiculocale);
+		if (iculocale)
+			dbiculocale = iculocale;
+#else
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("ICU is not supported in this build")));
+#endif
 	}
 	else
 	{
@@ -1461,6 +1472,53 @@ check_encoding_locale_matches(int encoding, const char *collate, const char *cty
 						collate),
 				 errdetail("The chosen LC_COLLATE setting requires encoding \"%s\".",
 						   pg_encoding_to_char(collate_encoding))));
+}
+
+/*
+ * Given the input ICU locale string, return a new string in a form suitable
+ * for storing in the catalog.
+ *
+ * Ordinarily this just converts to a language tag, but we need to make an
+ * allowance for invalid locale strings that come from earlier versions of
+ * Postgres while upgrading.
+ *
+ * Converting to a language tag performs "level 2 canonicalization". In
+ * addition to producing a consistent result format, level 2 canonicalization
+ * is able to more accurately interpret different input locale string formats,
+ * such as POSIX and .NET IDs. But prior to Postgres version 16, input locale
+ * strings were not canonicalized; the raw string provided by the user was
+ * stored in the catalog and passed directly to ucol_open().
+ *
+ * The raw string may resolve to the wrong actual collator when passed to
+ * directly ucol_open(), but indexes in older versions may depend on that
+ * actual collator. Therefore, during binary upgrade, we preserve the invalid
+ * raw string if it resolves to a different actual collator than the language
+ * tag. If it resolves to the same actual collator, then we proceed using the
+ * language tag.
+ */
+char *
+get_icu_locale(const char *requested_locale)
+{
+#ifdef USE_ICU
+	char *lang_tag = icu_language_tag(requested_locale);
+
+	if (lang_tag != NULL && IsBinaryUpgrade &&
+		!check_equivalent_icu_locales(requested_locale, lang_tag))
+	{
+		ereport(WARNING,
+				(errmsg("language tag \"%s\" resolves to different actual collator "
+						"than raw locale string \"%s\"",
+						lang_tag, requested_locale)));
+		pfree(lang_tag);
+		return pstrdup(requested_locale);
+	}
+
+	return lang_tag;
+#else
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("ICU is not supported in this build")));
+#endif
 }
 
 /* Error cleanup callback for createdb */

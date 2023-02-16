@@ -1945,15 +1945,12 @@ icu_set_collation_attributes(UCollator *collator, const char *loc)
 	}
 }
 
-#endif							/* USE_ICU */
-
 /*
  * Check if the given locale ID is valid, and ereport(ERROR) if it isn't.
  */
 void
 check_icu_locale(const char *icu_locale)
 {
-#ifdef USE_ICU
 	UCollator  *collator;
 	UErrorCode	status;
 
@@ -1967,12 +1964,138 @@ check_icu_locale(const char *icu_locale)
 	if (U_ICU_VERSION_MAJOR_NUM < 54)
 		icu_set_collation_attributes(collator, icu_locale);
 	ucol_close(collator);
-#else
-	ereport(ERROR,
-			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			 errmsg("ICU is not supported in this build")));
-#endif
 }
+
+/*
+ * Test if the given locales resolve to the same actual collator with the same
+ * attributes and version.
+ */
+bool
+check_equivalent_icu_locales(const char *locale1, const char *locale2)
+{
+	const UColAttribute collAtt[]	   = {
+		UCOL_FRENCH_COLLATION,
+		UCOL_ALTERNATE_HANDLING,
+		UCOL_CASE_FIRST,
+		UCOL_CASE_LEVEL,
+		UCOL_NORMALIZATION_MODE,
+		UCOL_DECOMPOSITION_MODE,
+		UCOL_STRENGTH,
+		UCOL_HIRAGANA_QUATERNARY_MODE,
+		UCOL_NUMERIC_COLLATION};
+	int              n_collAtt		   = sizeof(collAtt)/sizeof(*collAtt);
+	const char		*actual1, *actual2;
+	UVersionInfo     versionInfo1;
+	UVersionInfo	 versionInfo2;
+	char             version1[U_MAX_VERSION_STRING_LENGTH];
+	char             version2[U_MAX_VERSION_STRING_LENGTH];
+	UCollator		*collator1		   = NULL;
+	UCollator		*collator2		   = NULL;
+	UErrorCode		 status;
+	bool			 result			   = false;
+
+	/*
+	 * Be careful not to return without closing the collators.
+	 */
+
+	status = U_ZERO_ERROR;
+	collator1 = ucol_open(locale1, &status);
+	if (U_FAILURE(status))
+		goto cleanup;
+
+	status = U_ZERO_ERROR;
+	collator2 = ucol_open(locale2, &status);
+	if (U_FAILURE(status))
+		goto cleanup;
+
+	/* actual locale */
+	status = U_ZERO_ERROR;
+	actual1 = ucol_getLocaleByType(collator1, ULOC_ACTUAL_LOCALE, &status);
+	if (U_FAILURE(status))
+		goto cleanup;
+
+	status = U_ZERO_ERROR;
+	actual2 = ucol_getLocaleByType(collator2, ULOC_ACTUAL_LOCALE, &status);
+	if (U_FAILURE(status))
+		goto cleanup;
+
+	if (strcmp(actual1, actual2) != 0)
+		goto cleanup;
+
+	/* version */
+	ucol_getVersion(collator1, versionInfo1);
+	u_versionToString(versionInfo1, version1);
+	ucol_getVersion(collator2, versionInfo2);
+	u_versionToString(versionInfo2, version2);
+	if (strcmp(version1, version2) != 0)
+		goto cleanup;
+
+	/* attributes */
+	for (int i = 0; i < n_collAtt; i++)
+	{
+		UColAttributeValue val1, val2;
+
+		status = U_ZERO_ERROR;
+		val1 = ucol_getAttribute(collator1, collAtt[i], &status);
+		if (U_FAILURE(status))
+			goto cleanup;
+
+		status = U_ZERO_ERROR;
+		val2 = ucol_getAttribute(collator2, collAtt[i], &status);
+		if (U_FAILURE(status))
+			goto cleanup;
+
+		if (val1 != val2)
+			goto cleanup;
+	}
+
+	/* passed all the best-effort checks for equivalence */
+	result = true;
+
+cleanup:
+	if (collator2)
+		ucol_close(collator2);
+	if (collator1)
+		ucol_close(collator1);
+
+	return result;
+}
+
+/*
+ * Return the BCP47 language tag representation of the requested locale; or
+ * NULL if a problem is encountered.
+ *
+ * This function should be called before passing the string to ucol_open(),
+ * because conversion to a language tag also performs "level 2
+ * canonicalization". In addition to producing a consistent result format,
+ * level 2 canonicalization is able to more accurately interpret different
+ * input locale string formats, such as POSIX and .NET IDs.
+ */
+char *
+icu_language_tag(const char *requested_locale)
+{
+	UErrorCode	 status;
+	char		*result;
+	int32_t		 len;
+	const bool	 strict = true;
+
+	status = U_ZERO_ERROR;
+	len = uloc_toLanguageTag(requested_locale, NULL, 0, strict, &status);
+
+	result = palloc(len + 1);
+
+	status = U_ZERO_ERROR;
+	uloc_toLanguageTag(requested_locale, result, len + 1, strict, &status);
+	if (U_FAILURE(status))
+	{
+		pfree(result);
+		return NULL;
+	}
+
+	return result;
+}
+
+#endif							/* USE_ICU */
 
 /*
  * These functions convert from/to libc's wchar_t, *not* pg_wchar_t.

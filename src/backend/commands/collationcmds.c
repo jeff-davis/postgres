@@ -240,10 +240,23 @@ DefineCollation(ParseState *pstate, List *names, List *parameters, bool if_not_e
 		}
 		else if (collprovider == COLLPROVIDER_ICU)
 		{
+#ifdef USE_ICU
+			char *iculocale;
+
 			if (!colliculocale)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
 						 errmsg("parameter \"locale\" must be specified")));
+
+			check_icu_locale(colliculocale);
+			iculocale = get_icu_locale(colliculocale);
+			if (iculocale)
+				colliculocale = iculocale;
+#else
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("ICU is not supported in this build")));
+#endif
 		}
 
 		/*
@@ -556,26 +569,6 @@ cmpaliases(const void *a, const void *b)
 
 
 #ifdef USE_ICU
-/*
- * Get the ICU language tag for a locale name.
- * The result is a palloc'd string.
- */
-static char *
-get_icu_language_tag(const char *localename)
-{
-	char		buf[ULOC_FULLNAME_CAPACITY];
-	UErrorCode	status;
-
-	status = U_ZERO_ERROR;
-	uloc_toLanguageTag(localename, buf, sizeof(buf), true, &status);
-	if (U_FAILURE(status))
-		ereport(ERROR,
-				(errmsg("could not convert locale name \"%s\" to language tag: %s",
-						localename, u_errorName(status))));
-
-	return pstrdup(buf);
-}
-
 /*
  * Get a comment (specifically, the display name) for an ICU locale.
  * The result is a palloc'd string, or NULL if we can't get a comment
@@ -938,7 +931,11 @@ pg_import_system_collations(PG_FUNCTION_ARGS)
 			else
 				name = uloc_getAvailable(i);
 
-			langtag = get_icu_language_tag(name);
+			langtag = icu_language_tag(name);
+			if (langtag == NULL)
+				ereport(ERROR,
+						(errmsg("could not convert locale name \"%s\" to language tag",
+								name)));
 			iculocstr = U_ICU_VERSION_MAJOR_NUM >= 54 ? langtag : name;
 
 			/*
