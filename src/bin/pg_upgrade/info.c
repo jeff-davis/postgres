@@ -20,6 +20,7 @@ static void create_rel_filename_map(const char *old_data, const char *new_data,
 static void report_unmatched_relation(const RelInfo *rel, const DbInfo *db,
 									  bool is_new_db);
 static void free_db_and_rel_infos(DbInfoArr *db_arr);
+static void get_template0_info(ClusterInfo *cluster);
 static void get_db_infos(ClusterInfo *cluster);
 static void get_rel_infos(ClusterInfo *cluster, DbInfo *dbinfo);
 static void free_rel_infos(RelInfoArr *rel_arr);
@@ -278,6 +279,7 @@ get_db_and_rel_infos(ClusterInfo *cluster)
 	if (cluster->dbarr.dbs != NULL)
 		free_db_and_rel_infos(&cluster->dbarr);
 
+	get_template0_info(cluster);
 	get_db_infos(cluster);
 
 	for (dbnum = 0; dbnum < cluster->dbarr.ndbs; dbnum++)
@@ -290,6 +292,54 @@ get_db_and_rel_infos(ClusterInfo *cluster)
 
 	if (log_opts.verbose)
 		print_db_infos(&cluster->dbarr);
+}
+
+
+/*
+ * Get information about template0, which will be copied from the old cluster
+ * to the new cluster.
+ */
+static void
+get_template0_info(ClusterInfo *cluster)
+{
+	PGconn		*conn = connectToServer(cluster, "template1");
+	DbInfo		*dbinfo;
+	PGresult	*dbres;
+	int			 i_datencoding;
+	int			 i_datlocprovider;
+	int			 i_datcollate;
+	int			 i_datctype;
+	int			 i_daticulocale;
+
+	dbres = executeQueryOrDie(conn,
+							  "SELECT encoding, datlocprovider, "
+							  "       datcollate, datctype, daticulocale "
+							  "FROM	pg_catalog.pg_database "
+							  "WHERE datname='template0'");
+
+	if (PQntuples(dbres) != 1)
+		pg_fatal("template0 not found");
+
+	cluster->template0 = pg_malloc(sizeof(DbInfo));
+	dbinfo = cluster->template0;
+
+	i_datencoding = PQfnumber(dbres, "encoding");
+	i_datlocprovider = PQfnumber(dbres, "datlocprovider");
+	i_datcollate = PQfnumber(dbres, "datcollate");
+	i_datctype = PQfnumber(dbres, "datctype");
+	i_daticulocale = PQfnumber(dbres, "daticulocale");
+
+	dbinfo->db_encoding = atoi(PQgetvalue(dbres, 0, i_datencoding));
+	dbinfo->db_collprovider = PQgetvalue(dbres, 0, i_datlocprovider)[0];
+	dbinfo->db_collate = pg_strdup(PQgetvalue(dbres, 0, i_datcollate));
+	dbinfo->db_ctype = pg_strdup(PQgetvalue(dbres, 0, i_datctype));
+	if (PQgetisnull(dbres, 0, i_daticulocale))
+		dbinfo->db_iculocale = NULL;
+	else
+		dbinfo->db_iculocale = pg_strdup(PQgetvalue(dbres, 0, i_daticulocale));
+
+	PQclear(dbres);
+	PQfinish(conn);
 }
 
 

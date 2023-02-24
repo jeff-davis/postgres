@@ -252,6 +252,7 @@ typedef enum
 typedef struct
 {
 	ControlData controldata;	/* pg_control information */
+	DbInfo	   *template0;		/* template0 info */
 	DbInfoArr	dbarr;			/* dbinfos array */
 	char	   *pgdata;			/* pathname for cluster's $PGDATA directory */
 	char	   *pgconfig;		/* pathname for cluster's config file
