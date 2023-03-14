@@ -2643,9 +2643,28 @@ pg_attribute_unused()
 static void
 icu_set_collation_attributes(UCollator *collator, const char *loc)
 {
-	char	   *str = asc_tolower(loc, strlen(loc));
+	UErrorCode	status;
+	int32_t		len;
+	char	   *icu_locale_id;
+	char	   *lower_str;
+	char	   *str;
 
-	str = strchr(str, '@');
+	/* first, make sure the string is an ICU format locale ID */
+	status = U_ZERO_ERROR;
+	len = uloc_canonicalize(loc, NULL, 0, &status);
+	icu_locale_id = palloc(len + 1);
+	status = U_ZERO_ERROR;
+	len = uloc_canonicalize(loc, icu_locale_id, len + 1, &status);
+	if (U_FAILURE(status))
+		ereport(ERROR,
+				(errmsg("canonicalization failed for locale string \"%s\": %s",
+						loc, u_errorName(status))));
+
+	lower_str = asc_tolower(icu_locale_id, strlen(icu_locale_id));
+
+	pfree(icu_locale_id);
+
+	str = strchr(lower_str, '@');
 	if (!str)
 		return;
 	str++;
@@ -2660,7 +2679,6 @@ icu_set_collation_attributes(UCollator *collator, const char *loc)
 			char	   *value;
 			UColAttribute uattr;
 			UColAttributeValue uvalue;
-			UErrorCode	status;
 
 			status = U_ZERO_ERROR;
 
@@ -2727,6 +2745,8 @@ icu_set_collation_attributes(UCollator *collator, const char *loc)
 								loc, u_errorName(status))));
 		}
 	}
+
+	pfree(lower_str);
 }
 
 #endif							/* USE_ICU */
