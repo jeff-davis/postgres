@@ -2799,27 +2799,18 @@ icu_set_collation_attributes(UCollator *collator, const char *loc)
 }
 #endif
 
-#endif							/* USE_ICU */
-
 /*
  * Check if the given locale ID is valid, and ereport(ERROR) if it isn't.
  */
 void
 check_icu_locale(const char *icu_locale)
 {
-#ifdef USE_ICU
 	UCollator  *collator;
 
 	collator = pg_ucol_open(icu_locale);
 	ucol_close(collator);
-#else
-	ereport(ERROR,
-			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			 errmsg("ICU is not supported in this build")));
-#endif
 }
 
-#ifdef USE_ICU
 /*
  * Return the BCP47 language tag representation of the requested locale.
  *
