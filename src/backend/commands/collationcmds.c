@@ -577,26 +577,6 @@ cmpaliases(const void *a, const void *b)
 
 #ifdef USE_ICU
 /*
- * Get the ICU language tag for a locale name.
- * The result is a palloc'd string.
- */
-static char *
-get_icu_language_tag(const char *localename)
-{
-	char		buf[ULOC_FULLNAME_CAPACITY];
-	UErrorCode	status;
-
-	status = U_ZERO_ERROR;
-	uloc_toLanguageTag(localename, buf, sizeof(buf), true, &status);
-	if (U_FAILURE(status))
-		ereport(ERROR,
-				(errmsg("could not convert locale name \"%s\" to language tag: %s",
-						localename, u_errorName(status))));
-
-	return pstrdup(buf);
-}
-
-/*
  * Get a comment (specifically, the display name) for an ICU locale.
  * The result is a palloc'd string, or NULL if we can't get a comment
  * or find that it's not all ASCII.  (We can *not* accept non-ASCII
@@ -957,7 +937,7 @@ pg_import_system_collations(PG_FUNCTION_ARGS)
 			else
 				name = uloc_getAvailable(i);
 
-			langtag = get_icu_language_tag(name);
+			langtag = icu_language_tag(name, false);
 
 			/*
 			 * Be paranoid about not allowing any non-ASCII strings into
@@ -1013,4 +993,26 @@ pg_import_system_collations(PG_FUNCTION_ARGS)
 #endif							/* ENUM_SYSTEM_LOCALE */
 
 	PG_RETURN_INT32(ncreated);
+}
+
+/*
+ * pg_language_tag
+ *
+ * Return the BCP47 language tag representation of the given locale string.
+ */
+Datum
+pg_language_tag(PG_FUNCTION_ARGS)
+{
+#ifdef USE_ICU
+	text	*locale_text = PG_GETARG_TEXT_PP(0);
+	char	*locale_cstr = text_to_cstring(locale_text);
+	char	*langtag	 = icu_language_tag(locale_cstr, false);
+
+	PG_RETURN_TEXT_P(cstring_to_text(langtag));
+#else
+	ereport(ERROR,
+			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			 errmsg("ICU is not supported in this build")));
+	PG_RETURN_NULL();
+#endif
 }

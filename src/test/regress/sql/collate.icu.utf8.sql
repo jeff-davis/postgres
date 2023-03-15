@@ -15,6 +15,16 @@ SET client_encoding TO UTF8;
 CREATE SCHEMA collate_tests;
 SET search_path = collate_tests;
 
+-- test language tag canonicalization
+SELECT pg_language_tag('en_US');
+SELECT pg_language_tag('nonsense');
+SELECT pg_language_tag('C.UTF-8');
+SELECT pg_language_tag('POSIX');
+SELECT pg_language_tag('en_US_POSIX');
+SELECT pg_language_tag('@colStrength=secondary');
+SELECT pg_language_tag('');
+SELECT pg_language_tag('fr_CA.UTF-8');
+SELECT pg_language_tag('en_US@colStrength=primary');
 
 CREATE TABLE collate_test1 (
     a int,
