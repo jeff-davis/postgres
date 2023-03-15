@@ -1059,8 +1059,33 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("ICU locale must be specified")));
 
+		/*
+		 * During binary upgrade, or when the locale came from the template
+		 * database, preserve locale string. Otherwise, canonicalize to a
+		 * language tag.
+		 */
 		if (!IsBinaryUpgrade && dbiculocale != src_iculocale)
+		{
+			char *langtag = icu_language_tag(dbiculocale,
+											 icu_validation_level);
+
+			if (langtag)
+			{
+				ereport(NOTICE,
+						(errmsg("using language tag \"%s\" for locale \"%s\"",
+								langtag, dbiculocale)));
+
+				dbiculocale = langtag;
+			}
+			else
+			{
+				ereport(WARNING,
+						(errmsg("could not convert locale \"%s\" to language tag",
+								dbiculocale)));
+			}
+
 			icu_validate_locale(dbiculocale);
+		}
 
 #else
 		ereport(ERROR,
