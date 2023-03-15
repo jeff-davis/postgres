@@ -1422,11 +1422,43 @@ lc_ctype_is_c(Oid collation)
 
 struct pg_locale_struct default_locale;
 
+#ifdef USE_ICU
+
 static UCollator *
 pg_ucol_open(const char *loc_str)
 {
 	UCollator  *collator;
 	UErrorCode	status;
+
+	/*
+	 * In ICU versions 55 and earlier, "und" is not a recognized spelling of
+	 * the root locale. If the first component of the locale is "und", replace
+	 * with "root" before opening.
+	 */
+#if U_ICU_VERSION_MAJOR_NUM < 55
+	char *fixed_str = NULL;
+	char  lang[ULOC_LANG_CAPACITY];
+
+	status = U_ZERO_ERROR;
+	uloc_getLanguage(loc_str, lang, ULOC_LANG_CAPACITY, &status);
+	if (U_FAILURE(status))
+	{
+		ereport(ERROR,
+				(errmsg("could not get language from locale \"%s\": %s",
+						loc_str, u_errorName(status))));
+	}
+
+	if (strcmp(lang, "und") == 0)
+	{
+		const char *remainder = loc_str + strlen("und");
+
+		fixed_str = palloc(strlen("root") + strlen(remainder) + 1);
+		strcpy(fixed_str, "root");
+		strcat(fixed_str, remainder);
+
+		loc_str = fixed_str;
+	}
+#endif
 
 	status = U_ZERO_ERROR;
 	collator = ucol_open(loc_str, &status);
@@ -1439,8 +1471,15 @@ pg_ucol_open(const char *loc_str)
 	icu_set_collation_attributes(collator, loc_str);
 #endif
 
+#if U_ICU_VERSION_MAJOR_NUM < 55
+	if (fixed_str != NULL)
+		pfree(fixed_str);
+#endif
+
 	return collator;
 }
+
+#endif
 
 void
 make_icu_collator(const char *iculocstr,
