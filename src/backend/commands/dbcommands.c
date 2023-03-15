@@ -1043,6 +1043,9 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 
 	if (dblocprovider == COLLPROVIDER_ICU)
 	{
+#ifdef USE_ICU
+		char	*langtag;
+
 		if (!(is_encoding_supported_by_icu(encoding)))
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -1058,7 +1061,36 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("ICU locale must be specified")));
 
+		/*
+		 * During binary upgrade, or when the locale came from the template
+		 * database, preserve locale string. Otherwise, canonicalize to a
+		 * language tag.
+		 */
+		if (!IsBinaryUpgrade && dbiculocale != src_iculocale)
+		{
+			langtag = icu_language_tag(dbiculocale, WARNING);
+			if (langtag)
+			{
+				ereport(NOTICE,
+						(errmsg("using language tag \"%s\" for locale \"%s\"",
+								langtag, dbiculocale)));
+
+				dbiculocale = langtag;
+			}
+			else
+			{
+				ereport(WARNING,
+						(errmsg("could not convert locale \"%s\" to language tag",
+								dbiculocale)));
+			}
+		}
+
 		check_icu_locale(dbiculocale);
+#else
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("ICU is not supported in this build")));
+#endif
 	}
 	else
 	{
