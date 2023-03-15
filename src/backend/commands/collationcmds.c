@@ -165,6 +165,11 @@ DefineCollation(ParseState *pstate, List *names, List *parameters, bool if_not_e
 		else
 			colliculocale = NULL;
 
+		/*
+		 * When the ICU locale comes from an existing collation, do not
+		 * canonicalize to a language tag.
+		 */
+
 		datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collicurules, &isnull);
 		if (!isnull)
 			collicurules = TextDatumGetCString(datum);
@@ -254,10 +259,43 @@ DefineCollation(ParseState *pstate, List *names, List *parameters, bool if_not_e
 		}
 		else if (collprovider == COLLPROVIDER_ICU)
 		{
+#ifdef USE_ICU
+			char	*langtag;
+
 			if (!colliculocale)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
 						 errmsg("parameter \"locale\" must be specified")));
+
+			check_icu_locale(colliculocale);
+
+			/*
+			 * During binary upgrade, preserve the locale string. Otherwise,
+			 * canonicalize to a language tag.
+			 */
+			if (!IsBinaryUpgrade)
+			{
+				langtag = icu_language_tag(colliculocale, true);
+				if (langtag)
+				{
+					ereport(NOTICE,
+							(errmsg("using language tag \"%s\" for locale \"%s\"",
+									langtag, colliculocale)));
+
+					colliculocale = langtag;
+				}
+				else
+				{
+					ereport(WARNING,
+							(errmsg("could not convert locale \"%s\" to language tag",
+									colliculocale)));
+				}
+			}
+#else
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("ICU is not supported in this build")));
+#endif
 		}
 
 		/*
