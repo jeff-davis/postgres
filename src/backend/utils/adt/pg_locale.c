@@ -143,7 +143,9 @@ static size_t uchar_length(UConverter *converter,
 static int32_t uchar_convert(UConverter *converter,
 							 UChar *dest, int32_t destlen,
 							 const char *str, int32_t srclen);
+#if U_ICU_VERSION_MAJOR_NUM < 54
 static void icu_set_collation_attributes(UCollator *collator, const char *loc);
+#endif
 #endif
 
 /*
@@ -1420,6 +1422,26 @@ lc_ctype_is_c(Oid collation)
 
 struct pg_locale_struct default_locale;
 
+static UCollator *
+pg_ucol_open(const char *loc_str)
+{
+	UCollator  *collator;
+	UErrorCode	status;
+
+	status = U_ZERO_ERROR;
+	collator = ucol_open(loc_str, &status);
+	if (U_FAILURE(status))
+		ereport(ERROR,
+				(errmsg("could not open collator for locale \"%s\": %s",
+						loc_str, u_errorName(status))));
+
+#if U_ICU_VERSION_MAJOR_NUM < 54
+	icu_set_collation_attributes(collator, loc_str);
+#endif
+
+	return collator;
+}
+
 void
 make_icu_collator(const char *iculocstr,
 				  const char *icurules,
@@ -1427,17 +1449,8 @@ make_icu_collator(const char *iculocstr,
 {
 #ifdef USE_ICU
 	UCollator  *collator;
-	UErrorCode	status;
 
-	status = U_ZERO_ERROR;
-	collator = ucol_open(iculocstr, &status);
-	if (U_FAILURE(status))
-		ereport(ERROR,
-				(errmsg("could not open collator for locale \"%s\": %s",
-						iculocstr, u_errorName(status))));
-
-	if (U_ICU_VERSION_MAJOR_NUM < 54)
-		icu_set_collation_attributes(collator, iculocstr);
+	collator = pg_ucol_open(iculocstr);
 
 	/*
 	 * If rules are specified, we extract the rules of the standard collation,
@@ -1448,6 +1461,7 @@ make_icu_collator(const char *iculocstr,
 		const UChar *default_rules;
 		UChar	   *agg_rules;
 		UChar	   *my_rules;
+		UErrorCode	status;
 		int32_t		length;
 
 		default_rules = ucol_getRules(collator, &length);
@@ -1719,16 +1733,11 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 	if (collprovider == COLLPROVIDER_ICU)
 	{
 		UCollator  *collator;
-		UErrorCode	status;
 		UVersionInfo versioninfo;
 		char		buf[U_MAX_VERSION_STRING_LENGTH];
 
-		status = U_ZERO_ERROR;
-		collator = ucol_open(collcollate, &status);
-		if (U_FAILURE(status))
-			ereport(ERROR,
-					(errmsg("could not open collator for locale \"%s\": %s",
-							collcollate, u_errorName(status))));
+		collator = pg_ucol_open(collcollate);
+
 		ucol_getVersion(collator, versioninfo);
 		ucol_close(collator);
 
@@ -2639,6 +2648,7 @@ icu_from_uchar(char **result, const UChar *buff_uchar, int32_t len_uchar)
  * ucol_open(), so this is only necessary for emulating this behavior on older
  * versions.
  */
+#if U_ICU_VERSION_MAJOR_NUM < 54
 pg_attribute_unused()
 static void
 icu_set_collation_attributes(UCollator *collator, const char *loc)
@@ -2748,6 +2758,7 @@ icu_set_collation_attributes(UCollator *collator, const char *loc)
 
 	pfree(lower_str);
 }
+#endif
 
 #endif							/* USE_ICU */
 
@@ -2759,17 +2770,8 @@ check_icu_locale(const char *icu_locale)
 {
 #ifdef USE_ICU
 	UCollator  *collator;
-	UErrorCode	status;
 
-	status = U_ZERO_ERROR;
-	collator = ucol_open(icu_locale, &status);
-	if (U_FAILURE(status))
-		ereport(ERROR,
-				(errmsg("could not open collator for locale \"%s\": %s",
-						icu_locale, u_errorName(status))));
-
-	if (U_ICU_VERSION_MAJOR_NUM < 54)
-		icu_set_collation_attributes(collator, icu_locale);
+	collator = pg_ucol_open(icu_locale);
 	ucol_close(collator);
 #else
 	ereport(ERROR,
