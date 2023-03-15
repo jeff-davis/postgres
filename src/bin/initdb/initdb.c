@@ -2039,6 +2039,50 @@ check_icu_locale_encoding(int user_enc)
 	return true;
 }
 
+#ifdef USE_ICU
+/*
+ * Convert to canonical BCP47 language tag. Must be consistent with
+ * icu_language_tag().
+ */
+static char *
+icu_language_tag(const char *loc_str)
+{
+	UErrorCode	 status;
+	char		*langtag;
+	size_t		 buflen = 32;	/* arbitrary starting buffer size */
+	const bool	 strict = true;
+
+	/* C/POSIX locales aren't handled by uloc_getLanguageTag() */
+	if ((pg_strncasecmp(loc_str, "c", 1) == 0 && !isalnum(loc_str[1])) ||
+		(pg_strncasecmp(loc_str, "posix", 5) == 0 && !isalnum(loc_str[5])))
+		return pstrdup("en-US-u-va-posix");
+
+	langtag = pg_malloc(buflen);
+	while (true)
+	{
+		int32_t		len;
+
+		status = U_ZERO_ERROR;
+		len = uloc_toLanguageTag(loc_str, langtag, buflen, strict, &status);
+		if (len < buflen)
+			break;
+
+		buflen = buflen * 2;
+		langtag = pg_realloc(langtag, buflen);
+	}
+
+	if (U_FAILURE(status))
+	{
+		pg_free(langtag);
+
+		pg_fatal("could not convert locale name \"%s\" to language tag: %s",
+				 loc_str, u_errorName(status));
+	}
+
+	return langtag;
+}
+#endif
+
 /*
  * Check that ICU accepts the locale name; or if not specified, retrieve the
  * default ICU locale.
@@ -2049,6 +2093,7 @@ check_icu_locale(void)
 #ifdef USE_ICU
 	UCollator	*collator;
 	UErrorCode   status;
+	char		*langtag;
 
 	status = U_ZERO_ERROR;
 	collator = ucol_open(icu_locale, &status);
@@ -2080,6 +2125,10 @@ check_icu_locale(void)
 	}
 
 	ucol_close(collator);
+
+	langtag = icu_language_tag(icu_locale);
+	pg_free(icu_locale);
+	icu_locale = langtag;
 #endif
 }
 
