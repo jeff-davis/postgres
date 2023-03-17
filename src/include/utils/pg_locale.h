@@ -120,6 +120,7 @@ extern size_t pg_strnxfrm_prefix(char *dest, size_t destsize, const char *src,
 extern int32_t icu_to_uchar(UChar **buff_uchar, const char *buff, size_t nbytes);
 extern int32_t icu_from_uchar(char **result, const UChar *buff_uchar, int32_t len_uchar);
 extern char *icu_language_tag(const char *loc_str, bool noError);
+extern void icu_validate_locale(const char *loc_str);
 #endif
 extern void check_icu_locale(const char *icu_locale);
 

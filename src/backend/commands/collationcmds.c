@@ -284,12 +284,8 @@ DefineCollation(ParseState *pstate, List *names, List *parameters, bool if_not_e
 
 					colliculocale = langtag;
 				}
-				else
-				{
-					ereport(WARNING,
-							(errmsg("could not convert locale \"%s\" to language tag",
-									colliculocale)));
-				}
+
+				icu_validate_locale(colliculocale);
 			}
 #else
 			ereport(ERROR,

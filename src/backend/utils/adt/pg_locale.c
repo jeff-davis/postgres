@@ -88,6 +88,7 @@
 
 #define		MAX_L10N_DATA		80
 
+extern bool icu_locale_validation;
 
 /* GUC settings */
 char	   *locale_messages;
@@ -2874,6 +2875,69 @@ icu_language_tag(const char *loc_str, bool noError)
 	}
 
 	return langtag;
+}
+
+/*
+ * Perform best-effort check that the locale is a valid one.
+ */
+void
+icu_validate_locale(const char *loc_str)
+{
+	UErrorCode	 status;
+	int			 elevel	 = icu_locale_validation ? ERROR : WARNING;
+	char		*langtag = icu_language_tag(loc_str, true);
+	char		 lang[ULOC_LANG_CAPACITY];
+
+	/* check that it can be converted to a language tag */
+	if (langtag == NULL)
+	{
+		ereport(elevel,
+				(errmsg("could not convert locale \"%s\" to language tag",
+						loc_str)));
+		return;
+	}
+	pfree(langtag);
+
+	/* validate that we can extract the language */
+	status = U_ZERO_ERROR;
+	uloc_getLanguage(loc_str, lang, ULOC_LANG_CAPACITY, &status);
+	if (U_FAILURE(status))
+	{
+		ereport(elevel,
+				(errmsg("could not get language from locale \"%s\": %s",
+						loc_str, u_errorName(status))));
+		return;
+	}
+
+	/* check for special languages */
+	if (strcmp(lang, "") == 0 ||
+		strcmp(lang, "root") == 0 || strcmp(lang, "und") == 0 ||
+		strcmp(lang, "c") == 0 || strcmp(lang, "posix") == 0)
+		return;
+
+	/* search for matching language within ICU */
+	for (int32_t i = 0; i < uloc_countAvailable(); i++)
+	{
+		const char	*otherloc = uloc_getAvailable(i);
+		char		 otherlang[ULOC_LANG_CAPACITY];
+
+		status = U_ZERO_ERROR;
+		uloc_getLanguage(otherloc, otherlang, ULOC_LANG_CAPACITY, &status);
+		if (U_FAILURE(status))
+		{
+			ereport(elevel,
+					(errmsg("could not get language from locale \"%s\": %s",
+							loc_str, u_errorName(status))));
+			continue;
+		}
+
+		if (strcmp(lang, otherlang) == 0)
+			return;
+	}
+
+	ereport(elevel,
+			(errmsg("language \"%s\" of locale \"%s\" not found",
+					lang, loc_str)));
 }
 
 #endif							/* USE_ICU */

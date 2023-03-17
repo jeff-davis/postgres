@@ -1079,12 +1079,8 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 
 				dbiculocale = langtag;
 			}
-			else
-			{
-				ereport(WARNING,
-						(errmsg("could not convert locale \"%s\" to language tag",
-								dbiculocale)));
-			}
+
+			icu_validate_locale(dbiculocale);
 		}
 #else
 		ereport(ERROR,

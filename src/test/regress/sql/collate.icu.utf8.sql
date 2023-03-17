@@ -386,7 +386,11 @@ $$;
 RESET client_min_messages;
 
 CREATE COLLATION test3 (provider = icu, lc_collate = 'en_US.utf8'); -- fail, needs "locale"
-CREATE COLLATION testx (provider = icu, locale = 'nonsense'); /* never fails with ICU */  DROP COLLATION testx;
+SET icu_locale_validation = true;
+CREATE COLLATION testx (provider = icu, locale = 'nonsense'); -- fails
+CREATE COLLATION testx (provider = icu, locale = '@colStrength=primary;nonsense=yes'); -- fails
+RESET icu_locale_validation;
+CREATE COLLATION testx (provider = icu, locale = 'nonsense'); DROP COLLATION testx;
 
 CREATE COLLATION test4 FROM nonsense;
 CREATE COLLATION test5 FROM test0;
