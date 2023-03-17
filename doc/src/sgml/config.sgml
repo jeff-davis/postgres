@@ -9784,6 +9784,23 @@ SET XML OPTION { DOCUMENT | CONTENT };
       </listitem>
      </varlistentry>
 
+     <varlistentry id="guc-icu-locale-validation" xreflabel="icu_locale_validation">
+      <term><varname>icu_locale_validation</varname> (<type>boolean</type>)
+      <indexterm>
+       <primary><varname>icu_locale_validation</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Validation is performed on an ICU locale specified for a new collation
+        or database. If this parameter is set to <literal>true</literal>, an
+        error is raised for a validation failure; if set to
+        <literal>false</literal>, a warning is issued. The default is
+        <literal>false</literal>.
+       </para>
+      </listitem>
+     </varlistentry>
+
      <varlistentry id="guc-default-text-search-config" xreflabel="default_text_search_config">
       <term><varname>default_text_search_config</varname> (<type>string</type>)
       <indexterm>
