@@ -1035,7 +1035,12 @@ END
 $$;
 CREATE COLLATION test3 (provider = icu, lc_collate = 'en_US.utf8'); -- fail, needs "locale"
 ERROR:  parameter "locale" must be specified
-CREATE COLLATION testx (provider = icu, locale = 'nonsense'); /* never fails with ICU */  DROP COLLATION testx;
+CREATE COLLATION testx (provider = icu, locale = 'nonsense-nowhere'); -- fails
+ERROR:  locale "nonsense-nowhere" has unknown language "nonsense"
+SET icu_validation_level = WARNING;
+CREATE COLLATION testx (provider = icu, locale = 'nonsense-nowhere'); DROP COLLATION testx;
+WARNING:  locale "nonsense-nowhere" has unknown language "nonsense"
+RESET icu_validation_level;
 CREATE COLLATION test4 FROM nonsense;
 ERROR:  collation "nonsense" for encoding "UTF8" does not exist
 CREATE COLLATION test5 FROM test0;

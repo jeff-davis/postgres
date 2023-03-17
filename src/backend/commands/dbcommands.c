@@ -1043,6 +1043,7 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 
 	if (dblocprovider == COLLPROVIDER_ICU)
 	{
+#ifdef USE_ICU
 		if (!(is_encoding_supported_by_icu(encoding)))
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -1058,7 +1059,14 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("ICU locale must be specified")));
 
-		check_icu_locale(dbiculocale);
+		if (!IsBinaryUpgrade && dbiculocale != src_iculocale)
+			icu_validate_locale(dbiculocale);
+
+#else
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("ICU is not supported in this build")));
+#endif
 	}
 	else
 	{

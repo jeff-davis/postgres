@@ -254,10 +254,20 @@ DefineCollation(ParseState *pstate, List *names, List *parameters, bool if_not_e
 		}
 		else if (collprovider == COLLPROVIDER_ICU)
 		{
+#ifdef USE_ICU
 			if (!colliculocale)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
 						 errmsg("parameter \"locale\" must be specified")));
+
+			if (!IsBinaryUpgrade)
+				icu_validate_locale(colliculocale);
+
+#else
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("ICU is not supported in this build")));
+#endif
 		}
 
 		/*
