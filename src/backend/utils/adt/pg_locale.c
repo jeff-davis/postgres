@@ -88,12 +88,13 @@
 
 #define		MAX_L10N_DATA		80
 
-
 /* GUC settings */
 char	   *locale_messages;
 char	   *locale_monetary;
 char	   *locale_numeric;
 char	   *locale_time;
+
+bool		icu_locale_validation = false;
 
 /*
  * lc_time localization cache.
@@ -2832,18 +2833,6 @@ icu_set_collation_attributes(UCollator *collator, const char *loc,
 }
 
 /*
- * Check if the given locale ID is valid, and ereport(ERROR) if it isn't.
- */
-void
-check_icu_locale(const char *icu_locale)
-{
-	UCollator  *collator;
-
-	collator = pg_ucol_open(icu_locale);
-	ucol_close(collator);
-}
-
-/*
  * Return the BCP47 language tag representation of the requested locale.
  *
  * This function should be called before passing the string to ucol_open(),
@@ -2918,6 +2907,70 @@ icu_language_tag(const char *loc_str, int elevel)
 	}
 
 	return langtag;
+}
+
+/*
+ * Perform best-effort check that the locale is a valid one.
+ */
+void
+icu_validate_locale(const char *loc_str)
+{
+	UCollator	*collator;
+	UErrorCode	 status;
+	int			 elevel	 = icu_locale_validation ? ERROR : WARNING;
+	char		*langtag;
+	char		 lang[ULOC_LANG_CAPACITY];
+	bool		 found	 = false;
+
+	/* check that it can be converted to a language tag */
+	langtag = icu_language_tag(loc_str, elevel);
+	pfree(langtag);
+
+	/* validate that we can extract the language */
+	status = U_ZERO_ERROR;
+	uloc_getLanguage(loc_str, lang, ULOC_LANG_CAPACITY, &status);
+	if (U_FAILURE(status))
+	{
+		ereport(elevel,
+				(errmsg("could not get language from locale \"%s\": %s",
+						loc_str, u_errorName(status))));
+		return;
+	}
+
+	/* check for special language name */
+	if (strcmp(lang, "") == 0 ||
+		strcmp(lang, "root") == 0 || strcmp(lang, "und") == 0 ||
+		strcmp(lang, "c") == 0 || strcmp(lang, "posix") == 0)
+		found = true;
+
+	/* search for matching language within ICU */
+	for (int32_t i = 0; !found && i < uloc_countAvailable(); i++)
+	{
+		const char	*otherloc = uloc_getAvailable(i);
+		char		 otherlang[ULOC_LANG_CAPACITY];
+
+		status = U_ZERO_ERROR;
+		uloc_getLanguage(otherloc, otherlang, ULOC_LANG_CAPACITY, &status);
+		if (U_FAILURE(status))
+		{
+			ereport(elevel,
+					(errmsg("could not get language from locale \"%s\": %s",
+							loc_str, u_errorName(status))));
+			continue;
+		}
+
+		if (strcmp(lang, otherlang) == 0)
+			found = true;
+	}
+
+	if (!found)
+		ereport(elevel,
+				(errmsg("locale \"%s\" has unknown language \"%s\"",
+						loc_str, lang)));
+
+	/* check that it can be opened */
+	collator = pg_ucol_open(loc_str);
+	ucol_close(collator);
 }
 
 #endif							/* USE_ICU */

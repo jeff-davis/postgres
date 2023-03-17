@@ -1068,7 +1068,9 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 		 */
 		if (!IsBinaryUpgrade && dbiculocale != src_iculocale)
 		{
-			langtag = icu_language_tag(dbiculocale, WARNING);
+			int	elevel = icu_locale_validation ? ERROR : WARNING;
+
+			langtag = icu_language_tag(dbiculocale, elevel);
 			if (langtag)
 			{
 				ereport(NOTICE,
@@ -1077,15 +1079,9 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 
 				dbiculocale = langtag;
 			}
-			else
-			{
-				ereport(WARNING,
-						(errmsg("could not convert locale \"%s\" to language tag",
-								dbiculocale)));
-			}
-		}
 
-		check_icu_locale(dbiculocale);
+			icu_validate_locale(dbiculocale);
+		}
 #else
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),

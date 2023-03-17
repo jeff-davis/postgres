@@ -730,6 +730,8 @@
 #lc_numeric = 'C'			# locale for number formatting
 #lc_time = 'C'				# locale for time formatting
 
+#icu_locale_validation = off		# validate ICU locale strings
+
 # default configuration for text search
 #default_text_search_config = 'pg_catalog.simple'
 

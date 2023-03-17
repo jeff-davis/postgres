@@ -1037,8 +1037,16 @@ $$;
 RESET client_min_messages;
 CREATE COLLATION test3 (provider = icu, lc_collate = 'en_US.utf8'); -- fail, needs "locale"
 ERROR:  parameter "locale" must be specified
-CREATE COLLATION testx (provider = icu, locale = 'nonsense'); /* never fails with ICU */  DROP COLLATION testx;
-NOTICE:  using language tag "nonsense" for locale "nonsense"
+SET icu_locale_validation = true;
+CREATE COLLATION testx (provider = icu, locale = 'nonsense-nowhere'); -- fails
+NOTICE:  using language tag "nonsense-nowhere" for locale "nonsense-nowhere"
+ERROR:  locale "nonsense-nowhere" has unknown language "nonsense"
+CREATE COLLATION testx (provider = icu, locale = '@colStrength=primary;nonsense=yes'); -- fails
+ERROR:  could not convert locale name "@colStrength=primary;nonsense=yes" to language tag: U_ILLEGAL_ARGUMENT_ERROR
+RESET icu_locale_validation;
+CREATE COLLATION testx (provider = icu, locale = 'nonsense-nowhere'); DROP COLLATION testx;
+NOTICE:  using language tag "nonsense-nowhere" for locale "nonsense-nowhere"
+WARNING:  locale "nonsense-nowhere" has unknown language "nonsense"
 CREATE COLLATION test4 FROM nonsense;
 ERROR:  collation "nonsense" for encoding "UTF8" does not exist
 CREATE COLLATION test5 FROM test0;

@@ -1587,6 +1587,15 @@ struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 	{
+		{"icu_locale_validation", PGC_USERSET, CLIENT_CONN_LOCALE,
+		 gettext_noop("Raise an error for invalid ICU locale strings."),
+		 NULL
+		},
+		&icu_locale_validation,
+		false,
+		NULL, NULL, NULL
+	},
+	{
 		{"array_nulls", PGC_USERSET, COMPAT_OPTIONS_PREVIOUS,
 			gettext_noop("Enable input of NULL elements in arrays."),
 			gettext_noop("When turned on, unquoted NULL in an array input "

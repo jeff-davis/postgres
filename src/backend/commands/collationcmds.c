@@ -273,7 +273,9 @@ DefineCollation(ParseState *pstate, List *names, List *parameters, bool if_not_e
 			 */
 			if (!IsBinaryUpgrade)
 			{
-				langtag = icu_language_tag(colliculocale, WARNING);
+				int	elevel = icu_locale_validation ? ERROR : WARNING;
+
+				langtag = icu_language_tag(colliculocale, elevel);
 				if (langtag)
 				{
 					ereport(NOTICE,
@@ -282,15 +284,9 @@ DefineCollation(ParseState *pstate, List *names, List *parameters, bool if_not_e
 
 					colliculocale = langtag;
 				}
-				else
-				{
-					ereport(WARNING,
-							(errmsg("could not convert locale \"%s\" to language tag",
-									colliculocale)));
-				}
-			}
 
-			check_icu_locale(colliculocale);
+				icu_validate_locale(colliculocale);
+			}
 #else
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
