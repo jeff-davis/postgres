@@ -2039,9 +2039,51 @@ check_icu_locale_encoding(int user_enc)
 	return true;
 }
 
+#ifdef USE_ICU
+
 /*
- * Check that ICU accepts the locale name; or if not specified, retrieve the
- * default ICU locale.
+ * Determine default ICU locale by opening the default collator and reading
+ * its locale.
+ *
+ * NB: The default collator (opened using NULL) is different from the collator
+ * for the root locale (opened with "", "und", or "root"). The former depends
+ * on the environment (useful at initdb time) and the latter does not.
+ */
+static char *
+default_icu_locale(void)
+{
+	UCollator	*collator;
+	UErrorCode   status;
+	const char	*valid_locale;
+	char		*default_locale;
+
+	status = U_ZERO_ERROR;
+	collator = ucol_open(NULL, &status);
+	if (U_FAILURE(status))
+		pg_fatal("could not open collator for default locale: %s",
+				 u_errorName(status));
+
+	status = U_ZERO_ERROR;
+	valid_locale = ucol_getLocaleByType(collator, ULOC_VALID_LOCALE,
+										&status);
+	if (U_FAILURE(status))
+	{
+		ucol_close(collator);
+		pg_fatal("could not determine default ICU locale");
+	}
+
+	default_locale = pg_strdup(valid_locale);
+
+	ucol_close(collator);
+
+	return default_locale;
+}
+
+#endif
+
+/*
+ * If not specified, assign the default locale. Then check that ICU accepts
+ * the locale.
  */
 static void
 check_icu_locale(void)
@@ -2050,34 +2092,19 @@ check_icu_locale(void)
 	UCollator	*collator;
 	UErrorCode   status;
 
+	/* acquire default locale from the environment, if not specified */
+	if (icu_locale == NULL)
+	{
+		icu_locale = default_icu_locale();
+		printf(_("Using default ICU locale \"%s\".\n"), icu_locale);
+	}
+
+	/* check that the resulting locale can be opened */
 	status = U_ZERO_ERROR;
 	collator = ucol_open(icu_locale, &status);
 	if (U_FAILURE(status))
-	{
-		if (icu_locale)
-			pg_fatal("could not open collator for locale \"%s\": %s",
-					 icu_locale, u_errorName(status));
-		else
-			pg_fatal("could not open collator for default locale: %s",
-					 u_errorName(status));
-	}
-
-	/* if not specified, get locale from default collator */
-	if (icu_locale == NULL)
-	{
-		const char	*default_locale;
-
-		status = U_ZERO_ERROR;
-		default_locale = ucol_getLocaleByType(collator, ULOC_VALID_LOCALE,
-											  &status);
-		if (U_FAILURE(status))
-		{
-			ucol_close(collator);
-			pg_fatal("could not determine default ICU locale");
-		}
-
-		icu_locale = pg_strdup(default_locale);
-	}
+		pg_fatal("could not open collator for locale \"%s\": %s",
+				 icu_locale, u_errorName(status));
 
 	ucol_close(collator);
 #endif
