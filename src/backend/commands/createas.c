@@ -61,6 +61,9 @@ typedef struct
 	CommandId	output_cid;		/* cmin to insert in output tuples */
 	int			ti_options;		/* table_tuple_insert performance options */
 	BulkInsertState bistate;	/* bulk insert state */
+	Oid			save_userid;
+	int			save_sec_context;
+	int			save_nestlevel;
 } DR_intorel;
 
 /* utility functions for CTAS definition creation */
@@ -231,9 +234,6 @@ ExecCreateTableAs(ParseState *pstate, CreateTableAsStmt *stmt,
 	IntoClause *into = stmt->into;
 	bool		is_matview = (into->viewQuery != NULL);
 	DestReceiver *dest;
-	Oid			save_userid = InvalidOid;
-	int			save_sec_context = 0;
-	int			save_nestlevel = 0;
 	ObjectAddress address;
 	List	   *rewritten;
 	PlannedStmt *plan;
@@ -266,21 +266,6 @@ ExecCreateTableAs(ParseState *pstate, CreateTableAsStmt *stmt,
 		return address;
 	}
 	Assert(query->commandType == CMD_SELECT);
-
-	/*
-	 * For materialized views, lock down security-restricted operations and
-	 * arrange to make GUC variable changes local to this command.  This is
-	 * not necessary for security, but this keeps the behavior similar to
-	 * REFRESH MATERIALIZED VIEW.  Otherwise, one could create a materialized
-	 * view not possible to refresh.
-	 */
-	if (is_matview)
-	{
-		GetUserIdAndSecContext(&save_userid, &save_sec_context);
-		SetUserIdAndSecContext(save_userid,
-							   save_sec_context | SECURITY_RESTRICTED_OPERATION);
-		save_nestlevel = NewGUCNestLevel();
-	}
 
 	if (into->skipData)
 	{
@@ -349,15 +334,6 @@ ExecCreateTableAs(ParseState *pstate, CreateTableAsStmt *stmt,
 		FreeQueryDesc(queryDesc);
 
 		PopActiveSnapshot();
-	}
-
-	if (is_matview)
-	{
-		/* Roll back any GUC changes */
-		AtEOXact_GUC(false, save_nestlevel);
-
-		/* Restore userid and security context */
-		SetUserIdAndSecContext(save_userid, save_sec_context);
 	}
 
 	return address;
@@ -574,6 +550,22 @@ intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	 * This may be harmless, but this function hasn't planned for it.
 	 */
 	Assert(RelationGetTargetBlock(intoRelationDesc) == InvalidBlockNumber);
+
+	/*
+	 * For materialized views, lock down security-restricted operations and
+	 * arrange to make GUC variable changes local to this command.  This is
+	 * not necessary for security, but this keeps the behavior similar to
+	 * REFRESH MATERIALIZED VIEW.  Otherwise, one could create a materialized
+	 * view not possible to refresh.
+	 */
+	if (is_matview)
+	{
+		GetUserIdAndSecContext(&myState->save_userid,
+							   &myState->save_sec_context);
+		SetUserIdAndSecContext(myState->save_userid,
+							   myState->save_sec_context | SECURITY_RESTRICTED_OPERATION);
+		myState->save_nestlevel = NewGUCNestLevel();
+	}
 }
 
 /*
@@ -615,11 +607,25 @@ intorel_shutdown(DestReceiver *self)
 {
 	DR_intorel *myState = (DR_intorel *) self;
 	IntoClause *into = myState->into;
+	bool		is_matview;
+
+	/* This code supports both CREATE TABLE AS and CREATE MATERIALIZED VIEW */
+	is_matview = (into->viewQuery != NULL);
 
 	if (!into->skipData)
 	{
 		FreeBulkInsertState(myState->bistate);
 		table_finish_bulk_insert(myState->rel, myState->ti_options);
+	}
+
+	if (is_matview)
+	{
+		/* Roll back any GUC changes */
+		AtEOXact_GUC(false, myState->save_nestlevel);
+
+		/* Restore userid and security context */
+		SetUserIdAndSecContext(myState->save_userid,
+							   myState->save_sec_context);
 	}
 
 	/* close rel, but keep lock until commit */

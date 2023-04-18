@@ -228,6 +228,19 @@ CREATE UNIQUE INDEX ON mvtest_mv_foo (i);
 RESET ROLE;
 REFRESH MATERIALIZED VIEW mvtest_mv_foo;
 REFRESH MATERIALIZED VIEW CONCURRENTLY mvtest_mv_foo;
+
+-- make sure that creating a materialized view fails if it can't be
+-- executed as a security-restricted operation; otherwise a privileged
+-- user may not be able to REFRESH MATERIALIZED VIEW
+CREATE FUNCTION mv_sec_unsafe() RETURNS INT LANGUAGE plpgsql AS $$
+  BEGIN
+    CREATE TEMPORARY TABLE mv_temp(i INT);
+    RETURN 1;
+  END;
+$$;
+CREATE MATERIALIZED VIEW mv_sec AS SELECT mv_sec_unsafe();
+DROP FUNCTION mv_sec_unsafe();
+
 DROP OWNED BY regress_user_mvtest CASCADE;
 DROP ROLE regress_user_mvtest;
 
