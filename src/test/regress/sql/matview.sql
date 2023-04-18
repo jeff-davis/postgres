@@ -244,6 +244,19 @@ DROP FUNCTION mv_sec_unsafe();
 DROP OWNED BY regress_user_mvtest CASCADE;
 DROP ROLE regress_user_mvtest;
 
+-- make sure that creating a materialized view fails if executing it
+-- depends on search_path; otherwise REFRESH MATERIALIZED VIEW may
+-- fail
+CREATE FUNCTION mv_func() RETURNS INT LANGUAGE SQL AS $$ SELECT 1; $$;
+CREATE FUNCTION mv_dep_search_path() RETURNS INT LANGUAGE plpgsql AS $$
+  BEGIN
+    RETURN mv_func();
+  END;
+$$;
+CREATE MATERIALIZED VIEW mv_search_path AS SELECT mv_dep_search_path();
+DROP FUNCTION mv_dep_search_path();
+DROP FUNCTION mv_func();
+
 -- make sure that create WITH NO DATA works via SPI
 BEGIN;
 CREATE FUNCTION mvtest_func()

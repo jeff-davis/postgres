@@ -565,6 +565,8 @@ intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 		SetUserIdAndSecContext(myState->save_userid,
 							   myState->save_sec_context | SECURITY_RESTRICTED_OPERATION);
 		myState->save_nestlevel = NewGUCNestLevel();
+		SetConfigOption("search_path", GUC_SAFE_SEARCH_PATH, PGC_USERSET,
+						PGC_S_SESSION);
 	}
 }
 
