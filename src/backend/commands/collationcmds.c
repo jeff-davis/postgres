@@ -264,26 +264,39 @@ DefineCollation(ParseState *pstate, List *names, List *parameters, bool if_not_e
 						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
 						 errmsg("parameter \"locale\" must be specified")));
 
-			/*
-			 * During binary upgrade, preserve the locale string. Otherwise,
-			 * canonicalize to a language tag.
-			 */
-			if (!IsBinaryUpgrade)
+			if (pg_strcasecmp(colliculocale, "C") == 0 ||
+				pg_strcasecmp(colliculocale, "POSIX") == 0)
 			{
-				char *langtag = icu_language_tag(colliculocale,
-												 icu_validation_level);
-
-				if (langtag && strcmp(colliculocale, langtag) != 0)
-				{
-					ereport(NOTICE,
-							(errmsg("using standard form \"%s\" for locale \"%s\"",
-									langtag, colliculocale)));
-
-					colliculocale = langtag;
-				}
+				if (!collisdeterministic)
+					ereport(ERROR,
+							(errmsg("nondeterministic collations not supported for C or POSIX locale")));
+				if (collicurules != NULL)
+					ereport(ERROR,
+							(errmsg("RULES not supported for C or POSIX locale")));
 			}
+			else
+			{
+				/*
+				 * During binary upgrade, preserve the locale
+				 * string. Otherwise, canonicalize to a language tag.
+				 */
+				if (!IsBinaryUpgrade)
+				{
+					char *langtag = icu_language_tag(colliculocale,
+													 icu_validation_level);
 
-			icu_validate_locale(colliculocale);
+					if (langtag && strcmp(colliculocale, langtag) != 0)
+					{
+						ereport(NOTICE,
+								(errmsg("using standard form \"%s\" for locale \"%s\"",
+										langtag, colliculocale)));
+
+						colliculocale = langtag;
+					}
+				}
+
+				icu_validate_locale(colliculocale);
+			}
 		}
 
 		/*

@@ -379,13 +379,16 @@ RESET client_min_messages;
 
 CREATE COLLATION test3 (provider = icu, lc_collate = 'en_US.utf8'); -- fail, needs "locale"
 CREATE COLLATION testx (provider = icu, locale = 'nonsense-nowhere'); -- fails
-CREATE COLLATION testx (provider = icu, locale = 'c'); -- fails
+CREATE COLLATION testx (provider = icu, locale = 'c', deterministic = false); -- fails
+CREATE COLLATION testx (provider = icu, locale = 'c', rules = '&V << w <<< W'); -- fails
 CREATE COLLATION testx (provider = icu, locale = '@colStrength=primary;nonsense=yes'); -- fails
 SET icu_validation_level = WARNING;
 CREATE COLLATION testx (provider = icu, locale = '@colStrength=primary;nonsense=yes'); DROP COLLATION testx;
-CREATE COLLATION testx (provider = icu, locale = 'c'); DROP COLLATION testx;
 CREATE COLLATION testx (provider = icu, locale = 'nonsense-nowhere'); DROP COLLATION testx;
 RESET icu_validation_level;
+
+CREATE COLLATION testx (provider = icu, locale = 'c'); DROP COLLATION testx;
+CREATE COLLATION testx (provider = icu, locale = 'posix'); DROP COLLATION testx;
 
 CREATE COLLATION test4 FROM nonsense;
 CREATE COLLATION test5 FROM test0;
