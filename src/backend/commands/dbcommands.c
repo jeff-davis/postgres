@@ -1058,27 +1058,37 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("ICU locale must be specified")));
 
-		/*
-		 * During binary upgrade, or when the locale came from the template
-		 * database, preserve locale string. Otherwise, canonicalize to a
-		 * language tag.
-		 */
-		if (!IsBinaryUpgrade && dbiculocale != src_iculocale)
+		if (strcmp(dbiculocale, "C") == 0 ||
+			strcmp(dbiculocale, "POSIX") == 0)
 		{
-			char	   *langtag = icu_language_tag(dbiculocale,
-												   icu_validation_level);
-
-			if (langtag && strcmp(dbiculocale, langtag) != 0)
-			{
-				ereport(NOTICE,
-						(errmsg("using standard form \"%s\" for locale \"%s\"",
-								langtag, dbiculocale)));
-
-				dbiculocale = langtag;
-			}
+			if (dbicurules != NULL)
+				ereport(ERROR,
+						(errmsg("ICU_RULES not supported for C or POSIX locale")));
 		}
+		else
+		{
+			/*
+			 * During binary upgrade, or when the locale came from the
+			 * template database, preserve locale string. Otherwise,
+			 * canonicalize to a language tag.
+			 */
+			if (!IsBinaryUpgrade && dbiculocale != src_iculocale)
+			{
+				char	   *langtag = icu_language_tag(dbiculocale,
+													   icu_validation_level);
 
-		icu_validate_locale(dbiculocale);
+				if (langtag && strcmp(dbiculocale, langtag) != 0)
+				{
+					ereport(NOTICE,
+							(errmsg("using standard form \"%s\" for locale \"%s\"",
+									langtag, dbiculocale)));
+
+					dbiculocale = langtag;
+				}
+			}
+
+			icu_validate_locale(dbiculocale);
+		}
 	}
 	else
 	{

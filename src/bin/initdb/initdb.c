@@ -2428,14 +2428,23 @@ setlocales(void)
 			printf(_("Using default ICU locale \"%s\".\n"), icu_locale);
 		}
 
-		/* canonicalize to a language tag */
-		langtag = icu_language_tag(icu_locale);
-		printf(_("Using language tag \"%s\" for ICU locale \"%s\".\n"),
-			   langtag, icu_locale);
-		pg_free(icu_locale);
-		icu_locale = langtag;
+		if (strcmp(icu_locale, "C") == 0 ||
+			strcmp(icu_locale, "POSIX") == 0)
+		{
+			if (icu_rules != NULL)
+				pg_fatal("RULES not supported for C or POSIX locale");
+		}
+		else
+		{
+			/* canonicalize to a language tag */
+			langtag = icu_language_tag(icu_locale);
+			printf(_("Using language tag \"%s\" for ICU locale \"%s\".\n"),
+				   langtag, icu_locale);
+			pg_free(icu_locale);
+			icu_locale = langtag;
 
-		icu_validate_locale(icu_locale);
+			icu_validate_locale(icu_locale);
+		}
 
 		/*
 		 * In supported builds, the ICU locale ID will be opened during
