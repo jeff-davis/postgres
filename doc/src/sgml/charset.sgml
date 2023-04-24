@@ -136,7 +136,8 @@ initdb --locale=sv_SE
    <para>
     If you want the system to behave as if it had no locale support,
     use the special locale name <literal>C</literal>, or equivalently
-    <literal>POSIX</literal>.
+    <literal>POSIX</literal>. An encoding may also be appended, for
+    example <literal>C.UTF-8</literal>.
    </para>
 
    <para>

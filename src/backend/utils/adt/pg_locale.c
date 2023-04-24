@@ -1239,15 +1239,19 @@ lookup_collation_cache(Oid collation, bool set_flags)
 			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_collctype);
 			collctype = TextDatumGetCString(datum);
 
-			cache_entry->collate_is_c = ((strcmp(collcollate, "C") == 0) ||
-										 (strcmp(collcollate, "POSIX") == 0));
-			cache_entry->ctype_is_c = ((strcmp(collctype, "C") == 0) ||
-									   (strcmp(collctype, "POSIX") == 0));
+			cache_entry->collate_is_c = locale_name_is_c(collcollate);
+			cache_entry->ctype_is_c = locale_name_is_c(collctype);
 		}
 		else
 		{
-			cache_entry->collate_is_c = false;
-			cache_entry->ctype_is_c = false;
+			Datum		datum;
+			const char *colliculocale;
+
+			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colliculocale);
+			colliculocale = TextDatumGetCString(datum);
+
+			cache_entry->collate_is_c = locale_name_is_c(colliculocale);
+			cache_entry->ctype_is_c = cache_entry->collate_is_c;
 		}
 
 		cache_entry->flags_valid = true;
@@ -1258,6 +1262,22 @@ lookup_collation_cache(Oid collation, bool set_flags)
 	return cache_entry;
 }
 
+/*
+ * Check if the locale name should be handled like the C locale.
+ *
+ * If so, the locale should be handled with built-in memcmp() and
+ * pg_ascii_*(); otherwise, the locale should be handled by the collation
+ * provider.
+ */
+bool
+locale_name_is_c(const char *locale)
+{
+	if (strcmp(locale, "C") == 0 || strncmp(locale, "C.", 2) == 0 ||
+		strcmp(locale, "POSIX") == 0 || strncmp(locale, "POSIX.", 6) == 0)
+		return true;
+
+	return false;
+}
 
 /*
  * Detect whether collation's LC_COLLATE property is C
@@ -1279,23 +1299,30 @@ lc_collate_is_c(Oid collation)
 	if (collation == DEFAULT_COLLATION_OID)
 	{
 		static int	result = -1;
-		char	   *localeptr;
-
-		if (default_locale.provider == COLLPROVIDER_ICU)
-			return false;
+		const char *localeptr;
 
 		if (result >= 0)
 			return (bool) result;
-		localeptr = setlocale(LC_COLLATE, NULL);
-		if (!localeptr)
-			elog(ERROR, "invalid LC_COLLATE setting");
 
-		if (strcmp(localeptr, "C") == 0)
-			result = true;
-		else if (strcmp(localeptr, "POSIX") == 0)
-			result = true;
+		if (default_locale.provider == COLLPROVIDER_ICU)
+		{
+#ifdef USE_ICU
+			localeptr = default_locale.info.icu.locale;
+#else
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("ICU is not supported in this build")));
+#endif
+		}
 		else
-			result = false;
+		{
+			localeptr = setlocale(LC_COLLATE, NULL);
+			if (!localeptr)
+				elog(ERROR, "invalid LC_COLLATE setting");
+		}
+
+		result = locale_name_is_c(localeptr);
+
 		return (bool) result;
 	}
 
@@ -1332,23 +1359,30 @@ lc_ctype_is_c(Oid collation)
 	if (collation == DEFAULT_COLLATION_OID)
 	{
 		static int	result = -1;
-		char	   *localeptr;
-
-		if (default_locale.provider == COLLPROVIDER_ICU)
-			return false;
+		const char *localeptr;
 
 		if (result >= 0)
 			return (bool) result;
-		localeptr = setlocale(LC_CTYPE, NULL);
-		if (!localeptr)
-			elog(ERROR, "invalid LC_CTYPE setting");
 
-		if (strcmp(localeptr, "C") == 0)
-			result = true;
-		else if (strcmp(localeptr, "POSIX") == 0)
-			result = true;
+		if (default_locale.provider == COLLPROVIDER_ICU)
+		{
+#ifdef USE_ICU
+			localeptr = default_locale.info.icu.locale;
+#else
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("ICU is not supported in this build")));
+#endif
+		}
 		else
-			result = false;
+		{
+			localeptr = setlocale(LC_CTYPE, NULL);
+			if (!localeptr)
+				elog(ERROR, "invalid LC_CTYPE setting");
+		}
+
+		result = locale_name_is_c(localeptr);
+
 		return (bool) result;
 	}
 
@@ -1375,7 +1409,13 @@ make_icu_collator(const char *iculocstr,
 #ifdef USE_ICU
 	UCollator  *collator;
 
-	collator = pg_ucol_open(iculocstr);
+	if (locale_name_is_c(iculocstr))
+	{
+		Assert(icurules == NULL);
+		collator = NULL;
+	}
+	else
+		collator = pg_ucol_open(iculocstr);
 
 	/*
 	 * If rules are specified, we extract the rules of the standard collation,
@@ -1525,6 +1565,9 @@ pg_newlocale_from_collation(Oid collid)
 			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_collctype);
 			collctype = TextDatumGetCString(datum);
 
+			Assert(!locale_name_is_c(collcollate));
+			Assert(!locale_name_is_c(collctype));
+
 			if (strcmp(collcollate, collctype) == 0)
 			{
 				/* Normal case where they're the same */
@@ -1580,6 +1623,8 @@ pg_newlocale_from_collation(Oid collid)
 
 			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colliculocale);
 			iculocstr = TextDatumGetCString(datum);
+
+			Assert(!locale_name_is_c(iculocstr));
 
 			datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collicurules, &isnull);
 			if (!isnull)
@@ -1650,6 +1695,9 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 {
 	char	   *collversion = NULL;
 
+	if (locale_name_is_c(collcollate))
+		return NULL;
+
 #ifdef USE_ICU
 	if (collprovider == COLLPROVIDER_ICU)
 	{
@@ -1667,10 +1715,7 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 	}
 	else
 #endif
-		if (collprovider == COLLPROVIDER_LIBC &&
-			pg_strcasecmp("C", collcollate) != 0 &&
-			pg_strncasecmp("C.", collcollate, 2) != 0 &&
-			pg_strcasecmp("POSIX", collcollate) != 0)
+		if (collprovider == COLLPROVIDER_LIBC)
 	{
 #if defined(__GLIBC__)
 		/* Use the glibc version because we don't have anything better. */
@@ -2456,6 +2501,13 @@ pg_ucol_open(const char *loc_str)
 	 */
 	if (loc_str == NULL)
 		elog(ERROR, "opening default collator is not supported");
+
+	/*
+	 * Must never open special values C or POSIX, which are treated specially
+	 * and not passed to the provider.
+	 */
+	if (locale_name_is_c(loc_str))
+		elog(ERROR, "unexpected ICU locale string: %s", loc_str);
 
 	/*
 	 * In ICU versions 54 and earlier, "und" is not a recognized spelling of

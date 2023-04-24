@@ -241,6 +241,11 @@ EXPLAIN (COSTS OFF)
 EXPLAIN (COSTS OFF)
   SELECT * FROM collate_test10 ORDER BY x DESC, y COLLATE "C" ASC NULLS FIRST;
 
+-- test alternate spellings of special locale C
+CREATE COLLATION coll_c_locale ( LOCALE = "C.something" );
+DROP COLLATION coll_c_locale;
+CREATE COLLATION coll_c_locale ( LOCALE = "POSIX.something" );
+DROP COLLATION coll_c_locale;
 
 -- CREATE/DROP COLLATION
 

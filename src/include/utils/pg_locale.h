@@ -54,6 +54,7 @@ extern PGDLLIMPORT bool database_ctype_is_c;
 extern bool check_locale(int category, const char *locale, char **canonname);
 extern char *pg_perm_setlocale(int category, const char *locale);
 
+extern bool locale_name_is_c(const char *locale);
 extern bool lc_collate_is_c(Oid collation);
 extern bool lc_ctype_is_c(Oid collation);
 

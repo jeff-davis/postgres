@@ -379,9 +379,13 @@ CREATE COLLATION test3 (provider = icu, lc_collate = 'en_US.utf8'); -- fail, nee
 SET icu_validation_level = ERROR;
 CREATE COLLATION testx (provider = icu, locale = 'nonsense-nowhere'); -- fails
 CREATE COLLATION testx (provider = icu, locale = '@colStrength=primary;nonsense=yes'); -- fails
+CREATE COLLATION testx (provider = icu, locale = 'C', deterministic = false); -- fails
+CREATE COLLATION testx (provider = icu, locale = 'C', rules = '&V << w <<< W'); -- fails
 RESET icu_validation_level;
 CREATE COLLATION testx (provider = icu, locale = '@colStrength=primary;nonsense=yes'); DROP COLLATION testx;
 CREATE COLLATION testx (provider = icu, locale = 'nonsense-nowhere'); DROP COLLATION testx;
+CREATE COLLATION testx (provider = icu, locale = 'C.UTF-8'); DROP COLLATION testx;
+CREATE COLLATION testx (provider = icu, locale = 'POSIX'); DROP COLLATION testx;
 
 CREATE COLLATION test4 FROM nonsense;
 CREATE COLLATION test5 FROM test0;

@@ -649,6 +649,11 @@ EXPLAIN (COSTS OFF)
    ->  Seq Scan on collate_test10
 (3 rows)
 
+-- test alternate spellings of special locale C
+CREATE COLLATION coll_c_locale ( LOCALE = "C.something" );
+DROP COLLATION coll_c_locale;
+CREATE COLLATION coll_c_locale ( LOCALE = "POSIX.something" );
+DROP COLLATION coll_c_locale;
 -- CREATE/DROP COLLATION
 CREATE COLLATION mycoll1 FROM "C";
 CREATE COLLATION mycoll2 ( LC_COLLATE = "POSIX", LC_CTYPE = "POSIX" );
