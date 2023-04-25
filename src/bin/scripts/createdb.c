@@ -219,6 +219,11 @@ main(int argc, char *argv[])
 		appendPQExpBuffer(&sql, " STRATEGY %s", fmtId(strategy));
 	if (template)
 		appendPQExpBuffer(&sql, " TEMPLATE %s", fmtId(template));
+	if (locale)
+	{
+		appendPQExpBufferStr(&sql, " LOCALE ");
+		appendStringLiteralConn(&sql, locale, conn);
+	}
 	if (lc_collate)
 	{
 		appendPQExpBufferStr(&sql, " LC_COLLATE ");
