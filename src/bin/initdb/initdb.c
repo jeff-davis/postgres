@@ -2164,7 +2164,11 @@ check_locale_name(int category, const char *locale, char **canonname)
 	if (res == NULL)
 	{
 		if (*locale)
-			pg_fatal("invalid locale name \"%s\"", locale);
+		{
+			pg_log_error("invalid locale name \"%s\"", locale);
+			pg_log_error_hint("If the locale name is specific to ICU, use --icu-locale.");
+			exit(1);
+		}
 		else
 		{
 			/*
@@ -2406,7 +2410,7 @@ setlocales(void)
 {
 	char	   *canonname;
 
-	/* set empty lc_* values to locale config if set */
+	/* set empty lc_* and iculocale values to locale config if set */
 
 	if (locale_provider == COLLPROVIDER_NONE)
 	{
@@ -2438,6 +2442,8 @@ setlocales(void)
 			lc_monetary = locale;
 		if (!lc_messages)
 			lc_messages = locale;
+		if (!icu_locale && locale_provider == COLLPROVIDER_ICU)
+			icu_locale = locale;
 	}
 
 	if (icu_locale && locale_provider == COLLPROVIDER_ICU &&
@@ -3331,7 +3337,6 @@ main(int argc, char *argv[])
 				break;
 			case 8:
 				locale = "C";
-				locale_provider = COLLPROVIDER_LIBC;
 				break;
 			case 9:
 				pwfilename = pg_strdup(optarg);
