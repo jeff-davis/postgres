@@ -2163,7 +2163,11 @@ check_locale_name(int category, const char *locale, char **canonname)
 	if (res == NULL)
 	{
 		if (*locale)
-			pg_fatal("invalid locale name \"%s\"", locale);
+		{
+			pg_log_error("invalid locale name \"%s\"", locale);
+			pg_log_error_hint("If the locale name is specific to ICU, use --icu-locale.");
+			exit(1);
+		}
 		else
 		{
 			/*
@@ -2375,8 +2379,9 @@ static void
 setlocales(void)
 {
 	char	   *canonname;
+	char	   *builtin_locale = locale;
 
-	/* set empty lc_* values to locale config if set */
+	/* set empty lc_* and iculocale values to locale config if set */
 
 	if (locale)
 	{
@@ -2392,6 +2397,8 @@ setlocales(void)
 			lc_monetary = locale;
 		if (!lc_messages)
 			lc_messages = locale;
+		if (!icu_locale && locale_provider == COLLPROVIDER_ICU)
+			icu_locale = locale;
 	}
 
 	/*
@@ -2407,6 +2414,7 @@ setlocales(void)
 	{
 		pg_log_info("using locale provider \"builtin\" for ICU locale \"%s\"",
 					 icu_locale);
+		builtin_locale = "C";
 		icu_locale = NULL;
 		locale_provider = COLLPROVIDER_BUILTIN;
 	}
@@ -2434,7 +2442,15 @@ setlocales(void)
 	lc_messages = canonname;
 #endif
 
-	if (locale_provider == COLLPROVIDER_ICU)
+	if (locale_provider == COLLPROVIDER_BUILTIN)
+	{
+		if (!builtin_locale)
+			pg_fatal("The parameter --locale must be specified for the built-in provider.");
+		if (strcmp(builtin_locale, "C") != 0 &&
+			strcmp(builtin_locale, "POSIX") != 0)
+			pg_fatal("The built-in locale provider only supports the \"C\" and \"POSIX\" locales.");
+	}
+	else if (locale_provider == COLLPROVIDER_ICU)
 	{
 		char	   *langtag;
 
@@ -2687,7 +2703,9 @@ setup_locale_encoding(void)
 		 * If ctype_enc=SQL_ASCII, it's compatible with any encoding. ICU does
 		 * not support SQL_ASCII, so select UTF-8 instead.
 		 */
-		if (locale_provider == COLLPROVIDER_ICU && ctype_enc == PG_SQL_ASCII)
+		if ((locale_provider == COLLPROVIDER_BUILTIN ||
+			 locale_provider == COLLPROVIDER_ICU)
+			&& ctype_enc == PG_SQL_ASCII)
 			ctype_enc = PG_UTF8;
 
 		if (ctype_enc == -1)
@@ -3294,7 +3312,6 @@ main(int argc, char *argv[])
 				break;
 			case 8:
 				locale = "C";
-				locale_provider = COLLPROVIDER_LIBC;
 				break;
 			case 9:
 				pwfilename = pg_strdup(optarg);

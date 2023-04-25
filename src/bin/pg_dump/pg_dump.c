@@ -3080,13 +3080,10 @@ dumpDatabase(Archive *fout)
 		pg_fatal("unrecognized locale provider: %s",
 				 datlocprovider);
 
-	if (strlen(collate) > 0 && strcmp(collate, ctype) == 0)
+	if (datlocprovider[0] == 'b')
 	{
-		appendPQExpBufferStr(creaQry, " LOCALE = ");
-		appendStringLiteralAH(creaQry, collate, fout);
-	}
-	else
-	{
+		appendPQExpBufferStr(creaQry, " LOCALE = 'C'");
+
 		if (strlen(collate) > 0)
 		{
 			appendPQExpBufferStr(creaQry, " LC_COLLATE = ");
@@ -3098,15 +3095,51 @@ dumpDatabase(Archive *fout)
 			appendStringLiteralAH(creaQry, ctype, fout);
 		}
 	}
-	if (iculocale)
+	else if (datlocprovider[0] == 'i')
 	{
-		appendPQExpBufferStr(creaQry, " ICU_LOCALE = ");
+		Assert(iculocale);
+
+		appendPQExpBufferStr(creaQry, " LOCALE = ");
 		appendStringLiteralAH(creaQry, iculocale, fout);
+
+		if (strlen(collate) > 0)
+		{
+			appendPQExpBufferStr(creaQry, " LC_COLLATE = ");
+			appendStringLiteralAH(creaQry, collate, fout);
+		}
+		if (strlen(ctype) > 0)
+		{
+			appendPQExpBufferStr(creaQry, " LC_CTYPE = ");
+			appendStringLiteralAH(creaQry, ctype, fout);
+		}
+		if (icurules)
+		{
+			appendPQExpBufferStr(creaQry, " ICU_RULES = ");
+			appendStringLiteralAH(creaQry, icurules, fout);
+		}
 	}
-	if (icurules)
+	else if (datlocprovider[0] == 'c')
 	{
-		appendPQExpBufferStr(creaQry, " ICU_RULES = ");
-		appendStringLiteralAH(creaQry, icurules, fout);
+		Assert(!iculocale);
+
+		if (strlen(collate) > 0 && strcmp(collate, ctype) == 0)
+		{
+			appendPQExpBufferStr(creaQry, " LOCALE = ");
+			appendStringLiteralAH(creaQry, collate, fout);
+		}
+		else
+		{
+			if (strlen(collate) > 0)
+			{
+				appendPQExpBufferStr(creaQry, " LC_COLLATE = ");
+				appendStringLiteralAH(creaQry, collate, fout);
+			}
+			if (strlen(ctype) > 0)
+			{
+				appendPQExpBufferStr(creaQry, " LC_CTYPE = ");
+				appendStringLiteralAH(creaQry, ctype, fout);
+			}
+		}
 	}
 
 	/*
