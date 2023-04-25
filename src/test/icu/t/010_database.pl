@@ -51,17 +51,24 @@ b),
 	'sort by explicit collation upper first');
 
 
-# Test error cases in CREATE DATABASE involving locale-related options
+# Test that LOCALE='C' works for ICU
 
-my ($ret, $stdout, $stderr) = $node1->psql('postgres',
-	q{CREATE DATABASE dbicu LOCALE_PROVIDER icu LOCALE 'C' TEMPLATE template0 ENCODING UTF8}
+my $ret1 = $node1->psql('postgres',
+	q{CREATE DATABASE dbicu2 LOCALE_PROVIDER icu LOCALE 'C' TEMPLATE template0 ENCODING UTF8}
 );
-isnt($ret, 0,
-	"ICU locale must be specified for ICU provider: exit code not 0");
+is($ret1, 0,
+	"C locale works for ICU");
+
+# Test that ICU-specific locale string must be specified with ICU_LOCALE,
+# not LOCALE
+
+my ($ret2, $stdout, $stderr) = $node1->psql('postgres',
+	q{CREATE DATABASE dbicu3 LOCALE_PROVIDER icu LOCALE '@colStrength=primary' TEMPLATE template0 ENCODING UTF8});
+isnt($ret2, 0,
+	"ICU-specific locale must be specified with ICU_LOCALE: exit code not 0");
 like(
 	$stderr,
-	qr/ERROR:  ICU locale must be specified/,
-	"ICU locale must be specified for ICU provider: error message");
-
+	qr/ERROR:  invalid LC_COLLATE locale name/,
+	"ICU-specific locale must be specified with ICU_LOCALE: error message");
 
 done_testing();
