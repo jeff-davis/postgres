@@ -710,6 +710,7 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 	char	   *dbname = stmt->dbname;
 	char	   *dbowner = NULL;
 	const char *dbtemplate = NULL;
+	char	   *builtin_locale = NULL;
 	char	   *dbcollate = NULL;
 	char	   *dbctype = NULL;
 	char	   *dbiculocale = NULL;
@@ -894,6 +895,7 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 	}
 	if (dlocale && dlocale->arg)
 	{
+		builtin_locale = defGetString(dlocale);
 		dbcollate = defGetString(dlocale);
 		dbctype = defGetString(dlocale);
 	}
@@ -1018,8 +1020,15 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 		dbctype = src_ctype;
 	if (dblocprovider == '\0')
 		dblocprovider = src_locprovider;
+	if (builtin_locale == NULL && dblocprovider == COLLPROVIDER_BUILTIN)
+		builtin_locale = "C"; /* built-in provider always locale "C" */
 	if (dbiculocale == NULL && dblocprovider == COLLPROVIDER_ICU)
-		dbiculocale = src_iculocale;
+	{
+		if (dlocale && dlocale->arg)
+			dbiculocale = defGetString(dlocale);
+		else
+			dbiculocale = src_iculocale;
+	}
 	if (dbicurules == NULL && dblocprovider == COLLPROVIDER_ICU)
 		dbicurules = src_icurules;
 
@@ -1033,12 +1042,14 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 	if (!check_locale(LC_COLLATE, dbcollate, &canonname))
 		ereport(ERROR,
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-				 errmsg("invalid locale name: \"%s\"", dbcollate)));
+				 errmsg("invalid LC_COLLATE locale name: \"%s\"", dbcollate),
+				 errhint("If the locale name is specific to ICU, use ICU_LOCALE.")));
 	dbcollate = canonname;
 	if (!check_locale(LC_CTYPE, dbctype, &canonname))
 		ereport(ERROR,
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-				 errmsg("invalid locale name: \"%s\"", dbctype)));
+				 errmsg("invalid LC_CTYPE locale name: \"%s\"", dbctype),
+				 errhint("If the locale name is specific to ICU, use ICU_LOCALE.")));
 	dbctype = canonname;
 
 	check_encoding_locale_matches(encoding, dbcollate, dbctype);
@@ -1060,11 +1071,34 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 		ereport(NOTICE,
 				(errmsg("using locale provider \"builtin\" for ICU locale \"%s\"",
 						dbiculocale)));
+		builtin_locale = dbiculocale;
 		dbiculocale = NULL;
 		dblocprovider = COLLPROVIDER_BUILTIN;
 	}
 
-	if (dblocprovider == COLLPROVIDER_ICU)
+	if (dblocprovider == COLLPROVIDER_BUILTIN)
+	{
+		if (dbiculocale)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+					 errmsg("ICU locale cannot be specified unless locale provider is ICU")));
+
+		if (dbicurules)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+					 errmsg("ICU rules cannot be specified unless locale provider is ICU")));
+
+		Assert(builtin_locale);
+
+		if (strcmp(builtin_locale, "C") != 0 &&
+			strcmp(builtin_locale, "POSIX") != 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("collation provider \"builtin\" does not support locale \"%s\"",
+							builtin_locale),
+					 errhint("The built-in collation provider only supports the \"C\" and \"POSIX\" locales.")));
+	}
+	else if (dblocprovider == COLLPROVIDER_ICU)
 	{
 		if (!(is_encoding_supported_by_icu(encoding)))
 			ereport(ERROR,
@@ -1094,7 +1128,7 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 			if (langtag && strcmp(dbiculocale, langtag) != 0)
 			{
 				ereport(NOTICE,
-						(errmsg("using standard form \"%s\" for locale \"%s\"",
+						(errmsg("using standard form \"%s\" for ICU locale \"%s\"",
 								langtag, dbiculocale)));
 
 				dbiculocale = langtag;

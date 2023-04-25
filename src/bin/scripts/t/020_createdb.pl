@@ -175,7 +175,7 @@ ALTER TABLE tab_foobar owner to role_foobar;
 CREATE POLICY pol_foobar ON tab_foobar FOR ALL TO role_foobar;');
 $node->issues_sql_like(
 	[ 'createdb', '-l', 'C', '-T', 'foobar2', 'foobar3' ],
-	qr/statement: CREATE DATABASE foobar3 TEMPLATE foobar2/,
+	qr/statement: CREATE DATABASE foobar3 TEMPLATE foobar2 LOCALE 'C'/,
 	'create database with template');
 ($ret, $stdout, $stderr) = $node->psql(
 	'foobar3',
@@ -202,7 +202,7 @@ $node->command_checks_all(
 	1,
 	[qr/^$/],
 	[
-		qr/^createdb: error: database creation failed: ERROR:  invalid locale name|^createdb: error: database creation failed: ERROR:  new collation \(foo'; SELECT '1\) is incompatible with the collation of the template database/s
+		qr/^createdb: error: database creation failed: ERROR:  invalid LC_COLLATE locale name|^createdb: error: database creation failed: ERROR:  new collation \(foo'; SELECT '1\) is incompatible with the collation of the template database/s
 	],
 	'createdb with incorrect --lc-collate');
 $node->command_checks_all(
@@ -210,7 +210,7 @@ $node->command_checks_all(
 	1,
 	[qr/^$/],
 	[
-		qr/^createdb: error: database creation failed: ERROR:  invalid locale name|^createdb: error: database creation failed: ERROR:  new LC_CTYPE \(foo'; SELECT '1\) is incompatible with the LC_CTYPE of the template database/s
+		qr/^createdb: error: database creation failed: ERROR:  invalid LC_CTYPE locale name|^createdb: error: database creation failed: ERROR:  new LC_CTYPE \(foo'; SELECT '1\) is incompatible with the LC_CTYPE of the template database/s
 	],
 	'createdb with incorrect --lc-ctype');
 
