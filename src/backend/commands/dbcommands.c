@@ -1019,7 +1019,12 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 	if (dblocprovider == '\0')
 		dblocprovider = src_locprovider;
 	if (dbiculocale == NULL && dblocprovider == COLLPROVIDER_ICU)
-		dbiculocale = src_iculocale;
+	{
+		if (dlocale && dlocale->arg)
+			dbiculocale = defGetString(dlocale);
+		else
+			dbiculocale = src_iculocale;
+	}
 	if (dbicurules == NULL && dblocprovider == COLLPROVIDER_ICU)
 		dbicurules = src_icurules;
 
@@ -1033,12 +1038,14 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 	if (!check_locale(LC_COLLATE, dbcollate, &canonname))
 		ereport(ERROR,
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-				 errmsg("invalid locale name: \"%s\"", dbcollate)));
+				 errmsg("invalid LC_COLLATE locale name: \"%s\"", dbcollate),
+				 errhint("If the locale name is specific to ICU, use ICU_LOCALE.")));
 	dbcollate = canonname;
 	if (!check_locale(LC_CTYPE, dbctype, &canonname))
 		ereport(ERROR,
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-				 errmsg("invalid locale name: \"%s\"", dbctype)));
+				 errmsg("invalid LC_CTYPE locale name: \"%s\"", dbctype),
+				 errhint("If the locale name is specific to ICU, use ICU_LOCALE.")));
 	dbctype = canonname;
 
 	check_encoding_locale_matches(encoding, dbcollate, dbctype);
@@ -1094,7 +1101,7 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 			if (langtag && strcmp(dbiculocale, langtag) != 0)
 			{
 				ereport(NOTICE,
-						(errmsg("using standard form \"%s\" for locale \"%s\"",
+						(errmsg("using standard form \"%s\" for ICU locale \"%s\"",
 								langtag, dbiculocale)));
 
 				dbiculocale = langtag;
