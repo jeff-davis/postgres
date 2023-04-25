@@ -145,8 +145,10 @@ CREATE DATABASE <replaceable class="parameter">name</replaceable>
       <term><replaceable class="parameter">locale</replaceable></term>
       <listitem>
        <para>
-        This is a shortcut for setting <symbol>LC_COLLATE</symbol>
-        and <symbol>LC_CTYPE</symbol> at once.
+        This is a shortcut for setting <symbol>LC_COLLATE</symbol>,
+        <symbol>LC_CTYPE</symbol> and <symbol>ICU_LOCALE</symbol> at
+        once. Some locales are only valid for ICU, and must be set separately
+        with <symbol>ICU_LOCALE</symbol>.
        </para>
        <tip>
         <para>

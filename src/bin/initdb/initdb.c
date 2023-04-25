@@ -2157,7 +2157,11 @@ check_locale_name(int category, const char *locale, char **canonname)
 	if (res == NULL)
 	{
 		if (*locale)
-			pg_fatal("invalid locale name \"%s\"", locale);
+		{
+			pg_log_error("invalid locale name \"%s\"", locale);
+			pg_log_error_hint("If the locale name is specific to ICU, use --icu-locale.");
+			exit(1);
+		}
 		else
 		{
 			/*
@@ -2452,7 +2456,7 @@ setlocales(void)
 {
 	char	   *canonname;
 
-	/* set empty lc_* values to locale config if set */
+	/* set empty lc_* and iculocale values to locale config if set */
 
 	if (locale)
 	{
@@ -2468,6 +2472,8 @@ setlocales(void)
 			lc_monetary = locale;
 		if (!lc_messages)
 			lc_messages = locale;
+		if (!icu_locale && locale_provider == COLLPROVIDER_ICU)
+			icu_locale = locale;
 	}
 
 	/*
@@ -2504,14 +2510,18 @@ setlocales(void)
 			printf(_("Using default ICU locale \"%s\".\n"), icu_locale);
 		}
 
-		/* canonicalize to a language tag */
-		langtag = icu_language_tag(icu_locale);
-		printf(_("Using language tag \"%s\" for ICU locale \"%s\".\n"),
-			   langtag, icu_locale);
-		pg_free(icu_locale);
-		icu_locale = langtag;
+		if (pg_strcasecmp(icu_locale, "C") != 0 &&
+			pg_strcasecmp(icu_locale, "POSIX") != 0)
+		{
+			/* canonicalize to a language tag */
+			langtag = icu_language_tag(icu_locale);
+			printf(_("Using language tag \"%s\" for ICU locale \"%s\".\n"),
+				   langtag, icu_locale);
+			pg_free(icu_locale);
+			icu_locale = langtag;
 
-		icu_validate_locale(icu_locale);
+			icu_validate_locale(icu_locale);
+		}
 
 		/*
 		 * In supported builds, the ICU locale ID will be opened during
@@ -3343,7 +3353,6 @@ main(int argc, char *argv[])
 				break;
 			case 8:
 				locale = "C";
-				locale_provider = COLLPROVIDER_LIBC;
 				break;
 			case 9:
 				pwfilename = pg_strdup(optarg);
