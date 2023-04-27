@@ -874,12 +874,89 @@ CREATE COLLATION german (provider = libc, locale = 'de_DE');
     set that is preloaded by <command>initdb</command>.  Users are encouraged
     to define their own collation objects that make use of these facilities to
     suit the sorting behavior to their requirements.
+   </para>
+
+   <para>
     See <ulink url="https://unicode-org.github.io/icu/userguide/locale/"></ulink>
     and <ulink url="https://unicode-org.github.io/icu/userguide/collation/api.html"></ulink> for
     information on ICU locale naming.  The set of acceptable names and
     attributes depends on the particular ICU version.
    </para>
 
+   <para>
+     <table id="language-tag-collation-settings-table">
+      <title>Language Tag Collation Settings</title>
+      <tgroup cols="4">
+       <thead>
+        <row>
+         <entry>Key</entry>
+         <entry>Values</entry>
+         <entry>Default</entry>
+         <entry>Description</entry>
+        </row>
+       </thead>
+       <tbody>
+        <row>
+         <entry><literal>ks</literal></entry>
+         <entry><literal>level1</literal>, <literal>level2</literal>, <literal>level3</literal>, <literal>level4</literal>, <literal>identic</literal></entry>
+         <entry><literal>level3</literal></entry>
+         <entry>
+          Sensitivity when determining equality, with
+          <literal>level1</literal> the least sensitive and
+          <literal>identic</literal> the most sensitive. Lower sensitivity
+          settings consider strings to be equal despite some differences, such
+          as case. For lower-sensitivity settings, define the collation with
+          <option>deterministic</option> set to <literal>false</literal>.
+         </entry>
+        </row>
+        <row>
+         <entry><literal>ka</literal></entry>
+         <entry><literal>noignore</literal>, <literal>shifted</literal></entry>
+         <entry><literal>noignore</literal></entry>
+         <entry>
+          If set to <literal>shifted</literal>, causes some characters
+          (e.g. punctuation or space) to be ignored in comparison. For
+          instance, "ab" = "a-b".
+         </entry>
+        </row>
+        <row>
+         <entry><literal>kf</literal></entry>
+         <entry><literal>upper</literal>, <literal>lower</literal>, <literal>false</literal></entry>
+         <entry><literal>false</literal></entry>
+         <entry>
+          If set to <literal>upper</literal>, upper case sorts before
+          lowercase. If set to <literal>lower</literal>, lower case sorts
+          before uppercase. If set to <literal>false</literal>, it depends on
+          the locale.
+         </entry>
+        </row>
+        <row>
+         <entry><literal>kn</literal></entry>
+         <entry><literal>true</literal>, <literal>false</literal></entry>
+         <entry><literal>false</literal></entry>
+         <entry>
+          If set to <literal>true</literal>, numbers within a string are
+          treated as a single numeric value rather than a sequence of
+          digits. For example, "23" sorts before "123".
+         </entry>
+        </row>
+       </tbody>
+      </tgroup>
+     </table>
+    </para>   
+    <note>
+     <para>
+      The table above is meant as a guide and does not cover all available
+      possibilities. For complete details, see <ulink
+      url="https://www.unicode.org/reports/tr35/tr35-collation.html">Unicode
+      Technical Standard #35</ulink> and <ulink
+      url="https://tools.ietf.org/html/bcp47">BCP 47</ulink> for details.  The
+      list of possible collation types (<literal>co</literal> subtag) can be
+      found in the <ulink
+      url="https://github.com/unicode-org/cldr/blob/master/common/bcp47/collation.xml">CLDR
+      repository</ulink>
+     </para>
+    </note>
    <para>
     Here are some examples:
 
