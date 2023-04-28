@@ -2812,6 +2812,175 @@ icu_set_collation_attributes(UCollator *collator, const char *loc,
 	pfree(lower_str);
 }
 
+/*
+ * The following maps are based on maps in ICU 63 and earlier, which handle
+ * old locale string formats. While ICU considers such formats "long
+ * obsolete", in Postgres we would like to properly transform them into
+ * language tags so that the ICU provider better handles libc locale strings,
+ * regardless of the ICU version.
+ */
+
+typedef struct icu_canonical {
+	const char *id;		  /* input ID */
+	const char *canonicalID; /* canonicalized output ID */
+	const char *keyword;	 /* keyword, or NULL if none */
+	const char *value;	   /* keyword value, or NULL if kw==NULL */
+} icu_canonical;
+
+static const icu_canonical icu_canonical_map[] = {
+
+/*
+ * The mapping for "" is omitted because it's handled by ICU as the root
+ * locale and should not be transformed to "en_US_POSIX". Mappings for "c" and
+ * "posix" are omitted because postgres handles those specially.
+ */
+#ifdef NOT_USED
+	{ "",               "en_US_POSIX", NULL, NULL }, /* .NET name */
+	{ "c",              "en_US_POSIX", NULL, NULL }, /* POSIX name */
+	{ "posix",          "en_US_POSIX", NULL, NULL }, /* POSIX name (alias of C) */
+#endif
+
+	{ "art_LOJBAN",	 "jbo", NULL, NULL }, /* registered name */
+	{ "az_AZ_CYRL",	 "az_Cyrl_AZ", NULL, NULL }, /* .NET name */
+	{ "az_AZ_LATN",	 "az_Latn_AZ", NULL, NULL }, /* .NET name */
+	{ "ca_ES_PREEURO",  "ca_ES", "currency", "ESP" },
+	{ "de__PHONEBOOK",  "de", "collation", "phonebook" }, /* Old ICU name */
+	{ "de_AT_PREEURO",  "de_AT", "currency", "ATS" },
+	{ "de_DE_PREEURO",  "de_DE", "currency", "DEM" },
+	{ "de_LU_PREEURO",  "de_LU", "currency", "LUF" },
+	{ "el_GR_PREEURO",  "el_GR", "currency", "GRD" },
+	{ "en_BE_PREEURO",  "en_BE", "currency", "BEF" },
+	{ "en_IE_PREEURO",  "en_IE", "currency", "IEP" },
+	{ "es__TRADITIONAL", "es", "collation", "traditional" }, /* Old ICU name */
+	{ "es_ES_PREEURO",  "es_ES", "currency", "ESP" },
+	{ "eu_ES_PREEURO",  "eu_ES", "currency", "ESP" },
+	{ "fi_FI_PREEURO",  "fi_FI", "currency", "FIM" },
+	{ "fr_BE_PREEURO",  "fr_BE", "currency", "BEF" },
+	{ "fr_FR_PREEURO",  "fr_FR", "currency", "FRF" },
+	{ "fr_LU_PREEURO",  "fr_LU", "currency", "LUF" },
+	{ "ga_IE_PREEURO",  "ga_IE", "currency", "IEP" },
+	{ "gl_ES_PREEURO",  "gl_ES", "currency", "ESP" },
+	{ "hi__DIRECT",	 "hi", "collation", "direct" }, /* Old ICU name */
+	{ "it_IT_PREEURO",  "it_IT", "currency", "ITL" },
+	{ "ja_JP_TRADITIONAL", "ja_JP", "calendar", "japanese" }, /* Old ICU name */
+	{ "nb_NO_NY",	   "nn_NO", NULL, NULL },  /* "markus said this was ok" :-) */
+	{ "nl_BE_PREEURO",  "nl_BE", "currency", "BEF" },
+	{ "nl_NL_PREEURO",  "nl_NL", "currency", "NLG" },
+	{ "pt_PT_PREEURO",  "pt_PT", "currency", "PTE" },
+	{ "sr_SP_CYRL",	 "sr_Cyrl_RS", NULL, NULL }, /* .NET name */
+	{ "sr_SP_LATN",	 "sr_Latn_RS", NULL, NULL }, /* .NET name */
+	{ "sr_YU_CYRILLIC", "sr_Cyrl_RS", NULL, NULL }, /* Linux name */
+	{ "th_TH_TRADITIONAL", "th_TH", "calendar", "buddhist" }, /* Old ICU name */
+	{ "uz_UZ_CYRILLIC", "uz_Cyrl_UZ", NULL, NULL }, /* Linux name */
+	{ "uz_UZ_CYRL",	 "uz_Cyrl_UZ", NULL, NULL }, /* .NET name */
+	{ "uz_UZ_LATN",	 "uz_Latn_UZ", NULL, NULL }, /* .NET name */
+	{ "zh_CHS",		 "zh_Hans", NULL, NULL }, /* .NET name */
+	{ "zh_CHT",		 "zh_Hant", NULL, NULL }, /* .NET name */
+	{ "zh_GAN",		 "gan", NULL, NULL }, /* registered name */
+	{ "zh_GUOYU",	   "zh", NULL, NULL }, /* registered name */
+	{ "zh_HAKKA",	   "hak", NULL, NULL }, /* registered name */
+	{ "zh_MIN_NAN",	 "nan", NULL, NULL }, /* registered name */
+	{ "zh_WUU",		 "wuu", NULL, NULL }, /* registered name */
+	{ "zh_XIANG",	   "hsn", NULL, NULL }, /* registered name */
+	{ "zh_YUE",		 "yue", NULL, NULL }, /* registered name */
+};
+
+#define ICU_CANONICAL_MAP_SIZE \
+	(sizeof(icu_canonical_map)/sizeof(icu_canonical_map[0]))
+
+typedef struct icu_variant {
+	const char *variant;		  /* input ID */
+	const char *keyword;	 /* keyword, or NULL if none */
+	const char *value;	   /* keyword value, or NULL if kw==NULL */
+} icu_variant;
+
+static const icu_variant icu_variant_map[] = {
+	{ "EURO",   "currency", "EUR" },
+	{ "PINYIN", "collation", "pinyin" }, /* Solaris variant */
+	{ "STROKE", "collation", "stroke" },  /* Solaris variant */
+};
+
+#define ICU_VARIANT_MAP_SIZE \
+	(sizeof(icu_variant_map)/sizeof(icu_variant_map[0]))
+
+/*
+ * Before passing the locale string to ICU, fix up old libc-style locale
+ * strings so that they can be properly transformed into language tags
+ * regardless of the ICU version.
+ */
+static char *
+icu_fix_variants(const char *loc_str)
+{
+	const char *old_variant;
+
+	/*
+	 * First look for replacements in the canonicalization map. In case of a
+	 * match, the entire locale string is replaced.
+	 */
+	for (int i = 0; i < ICU_CANONICAL_MAP_SIZE; i++)
+	{
+		icu_canonical map_canonical = icu_canonical_map[i];
+		if (pg_strcasecmp(loc_str, map_canonical.id) == 0)
+		{
+			/* canonicalID + '@' + keyword + '=' + value + NUL */
+			size_t	 result_len;
+			char	*result;
+			int		 len PG_USED_FOR_ASSERTS_ONLY;
+
+			/* canonicalID + '@' + keyword + '=' + value + NUL */
+			result_len = strlen(map_canonical.canonicalID) + 1 +
+				strlen(map_canonical.keyword) + 1 +
+				strlen(map_canonical.value) + 1;
+			result = palloc(result_len);
+
+			len = snprintf(result, result_len, "%s@%s=%s",
+						   map_canonical.canonicalID,
+						   map_canonical.keyword, map_canonical.value);
+			Assert(len == result_len - 1);
+
+			return result;
+		}
+	}
+
+	/*
+	 * Next, extract a variant of the form '...@VARIANT', and replace with
+	 * the appropriate '...@keyword=value' if found in the map.
+	 */
+	old_variant = strrchr(loc_str, '@');
+	if (old_variant)
+	{
+		size_t prefix_len = old_variant - loc_str; /* bytes before the '@' */
+
+		old_variant++; /* skip past the '@' */
+
+		for (int i = 0; i < ICU_VARIANT_MAP_SIZE; i++)
+		{
+			const icu_variant map_variant = icu_variant_map[i];
+			if (pg_strcasecmp(old_variant, map_variant.variant) == 0)
+			{
+				size_t	 result_len;
+				char	*result;
+				int		 len PG_USED_FOR_ASSERTS_ONLY;
+
+				/* ... + '@' + keyword + '=' + value + NUL */
+				result_len = prefix_len + 1 +
+					strlen(map_variant.keyword) + 1 +
+					strlen(map_variant.value) + 1;
+				result = palloc(result_len);
+
+				memcpy(result, loc_str, prefix_len);
+				len = snprintf(result + prefix_len, result_len - prefix_len,
+							   "@%s=%s", map_variant.keyword, map_variant.value);
+				Assert(len == result_len - prefix_len - 1);
+
+				return result;
+			}
+		}
+	}
+
+	return pstrdup(loc_str);
+}
+
 #endif
 
 /*
@@ -2829,6 +2998,7 @@ icu_language_tag(const char *loc_str, int elevel)
 #ifdef USE_ICU
 	UErrorCode	 status;
 	char		*langtag;
+	char		*fixed_loc_str = icu_fix_variants(loc_str);
 	size_t		 buflen = 32;	/* arbitrary starting buffer size */
 	const bool	 strict = true;
 
@@ -2844,7 +3014,7 @@ icu_language_tag(const char *loc_str, int elevel)
 		int32_t		len;
 
 		status = U_ZERO_ERROR;
-		len = uloc_toLanguageTag(loc_str, langtag, buflen, strict, &status);
+		len = uloc_toLanguageTag(fixed_loc_str, langtag, buflen, strict, &status);
 
 		/*
 		 * If the result fits in the buffer exactly (len == buflen),
@@ -2863,6 +3033,8 @@ icu_language_tag(const char *loc_str, int elevel)
 
 		break;
 	}
+
+	pfree(fixed_loc_str);
 
 	if (U_FAILURE(status))
 	{
