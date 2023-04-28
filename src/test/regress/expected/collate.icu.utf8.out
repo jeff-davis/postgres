@@ -1046,6 +1046,8 @@ CREATE COLLATION testx (provider = icu, locale = 'c'); -- fails
 ERROR:  could not convert locale name "c" to language tag: U_ILLEGAL_ARGUMENT_ERROR
 CREATE COLLATION testx (provider = icu, locale = '@colStrength=primary;nonsense=yes'); -- fails
 ERROR:  could not convert locale name "@colStrength=primary;nonsense=yes" to language tag: U_ILLEGAL_ARGUMENT_ERROR
+CREATE COLLATION testx (provider = icu, locale = '@ASDF'); -- fails
+ERROR:  could not convert locale name "@ASDF" to language tag: U_ILLEGAL_ARGUMENT_ERROR
 SET icu_validation_level = WARNING;
 CREATE COLLATION testx (provider = icu, locale = '@colStrength=primary;nonsense=yes'); DROP COLLATION testx;
 WARNING:  could not convert locale name "@colStrength=primary;nonsense=yes" to language tag: U_ILLEGAL_ARGUMENT_ERROR
@@ -1056,7 +1058,16 @@ HINT:  To disable ICU locale validation, set parameter icu_validation_level to D
 CREATE COLLATION testx (provider = icu, locale = 'nonsense-nowhere'); DROP COLLATION testx;
 WARNING:  ICU locale "nonsense-nowhere" has unknown language "nonsense"
 HINT:  To disable ICU locale validation, set parameter icu_validation_level to DISABLED.
+CREATE COLLATION testx (provider = icu, locale = '@ASDF'); DROP COLLATION testx;
+WARNING:  could not convert locale name "@ASDF" to language tag: U_ILLEGAL_ARGUMENT_ERROR
 RESET icu_validation_level;
+-- test special variants
+CREATE COLLATION testx (provider = icu, locale = '@EURO'); DROP COLLATION testx;
+NOTICE:  using standard form "und-u-cu-eur" for locale "@EURO"
+CREATE COLLATION testx (provider = icu, locale = '@pinyin'); DROP COLLATION testx;
+NOTICE:  using standard form "und-u-co-pinyin" for locale "@pinyin"
+CREATE COLLATION testx (provider = icu, locale = '@stroke'); DROP COLLATION testx;
+NOTICE:  using standard form "und-u-co-stroke" for locale "@stroke"
 CREATE COLLATION test4 FROM nonsense;
 ERROR:  collation "nonsense" for encoding "UTF8" does not exist
 CREATE COLLATION test5 FROM test0;

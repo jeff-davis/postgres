@@ -2766,6 +2766,60 @@ icu_set_collation_attributes(UCollator *collator, const char *loc,
 	pfree(lower_str);
 }
 
+static const char *icu_variant_map[][2] = {
+	{ "@EURO",   "@currency=EUR" },
+	{ "@PINYIN", "@collation=pinyin" },
+	{ "@STROKE", "@collation=stroke" },
+};
+
+#define ICU_VARIANT_MAP_SIZE \
+	(sizeof(icu_variant_map)/sizeof(icu_variant_map[0]))
+
+/*
+ * ICU version 64 removed the ability to transform locale strings of the form
+ * '...@VARIANT' into proper language tags. Perform the transformation from
+ * within Postgres so that ICU supports any libc locale name consistently,
+ * regardless of the ICU version.
+ */
+static char *
+icu_fix_variants(const char *loc_str)
+{
+	const char *old_variant = strrchr(loc_str, '@');
+
+	/*
+	 * Extract a variant of the form '...@VARIANT', and replace with
+	 * the appropriate '...@keyword=value' if found in the map.
+	 */
+	if (old_variant)
+	{
+		size_t prefix_len = old_variant - loc_str; /* bytes before the '@' */
+
+		for (int i = 0; i < ICU_VARIANT_MAP_SIZE; i++)
+		{
+			const char *map_variant = icu_variant_map[i][0];
+			const char *map_replacement = icu_variant_map[i][1];
+
+			if (pg_strcasecmp(old_variant, map_variant) == 0)
+			{
+				size_t	 replacement_len = strlen(map_replacement);
+				size_t	 result_len;
+				char	*result;
+
+				result_len = prefix_len + replacement_len + 1;
+				result = palloc(result_len);
+
+				memcpy(result, loc_str, prefix_len);
+				memcpy(result + prefix_len, map_replacement, replacement_len);
+				result[prefix_len + replacement_len] = '\0';
+
+				return result;
+			}
+		}
+	}
+
+	return pstrdup(loc_str);
+}
+
 #endif
 
 /*
@@ -2782,6 +2836,7 @@ icu_language_tag(const char *loc_str, int elevel)
 {
 #ifdef USE_ICU
 	UErrorCode	 status;
+	char		*fixed_loc_str = icu_fix_variants(loc_str);
 	char		*langtag;
 	size_t		 buflen = 32;	/* arbitrary starting buffer size */
 	const bool	 strict = true;
@@ -2798,7 +2853,7 @@ icu_language_tag(const char *loc_str, int elevel)
 		int32_t		len;
 
 		status = U_ZERO_ERROR;
-		len = uloc_toLanguageTag(loc_str, langtag, buflen, strict, &status);
+		len = uloc_toLanguageTag(fixed_loc_str, langtag, buflen, strict, &status);
 
 		/*
 		 * If the result fits in the buffer exactly (len == buflen),
@@ -2817,6 +2872,8 @@ icu_language_tag(const char *loc_str, int elevel)
 
 		break;
 	}
+
+	pfree(fixed_loc_str);
 
 	if (U_FAILURE(status))
 	{
