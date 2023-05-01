@@ -110,13 +110,16 @@ my $oldversion = int($oldnode->pg_version =~ s/([0-9]*).*/$1/rg);
 # can test that pg_upgrade copies the locale settings of template0
 # from the old to the new cluster.
 
-my $original_encoding = "6";    # UTF-8
-my $original_provider = "c";
-my $original_locale = "C";
-my $original_datlocale = "";
-my $provider_field = "'c' AS datlocprovider";
-my $datlocale_field = "NULL AS datlocale";
-if ($oldversion >= 15 && $ENV{with_icu} eq 'yes')
+my %encoding_number = ('UTF-8' => 6, 'SQL_ASCII' => 0);
+my $provider_field;
+my $datlocale_field;
+my $original_encoding;
+my $original_provider;
+my $original_datcollate = "C";
+my $original_datctype = "C";
+my $original_datlocale;
+
+if ($oldversion >= 15)
 {
 	$provider_field = "datlocprovider";
 	if ($oldversion >= 17)
@@ -127,18 +130,52 @@ if ($oldversion >= 15 && $ENV{with_icu} eq 'yes')
 	{
 		$datlocale_field = "daticulocale AS datlocale";
 	}
+}
+else
+{
+	$provider_field = "'c' AS datlocprovider";
+	$datlocale_field = "NULL AS datlocale";
+}
+
+if ($oldversion >= 17)
+{
+	$original_encoding = "UTF-8";
+	$original_provider = "b";
+	$original_datlocale = "C";
+}
+elsif ($oldversion >= 15 && $ENV{with_icu} eq 'yes')
+{
+	$original_encoding = "UTF-8";
 	$original_provider = "i";
 	$original_datlocale = "fr-CA";
+}
+else
+{
+	my $original_encoding = "SQL_ASCII";
+	my $original_provider = "c";
+	my $original_datlocale = "";
 }
 
 my @initdb_params = @custom_opts;
 
-push @initdb_params, ('--encoding', 'UTF-8');
-push @initdb_params, ('--locale', $original_locale);
-if ($original_provider eq "i")
+push @initdb_params, ('--encoding', $original_encoding);
+push @initdb_params, ('--lc-collate', $original_datcollate);
+push @initdb_params, ('--lc-ctype', $original_datctype);
+
+# add --locale-provider, if supported
+my %provider_name = ('b' => 'builtin', 'i' => 'icu', 'c' => 'libc');
+if ($oldnode->pg_version >= 15)
 {
-	push @initdb_params, ('--locale-provider', 'icu');
-	push @initdb_params, ('--icu-locale', 'fr-CA');
+	push @initdb_params,
+	  ('--locale-provider', $provider_name{$original_provider});
+	if ($original_provider eq 'b')
+	{
+		push @initdb_params, ('--builtin-locale', $original_datlocale);
+	}
+	elsif ($original_provider eq 'i')
+	{
+		push @initdb_params, ('--icu-locale', $original_datlocale);
+	}
 }
 
 $node_params{extra} = \@initdb_params;
@@ -151,7 +188,7 @@ $result = $oldnode->safe_psql(
 	"SELECT encoding, $provider_field, datcollate, datctype, $datlocale_field
                  FROM pg_database WHERE datname='template0'");
 is( $result,
-	"$original_encoding|$original_provider|$original_locale|$original_locale|$original_datlocale",
+	"$encoding_number{$original_encoding}|$original_provider|$original_datcollate|$original_datctype|$original_datlocale",
 	"check locales in original cluster");
 
 # The default location of the source code is the root of this directory.
@@ -327,7 +364,8 @@ if (defined($ENV{oldinstall}))
 }
 
 # Create an invalid database, will be deleted below
-$oldnode->safe_psql('postgres', qq(
+$oldnode->safe_psql(
+	'postgres', qq(
   CREATE DATABASE regression_invalid;
   UPDATE pg_database SET datconnlimit = -2 WHERE datname = 'regression_invalid';
 ));
@@ -370,7 +408,7 @@ command_checks_all(
 		$mode, '--check',
 	],
 	1,
-	[qr/invalid/], # pg_upgrade prints errors on stdout :(
+	[qr/invalid/],    # pg_upgrade prints errors on stdout :(
 	[qr//],
 	'invalid database causes failure');
 rmtree($newnode->data_dir . "/pg_upgrade_output.d");
@@ -434,7 +472,7 @@ $result = $newnode->safe_psql(
 	"SELECT encoding, $provider_field, datcollate, datctype, $datlocale_field
                  FROM pg_database WHERE datname='template0'");
 is( $result,
-	"$original_encoding|$original_provider|$original_locale|$original_locale|$original_datlocale",
+	"$encoding_number{$original_encoding}|$original_provider|$original_datcollate|$original_datctype|$original_datlocale",
 	"check that locales in new cluster match original cluster");
 
 # Second dump from the upgraded instance.
