@@ -3112,7 +3112,9 @@ dumpDatabase(Archive *fout)
 	}
 
 	appendPQExpBufferStr(creaQry, " LOCALE_PROVIDER = ");
-	if (datlocprovider[0] == 'c')
+	if (datlocprovider[0] == 'b')
+		appendPQExpBufferStr(creaQry, "builtin");
+	else if (datlocprovider[0] == 'c')
 		appendPQExpBufferStr(creaQry, "libc");
 	else if (datlocprovider[0] == 'i')
 		appendPQExpBufferStr(creaQry, "icu");
@@ -3120,27 +3122,33 @@ dumpDatabase(Archive *fout)
 		pg_fatal("unrecognized locale provider: %s",
 				 datlocprovider);
 
-	if (strlen(collate) > 0 && strcmp(collate, ctype) == 0)
+	if (!locale && datlocprovider[0] != 'c')
+		pg_log_warning("database '%s' with provider '%s' missing datlocale",
+					   datname, datlocprovider);
+
+	if (locale && datlocprovider[0] == 'c')
+		pg_log_warning("database '%s' with provider 'c' has non-NULL locale '%s'",
+					   datname, locale);
+
+	/* if collate and ctype are equal, and locale is NULL, use LOCALE */
+	if (!locale && strlen(collate) > 0 && strcmp(collate, ctype) == 0)
+		locale = collate;
+
+	/* output LC_COLLATE and LC_CTYPE if different from LOCALE */
+	if (strlen(collate) > 0 && (!locale || strcmp(collate, locale) != 0))
 	{
-		appendPQExpBufferStr(creaQry, " LOCALE = ");
+		appendPQExpBufferStr(creaQry, " LC_COLLATE = ");
 		appendStringLiteralAH(creaQry, collate, fout);
 	}
-	else
+	if (strlen(ctype) > 0 && (!locale || strcmp(ctype, locale) != 0))
 	{
-		if (strlen(collate) > 0)
-		{
-			appendPQExpBufferStr(creaQry, " LC_COLLATE = ");
-			appendStringLiteralAH(creaQry, collate, fout);
-		}
-		if (strlen(ctype) > 0)
-		{
-			appendPQExpBufferStr(creaQry, " LC_CTYPE = ");
-			appendStringLiteralAH(creaQry, ctype, fout);
-		}
+		appendPQExpBufferStr(creaQry, " LC_CTYPE = ");
+		appendStringLiteralAH(creaQry, ctype, fout);
 	}
+
 	if (locale)
 	{
-		appendPQExpBufferStr(creaQry, " ICU_LOCALE = ");
+		appendPQExpBufferStr(creaQry, " LOCALE = ");
 		appendStringLiteralAH(creaQry, locale, fout);
 	}
 
@@ -13868,7 +13876,9 @@ dumpCollation(Archive *fout, const CollInfo *collinfo)
 					  fmtQualifiedDumpable(collinfo));
 
 	appendPQExpBufferStr(q, "provider = ");
-	if (collprovider[0] == 'c')
+	if (collprovider[0] == 'b')
+		appendPQExpBufferStr(q, "builtin");
+	else if (collprovider[0] == 'c')
 		appendPQExpBufferStr(q, "libc");
 	else if (collprovider[0] == 'i')
 		appendPQExpBufferStr(q, "icu");
@@ -13888,6 +13898,13 @@ dumpCollation(Archive *fout, const CollInfo *collinfo)
 			pg_log_warning("invalid collation \"%s\"", qcollname);
 
 		/* no locale -- the default collation cannot be reloaded anyway */
+	}
+	else if (collprovider[0] == 'b')
+	{
+		if (collcollate || collctype || colllocale || collicurules)
+			pg_log_warning("invalid collation \"%s\"", qcollname);
+
+		appendPQExpBufferStr(q, ", locale = 'C'");
 	}
 	else if (collprovider[0] == 'i')
 	{

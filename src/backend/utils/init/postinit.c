@@ -423,7 +423,16 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
 		strcmp(ctype, "POSIX") == 0)
 		database_ctype_is_c = true;
 
-	if (dbform->datlocprovider == COLLPROVIDER_ICU)
+	if (dbform->datlocprovider == COLLPROVIDER_BUILTIN)
+	{
+		datum = SysCacheGetAttrNotNull(DATABASEOID, tup, Anum_pg_database_datlocale);
+		datlocale = TextDatumGetCString(datum);
+
+		default_locale.info.builtin.locale = MemoryContextStrdup(
+																 TopMemoryContext, datlocale);
+		default_locale.info.builtin.cclass_posix = true;
+	}
+	else if (dbform->datlocprovider == COLLPROVIDER_ICU)
 	{
 		char	   *icurules;
 
@@ -461,10 +470,16 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
 	{
 		char	   *actual_versionstr;
 		char	   *collversionstr;
+		char	   *locale;
 
 		collversionstr = TextDatumGetCString(datum);
 
-		actual_versionstr = get_collation_actual_version(dbform->datlocprovider, dbform->datlocprovider == COLLPROVIDER_ICU ? datlocale : collate);
+		if (dbform->datlocprovider == COLLPROVIDER_LIBC)
+			locale = collate;
+		else
+			locale = datlocale;
+
+		actual_versionstr = get_collation_actual_version(dbform->datlocprovider, locale);
 		if (!actual_versionstr)
 			/* should not happen */
 			elog(WARNING,
