@@ -77,6 +77,8 @@
 
 #include "catalog/pg_collation.h"
 #include "catalog/pg_type.h"
+#include "common/unicode_case.h"
+#include "common/unicode_category.h"
 #include "mb/pg_wchar.h"
 #include "nodes/miscnodes.h"
 #include "parser/scansup.h"
@@ -1680,6 +1682,35 @@ str_tolower(const char *buff, size_t nbytes, Oid collid)
 		}
 		else
 #endif
+		if (mylocale && mylocale->provider == COLLPROVIDER_BUILTIN)
+		{
+			const char *src = buff;
+			size_t		srclen = nbytes;
+			size_t		dstsize = srclen + 1;
+			char	   *dst = palloc(dstsize);
+			size_t		needed;
+
+			Assert(GetDatabaseEncoding() == PG_UTF8);
+
+			/* first try buffer of equal size */
+			dstsize = srclen + 1;
+			result = palloc(dstsize);
+
+			needed = unicode_strlower(dst, dstsize, src, srclen,
+									  mylocale->info.builtin.casemap_full);
+			if (needed + 1 > dstsize)
+			{
+				/* grow buffer if needed and retry */
+				dstsize = needed + 1;
+				dst = repalloc(dst, dstsize);
+				needed = unicode_strlower(dst, dstsize, src, srclen,
+										  mylocale->info.builtin.casemap_full);
+				Assert(needed + 1 == dstsize);
+			}
+
+			result = dst;
+		}
+		else
 		{
 			if (pg_database_encoding_max_length() > 1)
 			{
@@ -1798,6 +1829,35 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 		}
 		else
 #endif
+		if (mylocale && mylocale->provider == COLLPROVIDER_BUILTIN)
+		{
+			const char *src = buff;
+			size_t		srclen = nbytes;
+			size_t		dstsize = srclen + 1;
+			char	   *dst = palloc(dstsize);
+			size_t		needed;
+
+			Assert(GetDatabaseEncoding() == PG_UTF8);
+
+			/* first try buffer of equal size */
+			dstsize = srclen + 1;
+			result = palloc(dstsize);
+
+			needed = unicode_strupper(dst, dstsize, src, srclen,
+									  mylocale->info.builtin.casemap_full);
+			if (needed + 1 > dstsize)
+			{
+				/* grow buffer if needed and retry */
+				dstsize = needed + 1;
+				dst = repalloc(dst, dstsize);
+				needed = unicode_strupper(dst, dstsize, src, srclen,
+										  mylocale->info.builtin.casemap_full);
+				Assert(needed + 1 == dstsize);
+			}
+
+			result = dst;
+		}
+		else
 		{
 			if (pg_database_encoding_max_length() > 1)
 			{
@@ -1861,6 +1921,48 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 	return result;
 }
 
+struct WordBoundaryState
+{
+	const char *str;
+	size_t		len;
+	size_t		offset;
+	bool		init;
+	bool		prev_alnum;
+	bool		posix;
+};
+
+/*
+ * Simple word boundary iterator that draws boundaries each time the result of
+ * pg_u_isalnum() changes.
+ */
+static size_t
+initcap_wbnext(void *state)
+{
+	struct WordBoundaryState *wbstate = (struct WordBoundaryState *) state;
+
+	while (wbstate->offset < wbstate->len &&
+		   wbstate->str[wbstate->offset] != '\0')
+	{
+		pg_wchar	u = utf8_to_unicode((unsigned char *) wbstate->str +
+										wbstate->offset);
+		bool		curr_alnum = pg_u_isalnum(u, wbstate->posix);
+
+		if (!wbstate->init || curr_alnum != wbstate->prev_alnum)
+		{
+			size_t		prev_offset = wbstate->offset;
+
+			wbstate->init = true;
+			wbstate->offset += unicode_utf8len(u);
+			wbstate->prev_alnum = curr_alnum;
+			return prev_offset;
+		}
+
+		wbstate->offset += unicode_utf8len(u);
+	}
+
+	return wbstate->len;
+}
+
 /*
  * collation-aware, wide-character-aware initcap function
  *
@@ -1917,6 +2019,53 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 		}
 		else
 #endif
+		if (mylocale && mylocale->provider == COLLPROVIDER_BUILTIN)
+		{
+			const char *src = buff;
+			size_t		srclen = nbytes;
+			size_t		dstsize = srclen + 1;
+			char	   *dst = palloc(dstsize);
+			size_t		needed;
+			struct WordBoundaryState wbstate = {
+				.str = src,
+				.len = srclen,
+				.offset = 0,
+				.init = false,
+				.prev_alnum = false,
+				.posix = mylocale->info.builtin.properties_posix,
+			};
+
+			Assert(GetDatabaseEncoding() == PG_UTF8);
+
+			/* first try buffer of equal size */
+			dstsize = srclen + 1;
+			result = palloc(dstsize);
+
+			needed = unicode_strtitle(dst, dstsize, src, srclen,
+									  mylocale->info.builtin.titlecase,
+									  mylocale->info.builtin.adjust_to_cased,
+									  mylocale->info.builtin.casemap_full,
+									  initcap_wbnext, &wbstate);
+			if (needed + 1 > dstsize)
+			{
+				/* reset iterator */
+				wbstate.offset = 0;
+				wbstate.prev_alnum = false;
+
+				/* grow buffer if needed and retry */
+				dstsize = needed + 1;
+				dst = repalloc(dst, dstsize);
+				needed = unicode_strtitle(dst, dstsize, src, srclen,
+										  mylocale->info.builtin.titlecase,
+										  mylocale->info.builtin.adjust_to_cased,
+										  mylocale->info.builtin.casemap_full,
+										  initcap_wbnext, &wbstate);
+				Assert(needed + 1 == dstsize);
+			}
+
+			result = dst;
+		}
+		else
 		{
 			if (pg_database_encoding_max_length() > 1)
 			{
