@@ -83,6 +83,35 @@ else
 		'create database with ICU fails since no ICU support');
 }
 
+$node->command_ok(
+	[ 'createdb', '-T', 'template0', '--locale-provider=none', 'testnone1' ],
+	'create database with provider "none"');
+
+$node->command_ok(
+	[ 'createdb', '-T', 'template0', '--locale-provider=none', '--locale=POSIX',
+	  'testnone2' ],
+	'create database with provider "none" and locale "POSIX"');
+
+$node->command_ok(
+	[ 'createdb', '-T', 'template0', '--locale-provider=none', '--lc-collate=POSIX',
+	  'testnone3' ],
+	'create database with provider "none" and LC_COLLATE=POSIX');
+
+$node->command_ok(
+	[ 'createdb', '-T', 'template0', '--locale-provider=none', '--lc-ctype=POSIX',
+	  'testnone4' ],
+	'create database with provider "none" and LC_CTYPE=POSIX');
+
+$node->command_fails(
+	[ 'createdb', '-T', 'template0', '--locale-provider=none', '--icu-locale=en',
+	  'testnone5' ],
+	'create database with provider "none" and ICU_LOCALE="en"');
+
+$node->command_fails(
+	[ 'createdb', '-T', 'template0', '--locale-provider=none', '--icu-rules=""',
+	  'testnone6' ],
+	'create database with provider "none" and ICU_RULES=""');
+
 $node->command_fails([ 'createdb', 'foobar1' ],
 	'fails if database already exists');
 

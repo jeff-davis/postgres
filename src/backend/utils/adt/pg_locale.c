@@ -1228,7 +1228,12 @@ lookup_collation_cache(Oid collation, bool set_flags)
 			elog(ERROR, "cache lookup failed for collation %u", collation);
 		collform = (Form_pg_collation) GETSTRUCT(tp);
 
-		if (collform->collprovider == COLLPROVIDER_LIBC)
+		if (collform->collprovider == COLLPROVIDER_NONE)
+		{
+			cache_entry->collate_is_c = true;
+			cache_entry->ctype_is_c = true;
+		}
+		else if (collform->collprovider == COLLPROVIDER_LIBC)
 		{
 			Datum		datum;
 			const char *collcollate;
@@ -1280,6 +1285,9 @@ lc_collate_is_c(Oid collation)
 	{
 		static int	result = -1;
 		char	   *localeptr;
+
+		if (default_locale.provider == COLLPROVIDER_NONE)
+			return true;
 
 		if (default_locale.provider == COLLPROVIDER_ICU)
 			return false;
@@ -1487,8 +1495,10 @@ pg_newlocale_from_collation(Oid collid)
 	{
 		if (default_locale.provider == COLLPROVIDER_ICU)
 			return &default_locale;
-		else
+		else if (default_locale.provider == COLLPROVIDER_LIBC)
 			return (pg_locale_t) 0;
+		else
+			elog(ERROR, "cannot open collation with provider \"none\"");
 	}
 
 	cache_entry = lookup_collation_cache(collid, false);
@@ -1513,7 +1523,11 @@ pg_newlocale_from_collation(Oid collid)
 		result.provider = collform->collprovider;
 		result.deterministic = collform->collisdeterministic;
 
-		if (collform->collprovider == COLLPROVIDER_LIBC)
+		if (collform->collprovider == COLLPROVIDER_NONE)
+		{
+			elog(ERROR, "cannot open collation with provider \"none\"");
+		}
+		else if (collform->collprovider == COLLPROVIDER_LIBC)
 		{
 #ifdef HAVE_LOCALE_T
 			const char *collcollate;
@@ -1599,6 +1613,7 @@ pg_newlocale_from_collation(Oid collid)
 
 			collversionstr = TextDatumGetCString(datum);
 
+			Assert(collform->collprovider != COLLPROVIDER_NONE);
 			datum = SysCacheGetAttrNotNull(COLLOID, tp, collform->collprovider == COLLPROVIDER_ICU ? Anum_pg_collation_colliculocale : Anum_pg_collation_collcollate);
 
 			actual_versionstr = get_collation_actual_version(collform->collprovider,
@@ -1649,6 +1664,9 @@ char *
 get_collation_actual_version(char collprovider, const char *collcollate)
 {
 	char	   *collversion = NULL;
+
+	if (collprovider == COLLPROVIDER_NONE)
+		return NULL;
 
 #ifdef USE_ICU
 	if (collprovider == COLLPROVIDER_ICU)

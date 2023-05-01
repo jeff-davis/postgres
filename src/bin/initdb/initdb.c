@@ -2408,6 +2408,22 @@ setlocales(void)
 
 	/* set empty lc_* values to locale config if set */
 
+	if (locale_provider == COLLPROVIDER_NONE)
+	{
+		if (!lc_ctype)
+			lc_ctype = "C";
+		if (!lc_collate)
+			lc_collate = "C";
+		if (!lc_numeric)
+			lc_numeric = "C";
+		if (!lc_time)
+			lc_time = "C";
+		if (!lc_monetary)
+			lc_monetary = "C";
+		if (!lc_messages)
+			lc_messages = "C";
+	}
+
 	if (locale)
 	{
 		if (!lc_ctype)
@@ -2502,7 +2518,7 @@ usage(const char *progname)
 			 "                            set default locale in the respective category for\n"
 			 "                            new databases (default taken from environment)\n"));
 	printf(_("      --no-locale           equivalent to --locale=C\n"));
-	printf(_("      --locale-provider={libc|icu}\n"
+	printf(_("      --locale-provider={none|libc|icu}\n"
 			 "                            set default locale provider for new databases\n"));
 	printf(_("      --pwfile=FILE         read password for the new superuser from file\n"));
 	printf(_("  -T, --text-search-config=CFG\n"
@@ -2652,7 +2668,15 @@ setup_locale_encoding(void)
 {
 	setlocales();
 
-	if (locale_provider == COLLPROVIDER_LIBC &&
+	if (locale_provider == COLLPROVIDER_NONE &&
+		strcmp(lc_ctype, "C") == 0 &&
+		strcmp(lc_collate, "C") == 0 &&
+		strcmp(lc_time, "C") == 0 &&
+		strcmp(lc_numeric, "C") == 0 &&
+		strcmp(lc_monetary, "C") == 0 &&
+		strcmp(lc_messages, "C") == 0)
+		printf(_("The database cluster will be initialized with no locale.\n"));
+	else if (locale_provider == COLLPROVIDER_LIBC &&
 		strcmp(lc_ctype, lc_collate) == 0 &&
 		strcmp(lc_ctype, lc_time) == 0 &&
 		strcmp(lc_ctype, lc_numeric) == 0 &&
@@ -3326,7 +3350,9 @@ main(int argc, char *argv[])
 										 "-c debug_discard_caches=1");
 				break;
 			case 15:
-				if (strcmp(optarg, "icu") == 0)
+				if (strcmp(optarg, "none") == 0)
+					locale_provider = COLLPROVIDER_NONE;
+				else if (strcmp(optarg, "icu") == 0)
 					locale_provider = COLLPROVIDER_ICU;
 				else if (strcmp(optarg, "libc") == 0)
 					locale_provider = COLLPROVIDER_LIBC;
@@ -3364,6 +3390,7 @@ main(int argc, char *argv[])
 		pg_log_error_hint("Try \"%s --help\" for more information.", progname);
 		exit(1);
 	}
+
 
 	if (icu_locale && locale_provider != COLLPROVIDER_ICU)
 		pg_fatal("%s cannot be specified unless locale provider \"%s\" is chosen",
