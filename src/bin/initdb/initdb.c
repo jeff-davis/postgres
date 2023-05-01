@@ -2442,7 +2442,8 @@ usage(const char *progname)
 			 "                            set default locale in the respective category for\n"
 			 "                            new databases (default taken from environment)\n"));
 	printf(_("      --no-locale           equivalent to --locale=C\n"));
-	printf(_("      --locale-provider={libc|icu}\n"
+	printf(_("      --builtin-locale=LOCALE   set builtin locale name for new databases\n"));
+	printf(_("      --locale-provider={builtin|libc|icu}\n"
 			 "                            set default locale provider for new databases\n"));
 	printf(_("      --pwfile=FILE         read password for the new superuser from file\n"));
 	printf(_("  -T, --text-search-config=CFG\n"
@@ -2593,7 +2594,15 @@ setup_locale_encoding(void)
 {
 	setlocales();
 
-	if (locale_provider == COLLPROVIDER_LIBC &&
+	if (locale_provider == COLLPROVIDER_BUILTIN &&
+		strcmp(lc_ctype, "C") == 0 &&
+		strcmp(lc_collate, "C") == 0 &&
+		strcmp(lc_time, "C") == 0 &&
+		strcmp(lc_numeric, "C") == 0 &&
+		strcmp(lc_monetary, "C") == 0 &&
+		strcmp(lc_messages, "C") == 0)
+		printf(_("The database cluster will be initialized with no locale.\n"));
+	else if (locale_provider == COLLPROVIDER_LIBC &&
 		strcmp(lc_ctype, lc_collate) == 0 &&
 		strcmp(lc_ctype, lc_time) == 0 &&
 		strcmp(lc_ctype, lc_numeric) == 0 &&
@@ -3099,9 +3108,10 @@ main(int argc, char *argv[])
 		{"allow-group-access", no_argument, NULL, 'g'},
 		{"discard-caches", no_argument, NULL, 14},
 		{"locale-provider", required_argument, NULL, 15},
-		{"icu-locale", required_argument, NULL, 16},
-		{"icu-rules", required_argument, NULL, 17},
-		{"sync-method", required_argument, NULL, 18},
+		{"builtin-locale", required_argument, NULL, 16},
+		{"icu-locale", required_argument, NULL, 17},
+		{"icu-rules", required_argument, NULL, 18},
+		{"sync-method", required_argument, NULL, 19},
 		{NULL, 0, NULL, 0}
 	};
 
@@ -3269,7 +3279,9 @@ main(int argc, char *argv[])
 										 "-c debug_discard_caches=1");
 				break;
 			case 15:
-				if (strcmp(optarg, "icu") == 0)
+				if (strcmp(optarg, "builtin") == 0)
+					locale_provider = COLLPROVIDER_BUILTIN;
+				else if (strcmp(optarg, "icu") == 0)
 					locale_provider = COLLPROVIDER_ICU;
 				else if (strcmp(optarg, "libc") == 0)
 					locale_provider = COLLPROVIDER_LIBC;
@@ -3278,12 +3290,15 @@ main(int argc, char *argv[])
 				break;
 			case 16:
 				datlocale = pg_strdup(optarg);
-				icu_locale_specified = true;
 				break;
 			case 17:
-				icu_rules = pg_strdup(optarg);
+				datlocale = pg_strdup(optarg);
+				icu_locale_specified = true;
 				break;
 			case 18:
+				icu_rules = pg_strdup(optarg);
+				break;
+			case 19:
 				if (!parse_sync_method(optarg, &sync_method))
 					exit(1);
 				break;
