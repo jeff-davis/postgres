@@ -114,12 +114,20 @@ my $original_locale = "C";
 my $original_iculocale = "";
 my $provider_field = "'c' AS datlocprovider";
 my $iculocale_field = "NULL AS daticulocale";
-if ($oldnode->pg_version >= 15 && $ENV{with_icu} eq 'yes')
+if ($oldnode->pg_version >= 15)
 {
 	$provider_field = "datlocprovider";
 	$iculocale_field = "daticulocale";
-	$original_provider = "i";
-	$original_iculocale = "fr-CA";
+
+	if ($ENV{with_icu} eq 'yes')
+	{
+		$original_provider = "i";
+		$original_iculocale = "fr-CA";
+	}
+	else
+	{
+		$original_provider = "b";
+	}
 }
 
 my @initdb_params = @custom_opts;
@@ -130,6 +138,10 @@ if ($original_provider eq "i")
 {
 	push @initdb_params, ('--locale-provider', 'icu');
 	push @initdb_params, ('--icu-locale', 'fr-CA');
+}
+elsif ($original_provider eq "b")
+{
+	push @initdb_params, ('--locale-provider', 'builtin');
 }
 
 $node_params{extra} = \@initdb_params;

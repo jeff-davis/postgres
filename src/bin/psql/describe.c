@@ -932,7 +932,7 @@ listAllDbs(const char *pattern, bool verbose)
 					  gettext_noop("Encoding"));
 	if (pset.sversion >= 150000)
 		appendPQExpBuffer(&buf,
-						  "  CASE d.datlocprovider WHEN 'c' THEN 'libc' WHEN 'i' THEN 'icu' END AS \"%s\",\n",
+						  "  CASE d.datlocprovider WHEN 'b' THEN 'builtin' WHEN 'c' THEN 'libc' WHEN 'i' THEN 'icu' END AS \"%s\",\n",
 						  gettext_noop("Locale Provider"));
 	else
 		appendPQExpBuffer(&buf,

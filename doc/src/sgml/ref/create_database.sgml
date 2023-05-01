@@ -212,7 +212,7 @@ CREATE DATABASE <replaceable class="parameter">name</replaceable>
       <listitem>
        <para>
         Specifies the provider to use for the default collation in this
-        database.  Possible values are
+        database.  Possible values are <literal>builtin</literal>,
         <literal>icu</literal><indexterm><primary>ICU</primary></indexterm>
         (if the server was built with ICU support) or <literal>libc</literal>.
         By default, the provider is the same as that of the <xref

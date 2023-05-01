@@ -3070,7 +3070,9 @@ dumpDatabase(Archive *fout)
 	}
 
 	appendPQExpBufferStr(creaQry, " LOCALE_PROVIDER = ");
-	if (datlocprovider[0] == 'c')
+	if (datlocprovider[0] == 'b')
+		appendPQExpBufferStr(creaQry, "builtin");
+	else if (datlocprovider[0] == 'c')
 		appendPQExpBufferStr(creaQry, "libc");
 	else if (datlocprovider[0] == 'i')
 		appendPQExpBufferStr(creaQry, "icu");
@@ -13432,7 +13434,9 @@ dumpCollation(Archive *fout, const CollInfo *collinfo)
 					  fmtQualifiedDumpable(collinfo));
 
 	appendPQExpBufferStr(q, "provider = ");
-	if (collprovider[0] == 'c')
+	if (collprovider[0] == 'b')
+		appendPQExpBufferStr(q, "builtin");
+	else if (collprovider[0] == 'c')
 		appendPQExpBufferStr(q, "libc");
 	else if (collprovider[0] == 'i')
 		appendPQExpBufferStr(q, "icu");
