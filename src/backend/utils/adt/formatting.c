@@ -77,6 +77,8 @@
 
 #include "catalog/pg_collation.h"
 #include "catalog/pg_type.h"
+#include "common/unicode_case.h"
+#include "common/unicode_category.h"
 #include "mb/pg_wchar.h"
 #include "nodes/miscnodes.h"
 #include "parser/scansup.h"
@@ -1680,6 +1682,35 @@ str_tolower(const char *buff, size_t nbytes, Oid collid)
 		}
 		else
 #endif
+		if (mylocale && mylocale->provider == COLLPROVIDER_BUILTIN)
+		{
+			const char *src = buff;
+			size_t		srclen = nbytes;
+			size_t		dstsize = srclen + 1;
+			char	   *dst = palloc(dstsize);
+			size_t		needed;
+
+			Assert(GetDatabaseEncoding() == PG_UTF8);
+
+			/* first try buffer of equal size */
+			dstsize = srclen + 1;
+			result = palloc(dstsize);
+
+			needed = unicode_convert_case(dst, dstsize, src, srclen, CaseLower,
+										  mylocale->info.builtin.casemap_full);
+			if (needed + 1 > dstsize)
+			{
+				/* grow buffer if needed and retry */
+				dstsize = needed + 1;
+				dst = repalloc(dst, dstsize);
+				needed = unicode_convert_case(dst, dstsize, src, srclen, CaseLower,
+											  mylocale->info.builtin.casemap_full);
+				Assert(needed + 1 == dstsize);
+			}
+
+			result = dst;
+		}
+		else
 		{
 			if (pg_database_encoding_max_length() > 1)
 			{
@@ -1798,6 +1829,35 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 		}
 		else
 #endif
+		if (mylocale && mylocale->provider == COLLPROVIDER_BUILTIN)
+		{
+			const char *src = buff;
+			size_t		srclen = nbytes;
+			size_t		dstsize = srclen + 1;
+			char	   *dst = palloc(dstsize);
+			size_t		needed;
+
+			Assert(GetDatabaseEncoding() == PG_UTF8);
+
+			/* first try buffer of equal size */
+			dstsize = srclen + 1;
+			result = palloc(dstsize);
+
+			needed = unicode_convert_case(dst, dstsize, src, srclen, CaseUpper,
+										  mylocale->info.builtin.casemap_full);
+			if (needed + 1 > dstsize)
+			{
+				/* grow buffer if needed and retry */
+				dstsize = needed + 1;
+				dst = repalloc(dst, dstsize);
+				needed = unicode_convert_case(dst, dstsize, src, srclen, CaseUpper,
+											  mylocale->info.builtin.casemap_full);
+				Assert(needed + 1 == dstsize);
+			}
+
+			result = dst;
+		}
+		else
 		{
 			if (pg_database_encoding_max_length() > 1)
 			{
@@ -1917,6 +1977,79 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 		}
 		else
 #endif
+		if (mylocale && mylocale->provider == COLLPROVIDER_BUILTIN)
+		{
+			const unsigned char *src = (unsigned char *) buff;
+			unsigned char *dst;
+			size_t		dstsize = nbytes + 1;
+			int			srcoff = 0;
+			int			dstoff = 0;
+			CaseKind	casekind;
+
+			if (mylocale->info.builtin.titlecase)
+				casekind = CaseTitle;
+			else
+				casekind = CaseUpper;
+
+			Assert(GetDatabaseEncoding() == PG_UTF8);
+
+			/* Output workspace cannot have more codes than input bytes */
+			dst = (unsigned char *) palloc(dstsize);
+
+			while (srcoff < nbytes)
+			{
+				pg_wchar	u1 = utf8_to_unicode(src + srcoff);
+				pg_wchar	u2;
+				int			u1len = unicode_utf8len(u1);
+				int			u2len;
+
+				if (wasalnum)
+					u2 = unicode_case_simple(u1, CaseLower);
+				else
+					u2 = unicode_case_simple(u1, casekind);
+
+				u2len = unicode_utf8len(u2);
+
+				wasalnum = pg_u_isalnum(u2, mylocale->info.builtin.properties_posix);
+
+				/*
+				 * If we can't fit the necessary bytes and a terminating NUL,
+				 * reallocate buffer to the maximum size we might need, and
+				 * shrink it later.
+				 */
+				if (dstoff + u2len + 1 > dstsize)
+				{
+					/* Overflow paranoia */
+					if ((nbytes + 1) > (INT_MAX / sizeof(pg_wchar)))
+						ereport(ERROR,
+								(errcode(ERRCODE_OUT_OF_MEMORY),
+								 errmsg("out of memory")));
+
+					dstsize = (nbytes + 1) * sizeof(pg_wchar);
+					dst = repalloc(dst, dstsize);
+				}
+
+				unicode_to_utf8(u2, dst + dstoff);
+				srcoff += u1len;
+				dstoff += u2len;
+			}
+
+			*(dst + dstoff) = '\0';
+			dstoff++;
+
+			if (dstsize == dstoff)
+			{
+				result = (char *) dst;
+			}
+			else
+			{
+				/* shrink buffer and store result */
+				result = palloc(dstoff);
+				memcpy(result, dst, dstoff);
+				pfree(dst);
+			}
+		}
+		else
 		{
 			if (pg_database_encoding_max_length() > 1)
 			{
