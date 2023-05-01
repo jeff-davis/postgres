@@ -1,0 +1,93 @@
+/*
+ * This test is for collations and character operations when using the
+ * builtin provider with the C.UTF-8 locale.
+ */
+/* skip test if not UTF8 server encoding */
+SELECT getdatabaseencoding() <> 'UTF8' AS skip_test \gset
+\if :skip_test
+\quit
+\endif
+SET client_encoding TO UTF8;
+--
+-- Test builtin provider with C.UTF-8 locale.
+--
+CREATE COLLATION builtin_c_utf8 (PROVIDER = builtin, LOCALE = 'C.UTF-8');
+CREATE TABLE builtin_test (
+  t TEXT COLLATE builtin_c_utf8
+);
+INSERT INTO builtin_test VALUES
+  ('abc DEF'),
+  ('Ǆxxx ǅxxx ǆxxx'),
+  ('xxxǄ xxxǅ xxxǆ');
+SELECT t, lower(t), initcap(t), upper(t) FROM builtin_test;
+       t        |     lower      |    initcap     |     upper      
+----------------+----------------+----------------+----------------
+ abc DEF        | abc def        | Abc Def        | ABC DEF
+ Ǆxxx ǅxxx ǆxxx | ǆxxx ǆxxx ǆxxx | ǅxxx ǅxxx ǅxxx | ǄXXX ǄXXX ǄXXX
+ xxxǄ xxxǅ xxxǆ | xxxǆ xxxǆ xxxǆ | Xxxǆ Xxxǆ Xxxǆ | XXXǄ XXXǄ XXXǄ
+(3 rows)
+
+DROP TABLE builtin_test;
+-- character classes
+select 'xyz' ~ '[[:alnum:]]' collate builtin_c_utf8;
+ ?column? 
+----------
+ t
+(1 row)
+
+select 'xyz' !~ '[[:upper:]]' collate builtin_c_utf8;
+ ?column? 
+----------
+ t
+(1 row)
+
+select '@' !~ '[[:alnum:]]' collate builtin_c_utf8;
+ ?column? 
+----------
+ t
+(1 row)
+
+select '@' ~ '[[:punct:]]' collate builtin_c_utf8; -- symbols are punctuation in posix
+ ?column? 
+----------
+ t
+(1 row)
+
+select 'a8a' ~ '[[:digit:]]' collate builtin_c_utf8;
+ ?column? 
+----------
+ t
+(1 row)
+
+select '൧' !~ '\d' collate builtin_c_utf8; -- only 0-9 considered digits in posix
+ ?column? 
+----------
+ t
+(1 row)
+
+-- case mapping
+select 'xYz' ~* 'XyZ' collate builtin_c_utf8;
+ ?column? 
+----------
+ t
+(1 row)
+
+select 'xAb' ~* '[W-Y]' collate builtin_c_utf8;
+ ?column? 
+----------
+ t
+(1 row)
+
+select 'xAb' !~* '[c-d]' collate builtin_c_utf8;
+ ?column? 
+----------
+ t
+(1 row)
+
+select 'Δ' ~* '[α-λ]' collate builtin_c_utf8;
+ ?column? 
+----------
+ t
+(1 row)
+
+DROP COLLATION builtin_c_utf8;

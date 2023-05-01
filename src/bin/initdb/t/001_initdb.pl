@@ -185,6 +185,53 @@ else
 }
 
 command_fails(
+	[
+		'initdb', '--no-sync', '--locale-provider=builtin', "$tempdir/data6"
+	],
+	'locale provider builtin fails without --locale'
+);
+
+command_ok(
+	[
+		'initdb', '--no-sync', '--locale-provider=builtin', '--locale=C',
+		"$tempdir/data7"
+	],
+	'locale provider builtin with --locale'
+);
+
+command_ok(
+	[
+		'initdb', '--no-sync', '--locale-provider=builtin', '--lc-collate=C',
+		'--locale=C', "$tempdir/data8"
+	],
+	'locale provider builtin with --lc-collate'
+);
+
+command_ok(
+	[
+		'initdb', '--no-sync', '--locale-provider=builtin', '--lc-ctype=C',
+		'--locale=C', "$tempdir/data9"
+	],
+	'locale provider builtin with --lc-ctype'
+);
+
+command_fails(
+	[
+		'initdb', '--no-sync', '--locale-provider=builtin', '--icu-locale=en',
+		"$tempdir/dataX"
+	],
+	'fails for locale provider builtin with ICU locale'
+);
+
+command_fails(
+	[
+		'initdb', '--no-sync', '--locale-provider=builtin', '--icu-rules=""',
+		"$tempdir/dataX"
+	],
+	'fails for locale provider builtin with ICU rules'
+);
+
+command_fails(
 	[ 'initdb', '--no-sync', '--locale-provider=xyz', "$tempdir/dataX" ],
 	'fails for invalid locale provider');
 

@@ -77,6 +77,8 @@
 
 #include "catalog/pg_collation.h"
 #include "catalog/pg_type.h"
+#include "common/unicode_case.h"
+#include "common/unicode_category.h"
 #include "mb/pg_wchar.h"
 #include "nodes/miscnodes.h"
 #include "parser/scansup.h"
@@ -1670,6 +1672,43 @@ str_tolower(const char *buff, size_t nbytes, Oid collid)
 		}
 		else
 #endif
+		if (mylocale && mylocale->provider == COLLPROVIDER_BUILTIN)
+		{
+			const unsigned char *orig = (unsigned char *) buff;
+			unsigned char *workspace;
+			const unsigned char *sp;
+			unsigned char *rp;
+
+			Assert(GetDatabaseEncoding() == PG_UTF8);
+
+			/* Overflow paranoia */
+			if ((nbytes + 1) > (INT_MAX / sizeof(pg_wchar)))
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("out of memory")));
+
+			/* Output workspace cannot have more codes than input bytes */
+			workspace = (unsigned char *)palloc((nbytes + 1) * sizeof(pg_wchar));
+
+			sp = orig;
+			rp = workspace;
+			while (sp - orig < nbytes)
+			{
+				pg_wchar u = utf8_to_unicode(sp);
+				unicode_to_utf8(unicode_lowercase_simple(u), rp);
+				sp += pg_utf_mblen(sp);
+				rp += pg_utf_mblen(rp);
+			}
+
+			*rp = '\0';
+			rp++;
+
+			/* shrink buffer and store result */
+			result = palloc(rp - workspace);
+			memcpy(result, workspace, rp - workspace);
+			pfree(workspace);
+		}
+		else
 		{
 			if (pg_database_encoding_max_length() > 1)
 			{
@@ -1788,6 +1827,43 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 		}
 		else
 #endif
+		if (mylocale && mylocale->provider == COLLPROVIDER_BUILTIN)
+		{
+			const unsigned char *orig = (unsigned char *) buff;
+			unsigned char *workspace;
+			const unsigned char *sp;
+			unsigned char *rp;
+
+			Assert(GetDatabaseEncoding() == PG_UTF8);
+
+			/* Overflow paranoia */
+			if ((nbytes + 1) > (INT_MAX / sizeof(pg_wchar)))
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("out of memory")));
+
+			/* Output workspace cannot have more codes than input bytes */
+			workspace = (unsigned char *)palloc((nbytes + 1) * sizeof(pg_wchar));
+
+			sp = orig;
+			rp = workspace;
+			while (sp - orig < nbytes)
+			{
+				pg_wchar u = utf8_to_unicode(sp);
+				unicode_to_utf8(unicode_uppercase_simple(u), rp);
+				sp += pg_utf_mblen(sp);
+				rp += pg_utf_mblen(rp);
+			}
+
+			*rp = '\0';
+			rp++;
+
+			/* shrink buffer and store result */
+			result = palloc(rp - workspace);
+			memcpy(result, workspace, rp - workspace);
+			pfree(workspace);
+		}
+		else
 		{
 			if (pg_database_encoding_max_length() > 1)
 			{
@@ -1907,6 +1983,52 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 		}
 		else
 #endif
+		if (mylocale && mylocale->provider == COLLPROVIDER_BUILTIN)
+		{
+			const unsigned char *orig = (unsigned char *) buff;
+			unsigned char *workspace;
+			const unsigned char *sp;
+			unsigned char *rp;
+
+			Assert(GetDatabaseEncoding() == PG_UTF8);
+
+			/* Overflow paranoia */
+			if ((nbytes + 1) > (INT_MAX / sizeof(pg_wchar)))
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("out of memory")));
+
+			/* Output workspace cannot have more codes than input bytes */
+			workspace = (unsigned char *)palloc((nbytes + 1) * sizeof(pg_wchar));
+
+			sp = orig;
+			rp = workspace;
+			while (sp - orig < nbytes)
+			{
+				pg_wchar u1 = utf8_to_unicode(sp);
+				pg_wchar u2;
+
+				if (wasalnum)
+					u2 = unicode_lowercase_simple(u1);
+				else
+					u2 = unicode_titlecase_simple(u1);
+
+				unicode_to_utf8(u2, rp);
+				wasalnum = pg_u_isalnum(u2, mylocale->info.builtin.cclass_posix);
+
+				sp += pg_utf_mblen(sp);
+				rp += pg_utf_mblen(rp);
+			}
+
+			*rp = '\0';
+			rp++;
+
+			/* shrink buffer and store result */
+			result = palloc(rp - workspace);
+			memcpy(result, workspace, rp - workspace);
+			pfree(workspace);
+		}
+		else
 		{
 			if (pg_database_encoding_max_length() > 1)
 			{
