@@ -64,6 +64,7 @@ DECLARE_UNIQUE_INDEX_PKEY(pg_collation_oid_index, 3085, CollationOidIndexId, on 
 
 #ifdef EXPOSE_TO_CLIENT_CODE
 
+#define COLLPROVIDER_NONE		'n'
 #define COLLPROVIDER_DEFAULT	'd'
 #define COLLPROVIDER_ICU		'i'
 #define COLLPROVIDER_LIBC		'c'
@@ -73,6 +74,8 @@ collprovider_name(char c)
 {
 	switch (c)
 	{
+		case COLLPROVIDER_NONE:
+			return "none";
 		case COLLPROVIDER_ICU:
 			return "icu";
 		case COLLPROVIDER_LIBC:
