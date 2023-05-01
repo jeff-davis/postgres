@@ -77,6 +77,8 @@
 
 #include "catalog/pg_collation.h"
 #include "catalog/pg_type.h"
+#include "common/unicode_case.h"
+#include "common/unicode_category.h"
 #include "mb/pg_wchar.h"
 #include "nodes/miscnodes.h"
 #include "parser/scansup.h"
@@ -1670,6 +1672,67 @@ str_tolower(const char *buff, size_t nbytes, Oid collid)
 		}
 		else
 #endif
+		if (mylocale && mylocale->provider == COLLPROVIDER_BUILTIN)
+		{
+			const unsigned char *orig = (unsigned char *) buff;
+			unsigned char *workspace;
+			size_t workspace_size = nbytes + 1;
+			const unsigned char *sp;
+			unsigned char *rp;
+
+			Assert(GetDatabaseEncoding() == PG_UTF8);
+
+			/* Output workspace cannot have more codes than input bytes */
+			workspace = (unsigned char *)palloc(workspace_size);
+
+			sp = orig;
+			rp = workspace;
+			while (sp - orig < nbytes)
+			{
+				pg_wchar u1 = utf8_to_unicode(sp);
+				pg_wchar u2 = unicode_lowercase_simple(u1);
+
+				/*
+				 * If we can't fit 4 more bytes, and the next character to
+				 * write is multibyte, reallocate buffer to maximum size we
+				 * will need.
+				 */
+				if (rp - workspace > workspace_size - 4 && u2 >= 0x80)
+				{
+					int written = rp - workspace;
+
+					/* Overflow paranoia */
+					if ((nbytes + 1) > (INT_MAX / sizeof(pg_wchar)))
+						ereport(ERROR,
+								(errcode(ERRCODE_OUT_OF_MEMORY),
+								 errmsg("out of memory")));
+
+					workspace_size = (nbytes + 1) * sizeof(pg_wchar);
+					workspace = repalloc(workspace, workspace_size);
+					rp = workspace + written;
+				}
+
+				unicode_to_utf8(u2, rp);
+				sp += pg_utf_mblen(sp);
+				rp += pg_utf_mblen(rp);
+			}
+
+			*rp = '\0';
+			rp++;
+
+			if (workspace_size == rp - workspace)
+			{
+				result = (char *) workspace;
+			}
+			else
+			{
+				/* shrink buffer and store result */
+				result = palloc(rp - workspace);
+				memcpy(result, workspace, rp - workspace);
+				pfree(workspace);
+			}
+		}
+		else
 		{
 			if (pg_database_encoding_max_length() > 1)
 			{
@@ -1788,6 +1851,67 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 		}
 		else
 #endif
+		if (mylocale && mylocale->provider == COLLPROVIDER_BUILTIN)
+		{
+			const unsigned char *orig = (unsigned char *) buff;
+			unsigned char *workspace;
+			size_t workspace_size = nbytes + 1;
+			const unsigned char *sp;
+			unsigned char *rp;
+
+			Assert(GetDatabaseEncoding() == PG_UTF8);
+
+			/* Output workspace cannot have more codes than input bytes */
+			workspace = (unsigned char *)palloc(workspace_size);
+
+			sp = orig;
+			rp = workspace;
+			while (sp - orig < nbytes)
+			{
+				pg_wchar u1 = utf8_to_unicode(sp);
+				pg_wchar u2 = unicode_uppercase_simple(u1);
+
+				/*
+				 * If we can't fit 4 more bytes, and the next character to
+				 * write is multibyte, reallocate buffer to maximum size we
+				 * will need.
+				 */
+				if (rp - workspace > workspace_size - 4 && u2 >= 0x80)
+				{
+					int written = rp - workspace;
+
+					/* Overflow paranoia */
+					if ((nbytes + 1) > (INT_MAX / sizeof(pg_wchar)))
+						ereport(ERROR,
+								(errcode(ERRCODE_OUT_OF_MEMORY),
+								 errmsg("out of memory")));
+
+					workspace_size = (nbytes + 1) * sizeof(pg_wchar);
+					workspace = repalloc(workspace, workspace_size);
+					rp = workspace + written;
+				}
+
+				unicode_to_utf8(u2, rp);
+				sp += pg_utf_mblen(sp);
+				rp += pg_utf_mblen(rp);
+			}
+
+			*rp = '\0';
+			rp++;
+
+			if (workspace_size == rp - workspace)
+			{
+				result = (char *) workspace;
+			}
+			else
+			{
+				/* shrink buffer and store result */
+				result = palloc(rp - workspace);
+				memcpy(result, workspace, rp - workspace);
+				pfree(workspace);
+			}
+		}
+		else
 		{
 			if (pg_database_encoding_max_length() > 1)
 			{
@@ -1907,6 +2031,75 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 		}
 		else
 #endif
+		if (mylocale && mylocale->provider == COLLPROVIDER_BUILTIN)
+		{
+			const unsigned char *orig = (unsigned char *) buff;
+			unsigned char *workspace;
+			size_t workspace_size = nbytes + 1;
+			const unsigned char *sp;
+			unsigned char *rp;
+
+			Assert(GetDatabaseEncoding() == PG_UTF8);
+
+			/* Output workspace cannot have more codes than input bytes */
+			workspace = (unsigned char *)palloc(workspace_size);
+
+			sp = orig;
+			rp = workspace;
+			while (sp - orig < nbytes)
+			{
+				pg_wchar u1 = utf8_to_unicode(sp);
+				pg_wchar u2;
+
+				if (wasalnum)
+					u2 = unicode_lowercase_simple(u1);
+				else
+					u2 = unicode_titlecase_simple(u1);
+
+				/*
+				 * If we can't fit 4 more bytes, and the next character to
+				 * write is multibyte, reallocate buffer to maximum size we
+				 * will need.
+				 */
+				if (rp - workspace > workspace_size - 4 && u2 >= 0x80)
+				{
+					int written = rp - workspace;
+
+					/* Overflow paranoia */
+					if ((nbytes + 1) > (INT_MAX / sizeof(pg_wchar)))
+						ereport(ERROR,
+								(errcode(ERRCODE_OUT_OF_MEMORY),
+								 errmsg("out of memory")));
+
+					workspace_size = (nbytes + 1) * sizeof(pg_wchar);
+					workspace = repalloc(workspace, workspace_size);
+					rp = workspace + written;
+				}
+
+				unicode_to_utf8(u2, rp);
+
+				wasalnum = pg_u_isalnum(u2, mylocale->info.builtin.cclass_posix);
+
+				sp += pg_utf_mblen(sp);
+				rp += pg_utf_mblen(rp);
+			}
+
+			*rp = '\0';
+			rp++;
+
+			if (workspace_size == rp - workspace)
+			{
+				result = (char *) workspace;
+			}
+			else
+			{
+				/* shrink buffer and store result */
+				result = palloc(rp - workspace);
+				memcpy(result, workspace, rp - workspace);
+				pfree(workspace);
+			}
+		}
+		else
 		{
 			if (pg_database_encoding_max_length() > 1)
 			{

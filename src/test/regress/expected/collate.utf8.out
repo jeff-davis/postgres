@@ -1,0 +1,97 @@
+/*
+ * This test is for collations and character operations when using the
+ * builtin provider with the C.UTF-8 locale.
+ */
+/* skip test if not UTF8 server encoding */
+SELECT getdatabaseencoding() <> 'UTF8' AS skip_test \gset
+\if :skip_test
+\quit
+\endif
+SET client_encoding TO UTF8;
+--
+-- Test preinstalled C_UTF8 collation.
+--
+CREATE TABLE builtin_test (
+  t TEXT COLLATE C_UTF8
+);
+INSERT INTO builtin_test VALUES
+  ('abc DEF'),
+  ('ábc DÉF'),
+  ('ǄxxǄ ǆxxǅ ǅxxǆ');
+SELECT t, lower(t), initcap(t), upper(t) FROM builtin_test;
+       t        |     lower      |    initcap     |     upper      
+----------------+----------------+----------------+----------------
+ abc DEF        | abc def        | Abc Def        | ABC DEF
+ ábc DÉF        | ábc déf        | Ábc Déf        | ÁBC DÉF
+ ǄxxǄ ǆxxǅ ǅxxǆ | ǆxxǆ ǆxxǆ ǆxxǆ | ǅxxǆ ǅxxǆ ǅxxǆ | ǄXXǄ ǄXXǄ ǄXXǄ
+(3 rows)
+
+DROP TABLE builtin_test;
+-- character classes
+SELECT 'xyz' ~ '[[:alnum:]]' COLLATE C_UTF8;
+ ?column? 
+----------
+ t
+(1 row)
+
+SELECT 'xyz' !~ '[[:upper:]]' COLLATE C_UTF8;
+ ?column? 
+----------
+ t
+(1 row)
+
+SELECT '@' !~ '[[:alnum:]]' COLLATE C_UTF8;
+ ?column? 
+----------
+ t
+(1 row)
+
+SELECT '@' ~ '[[:punct:]]' COLLATE C_UTF8; -- symbols are punctuation in posix
+ ?column? 
+----------
+ t
+(1 row)
+
+SELECT 'a8a' ~ '[[:digit:]]' COLLATE C_UTF8;
+ ?column? 
+----------
+ t
+(1 row)
+
+SELECT '൧' !~ '\d' COLLATE C_UTF8; -- only 0-9 considered digits in posix
+ ?column? 
+----------
+ t
+(1 row)
+
+-- case mapping
+SELECT 'xYz' ~* 'XyZ' COLLATE C_UTF8;
+ ?column? 
+----------
+ t
+(1 row)
+
+SELECT 'xAb' ~* '[W-Y]' COLLATE C_UTF8;
+ ?column? 
+----------
+ t
+(1 row)
+
+SELECT 'xAb' !~* '[c-d]' COLLATE C_UTF8;
+ ?column? 
+----------
+ t
+(1 row)
+
+SELECT 'Δ' ~* '[α-λ]' COLLATE C_UTF8;
+ ?column? 
+----------
+ t
+(1 row)
+
+SELECT 'δ' ~* '[Γ-Λ]' COLLATE C_UTF8; -- same as above with cases reversed
+ ?column? 
+----------
+ t
+(1 row)
+
