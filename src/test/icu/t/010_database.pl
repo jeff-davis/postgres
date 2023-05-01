@@ -63,5 +63,14 @@ like(
 	qr/ERROR:  ICU locale must be specified/,
 	"ICU locale must be specified for ICU provider: error message");
 
+my ($ret, $stdout, $stderr) = $node1->psql('postgres',
+	q{CREATE DATABASE dbicu LOCALE_PROVIDER builtin LOCALE 'C' TEMPLATE dbicu}
+);
+isnt($ret, 0,
+	"locale provider must match template: exit code not 0");
+like(
+	$stderr,
+	qr/ERROR:  new locale provider \(builtin\) does not match locale provider of the template database \(icu\)/,
+	"locale provider must match template: error message");
 
 done_testing();
