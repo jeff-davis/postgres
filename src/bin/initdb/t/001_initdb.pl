@@ -154,6 +154,35 @@ else
 		'locale provider ICU fails since no ICU support');
 }
 
+command_ok(
+	[ 'initdb', '--no-sync', '--locale-provider=none', "$tempdir/data6" ],
+	'locale provider none');
+
+command_ok(
+	[ 'initdb', '--no-sync', '--locale-provider=none', '--locale=C',
+	  "$tempdir/data7" ],
+	'locale provider none with --locale');
+
+command_ok(
+	[ 'initdb', '--no-sync', '--locale-provider=none', '--lc-collate=C',
+	  "$tempdir/data8" ],
+	'locale provider none with --lc-collate');
+
+command_ok(
+	[ 'initdb', '--no-sync', '--locale-provider=none', '--lc-ctype=C',
+	  "$tempdir/data9" ],
+	'locale provider none with --lc-ctype');
+
+command_fails(
+	[ 'initdb', '--no-sync', '--locale-provider=none', '--icu-locale=en',
+	  "$tempdir/dataX" ],
+	'fails for locale provider none with ICU locale');
+
+command_fails(
+	[ 'initdb', '--no-sync', '--locale-provider=none', '--icu-rules=""',
+	  "$tempdir/dataX" ],
+	'fails for locale provider none with ICU rules');
+
 command_fails(
 	[ 'initdb', '--no-sync', '--locale-provider=xyz', "$tempdir/dataX" ],
 	'fails for invalid locale provider');
