@@ -381,49 +381,77 @@ initdb --locale-provider=icu --icu-locale=en
   <sect2 id="icu-locales">
    <title>ICU Locales</title>
 
-   <para>
-    ICU accepts multiple locale name formats, but the preferred format is a
-    BCP 47 language tag. Typically, a language tag is of the form
-    <literal>wx-YZ</literal>, where <literal>wx</literal> is the language code
-    and <literal>YZ</literal> is the region code; for instance
-    <literal>fr-CA</literal> represents the French language in the region of
-    Canada. It may be simplified to just a language code such as
-    <literal>en</literal> for the English language with unspecified region. A
-    language tag of <literal>und</literal> represents the ICU root locale. For
-    example:
+   <sect3 id="icu-locales-basic">
+    <title>Basic ICU Locale Names</title>
+    <para>
+     The ICU provider accepts multiple locale name formats, but the preferred
+     format is a BCP 47 language tag. Typically, a language tag is of the form
+     <literal>fr-CA</literal>, where <literal>fr</literal> is the language
+     code (French) and <literal>CA</literal> is the region code (Canada). It
+     may be simplified to just a language code such as <literal>en</literal>
+     for the English language with unspecified region. A language tag of
+     <literal>und</literal> represents the ICU root locale. For example:
 
 <programlisting>
 CREATE COLLATION mycollation (PROVIDER=icu, locale='fr-CA');
 </programlisting>
 
+    </para>
+
+    <para>
+     Most simple collations are built-in, representing many combinations of
+     languages and regions. For instance, instead of creating a new collation
+     <literal>mycollation</literal> as above, one can simply use the built-in
+     collation <literal>"fr-CA-x-icu"</literal>. The name of the built-in
+     collation is the language tag with <literal>-x-icu</literal> appended to
+     differentiate it from a built-in <literal>libc</literal> collation
+     name. There are also other built-in ICU collations, such as
+     <literal>unicode</literal>, which uses the root ICU locale and is
+     equivalent to a collation defined as:
+
+<programlisting>
+CREATE COLLATION root (PROVIDER=icu, LOCALE='und');
+</programlisting>
+
    </para>
 
-   <para>
-    Most simple collations are built-in, representing many combinations of
-    languages and regions. For instance, instead of creating a new collation
-    <literal>mycollation</literal> as above, one can simply use the built-in
-    collation <literal>"fr-CA-x-icu"</literal>. The name of the built-in
-    collation is the language tag with <literal>-x-icu</literal> appended to
-    differentiate it from a built-in <literal>libc</literal> collation
-    name. There are also other built-in ICU collations, such as
-    <literal>UNICODE</literal>, which uses the root ICU locale (language tag
-    <literal>und</literal>).
-   </para>
-   
-   <para>
-    ICU allows extensive control over collation behavior by adding additional
-    information to the language tag in the form of collation settings. For
-    instance, a collation can be sensitive or insensitive to accents, case,
-    punctuation, or formatting characters; or make a variety of other
-    adjustments (such as to the treatment of multi-digit numbers within text).
-   </para>
+   </sect3>
+   <sect3 id="icu-locales-custom">
+    <title>Custom Collation Behavior</title>
+    <para>
+     ICU allows extensive control over collation behavior by defining new
+     collations by specifying collation settings as a part of the language
+     tag. These settings can modify the collation order to suit a variety of
+     needs. For instance:
 
-   <para>
-    Comparison of two strings (collation) in ICU is determined by a
-    multi-level process, where textual features are grouped into
-    "levels". Sensitivity to each level treatment of those levels is
-    controlled by <xref linkend="icu-collation-settings-table"/>.
-    <table id="icu-collation-levels">
+<programlisting>
+-- ignore differences in accents and case
+CREATE COLLATION ignore_accent_case (PROVIDER=icu, DETERMINISTIC=false, LOCALE='und-u-ks-level1');
+
+-- upper case letters sort before lower case.
+CREATE COLLATION upper_first (PROVIDER=icu, LOCALE='und-u-kf-upper');
+
+-- treat digits numerically and ignore punctuation (PROVIDER=icu, DETERMINISTIC=false, LOCALE='');
+CREATE COLLATION num_ignore_punct (PROVIDER=icu, DETERMINISTIC=false, LOCALE='und-u-ka-shifted-kn');
+
+-- the following all return true
+SELECT 'Å' collate ignore_accent_case = 'A' collate ignore_accent_case;
+SELECT 'z' collate ignore_accent_case = 'Z' collate ignore_accent_case;
+SELECT 'B' collate upper_first &lt; 'b' collate upper_first;
+SELECT 'id-45' collate num_ignore_punct &lt; 'id-123' collate num_ignore_punct;
+SELECT 'w;x*y-z' collate num_ignore_punct = 'wxyz' collate num_ignore_punct;
+</programlisting>
+
+    </para>
+   </sect3>
+   <sect3 id="icu-locale-collation-settings">
+    <title>Collation Settings for an ICU Locale</title>
+    <para>
+     Comparison of two strings (collation) in ICU is determined by a
+     multi-level process, where textual features are grouped into
+     "levels". Sensitivity to each level treatment of those levels is
+     controlled by <xref linkend="icu-collation-settings-table"/>.
+     <table id="icu-collation-levels">
      <title>ICU Collation Levels</title>
      <tgroup cols="3">
       <thead>
@@ -687,6 +715,63 @@ CREATE COLLATION mycollation (PROVIDER=icu, locale='fr-CA');
      definitions satisfy one's requirements.
     </para>
    </note>
+  </sect3>
+  <sect3 id="icu-canonicalization">
+   <title>Locale Canonicalization and Validation</title>
+   <para>
+    When defining a new ICU collation object or database with ICU as the
+    provider, the given locale name is transformed ("canonicalized") into a
+    language tag if not already in that form. For instance,
+    <literal>en_US</literal> will be transformed into
+    <literal>en-US</literal>. If the locale name is changed, the user will see
+    a <literal>NOTICE</literal> showing the language tag.
+   </para>
+   <para>
+    If there is some problem interpreting the locale name, or if it represents
+    a language or region that ICU does not recognize, <xref
+    linkend="guc-icu-validation-level"/> controls how the message is
+    reported. If set below <literal>ERROR</literal>, the collation will still
+    be created, but the semantics may not be what the user intended.
+   </para>
+  </sect3>
+  <sect3 id="icu-locale-external-references">
+   <title>External References for ICU</title>
+   <para>
+    The above description (<xref linkend="icu-locales"/>) is only a brief
+    overview of ICU behavior and language tags. Refer to the following
+    documents for technical details, additional options, and new behavior:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <ulink
+      url="https://www.unicode.org/reports/tr35/tr35-collation.html">Unicode
+      Technical Standard #35</ulink>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <ulink url="https://tools.ietf.org/html/bcp47">BCP 47</ulink>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <ulink url="https://github.com/unicode-org/cldr/blob/master/common/bcp47/collation.xml">CLDR
+      repository</ulink>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <ulink url="https://unicode-org.github.io/icu/userguide/locale/"></ulink>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <ulink url="https://unicode-org.github.io/icu/userguide/collation/api.html"></ulink>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect3>
   </sect2>
 
   <sect2 id="locale-problems">
