@@ -378,6 +378,317 @@ initdb --locale-provider=icu --icu-locale=en
    </para>
   </sect2>
 
+  <sect2 id="icu-locales">
+   <title>ICU Locales</title>
+
+   <para>
+    ICU accepts multiple locale name formats, but the preferred format is a
+    BCP 47 language tag. Typically, a language tag is of the form
+    <literal>wx-YZ</literal>, where <literal>wx</literal> is the language code
+    and <literal>YZ</literal> is the region code; for instance
+    <literal>fr-CA</literal> represents the French language in the region of
+    Canada. It may be simplified to just a language code such as
+    <literal>en</literal> for the English language with unspecified region. A
+    language tag of <literal>und</literal> represents the ICU root locale. For
+    example:
+
+<programlisting>
+CREATE COLLATION mycollation (PROVIDER=icu, locale='fr-CA');
+</programlisting>
+
+   </para>
+
+   <para>
+    Most simple collations are built-in, representing many combinations of
+    languages and regions. For instance, instead of creating a new collation
+    <literal>mycollation</literal> as above, one can simply use the built-in
+    collation <literal>"fr-CA-x-icu"</literal>. The name of the built-in
+    collation is the language tag with <literal>-x-icu</literal> appended to
+    differentiate it from a built-in <literal>libc</literal> collation
+    name. There are also other built-in ICU collations, such as
+    <literal>UNICODE</literal>, which uses the root ICU locale (language tag
+    <literal>und</literal>).
+   </para>
+   
+   <para>
+    ICU allows extensive control over collation behavior by adding additional
+    information to the language tag in the form of collation settings. For
+    instance, a collation can be sensitive or insensitive to accents, case,
+    punctuation, or formatting characters; or make a variety of other
+    adjustments (such as to the treatment of multi-digit numbers within text).
+   </para>
+
+   <para>
+    Comparison of two strings (collation) in ICU is determined by a
+    multi-level process, where textual features are grouped into
+    "levels". Sensitivity to each level treatment of those levels is
+    controlled by <xref linkend="icu-collation-settings-table"/>.
+    <table id="icu-collation-levels">
+     <title>ICU Collation Levels</title>
+     <tgroup cols="3">
+      <thead>
+       <row>
+        <entry>Level</entry>
+        <entry>Description</entry>
+        <entry><literal>'f' = 'f'</literal></entry>        
+        <entry><literal>'ab' = U&gt;'a\2063b'</literal></entry>
+        <entry><literal>'x-y' = 'x_y'</literal></entry>
+        <entry><literal>'g' = 'G'</literal></entry>
+        <entry><literal>'n' = 'ñ'</literal></entry>
+        <entry><literal>'y' = 'z'</literal></entry>
+       </row>
+      </thead>
+      <tbody>
+       <row>
+        <entry>level1</entry>
+        <entry>Base Character</entry>
+        <entry><literal>true</literal></entry>
+        <entry><literal>true</literal></entry>
+        <entry><literal>true</literal></entry>
+        <entry><literal>true</literal></entry>
+        <entry><literal>true</literal></entry>
+        <entry><literal>false</literal></entry>
+       </row>
+       <row>
+        <entry>level2</entry>
+        <entry>Accents</entry>
+        <entry><literal>true</literal></entry>
+        <entry><literal>true</literal></entry>
+        <entry><literal>true</literal></entry>
+        <entry><literal>true</literal></entry>
+        <entry><literal>false</literal></entry>
+        <entry><literal>false</literal></entry>
+       </row>
+       <row>
+        <entry>level3</entry>
+        <entry>Case/Variants</entry>
+        <entry><literal>true</literal></entry>
+        <entry><literal>true</literal></entry>
+        <entry><literal>true</literal></entry>
+        <entry><literal>false</literal></entry>
+        <entry><literal>false</literal></entry>
+        <entry><literal>false</literal></entry>
+       </row>
+       <row>
+        <entry>level4</entry>
+        <entry>Punctuation</entry>
+        <entry><literal>true</literal></entry>
+        <entry><literal>true</literal></entry>
+        <entry><literal>false</literal></entry>
+        <entry><literal>false</literal></entry>
+        <entry><literal>false</literal></entry>
+        <entry><literal>false</literal></entry>
+       </row>
+       <row>
+        <entry>identic</entry>
+        <entry>Sensitive to any difference.</entry>
+        <entry><literal>true</literal></entry>
+        <entry><literal>false</literal></entry>
+        <entry><literal>false</literal></entry>
+        <entry><literal>false</literal></entry>
+        <entry><literal>false</literal></entry>
+        <entry><literal>false</literal></entry>
+       </row>
+      </tbody>
+     </tgroup>
+    </table>
+   </para>
+   <para>
+    See <ulink url="https://unicode-org.github.io/icu/userguide/locale/"></ulink>
+    and <ulink url="https://unicode-org.github.io/icu/userguide/collation/api.html"></ulink> for
+    information on ICU locale naming.  The set of acceptable names and
+    attributes depends on the particular ICU version.
+   </para>
+
+   <para>
+     <table id="icu-collation-settings-table">
+      <title>Language Tag Collation Settings</title>
+      <tgroup cols="4">
+       <thead>
+        <row>
+         <entry>Key</entry>
+         <entry>Values</entry>
+         <entry>Default</entry>
+         <entry>Description</entry>
+        </row>
+       </thead>
+       <tbody>
+        <row>
+         <entry><literal>ks</literal></entry>
+         <entry><literal>level1</literal>, <literal>level2</literal>, <literal>level3</literal>, <literal>level4</literal>, <literal>identic</literal></entry>
+         <entry><literal>level3</literal></entry>
+         <entry>
+          Sensitivity when determining equality, with
+          <literal>level1</literal> the least sensitive and
+          <literal>identic</literal> the most sensitive. Lower sensitivity
+          settings consider strings to be equal despite some differences, such
+          as case. For lower-sensitivity settings, define the collation with
+          <option>deterministic</option> set to <literal>false</literal>.
+         </entry>
+        </row>
+        <row>
+         <entry><literal>ka</literal></entry>
+         <entry><literal>noignore</literal>, <literal>shifted</literal></entry>
+         <entry><literal>noignore</literal></entry>
+         <entry>
+          If set to <literal>shifted</literal>, causes some characters
+          (e.g. punctuation or space) to be ignored in comparison. For
+          instance, "ab" = "a-b".
+         </entry>
+        </row>
+        <row>
+         <entry><literal>kf</literal></entry>
+         <entry><literal>upper</literal>, <literal>lower</literal>, <literal>false</literal></entry>
+         <entry><literal>false</literal></entry>
+         <entry>
+          If set to <literal>upper</literal>, upper case sorts before
+          lowercase. If set to <literal>lower</literal>, lower case sorts
+          before uppercase. If set to <literal>false</literal>, it depends on
+          the locale.
+         </entry>
+        </row>
+        <row>
+         <entry><literal>kn</literal></entry>
+         <entry><literal>true</literal>, <literal>false</literal></entry>
+         <entry><literal>false</literal></entry>
+         <entry>
+          If set to <literal>true</literal>, numbers within a string are
+          treated as a single numeric value rather than a sequence of
+          digits. For example, "23" sorts before "123".
+         </entry>
+        </row>
+       </tbody>
+      </tgroup>
+     </table>
+    </para>
+    <note>
+     <para>
+      The table above is meant as a guide and does not cover all available
+      possibilities. For complete details, see <ulink
+      url="https://www.unicode.org/reports/tr35/tr35-collation.html">Unicode
+      Technical Standard #35</ulink> and <ulink
+      url="https://tools.ietf.org/html/bcp47">BCP 47</ulink> for details.  The
+      list of possible collation types (<literal>co</literal> subtag) can be
+      found in the <ulink
+      url="https://github.com/unicode-org/cldr/blob/master/common/bcp47/collation.xml">CLDR
+      repository</ulink>
+     </para>
+    </note>
+   <para>
+    Here are some examples:
+
+    <variablelist>
+     <varlistentry id="collation-managing-create-icu-de-u-co-phonebk-x-icu">
+      <term><literal>CREATE COLLATION "de-u-co-phonebk-x-icu" (provider = icu, locale = 'de-u-co-phonebk');</literal></term>
+      <term><literal>CREATE COLLATION "de-u-co-phonebk-x-icu" (provider = icu, locale = 'de@collation=phonebook');</literal></term>
+      <listitem>
+       <para>German collation with phone book collation type</para>
+       <para>
+        The first example selects the ICU locale using a <quote>language
+        tag</quote> per BCP 47.  The second example uses the traditional
+        ICU-specific locale syntax.  The first style is preferred going
+        forward, and is used internally to store locales.
+       </para>
+       <para>
+        Note that you can name the collation objects in the SQL environment
+        anything you want.  In this example, we follow the naming style that
+        the predefined collations use, which in turn also follow BCP 47, but
+        that is not required for user-defined collations.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="collation-managing-create-icu-und-u-co-emoji-x-icu">
+      <term><literal>CREATE COLLATION "und-u-co-emoji-x-icu" (provider = icu, locale = 'und-u-co-emoji');</literal></term>
+      <term><literal>CREATE COLLATION "und-u-co-emoji-x-icu" (provider = icu, locale = '@collation=emoji');</literal></term>
+      <listitem>
+       <para>
+        Root collation with Emoji collation type, per Unicode Technical Standard #51
+       </para>
+       <para>
+        Observe how in the traditional ICU locale naming system, the root
+        locale is selected by an empty string.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="collation-managing-create-icu-en-u-kr-grek-latn">
+      <term><literal>CREATE COLLATION latinlast (provider = icu, locale = 'en-u-kr-grek-latn');</literal></term>
+      <term><literal>CREATE COLLATION latinlast (provider = icu, locale = 'en@colReorder=grek-latn');</literal></term>
+      <listitem>
+       <para>
+        Sort Greek letters before Latin ones.  (The default is Latin before Greek.)
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="collation-managing-create-icu-en-u-kf-upper">
+      <term><literal>CREATE COLLATION upperfirst (provider = icu, locale = 'en-u-kf-upper');</literal></term>
+      <term><literal>CREATE COLLATION upperfirst (provider = icu, locale = 'en@colCaseFirst=upper');</literal></term>
+      <listitem>
+       <para>
+        Sort upper-case letters before lower-case letters.  (The default is
+        lower-case letters first.)
+       </para>
+      </listitem>
+     </varlistentry>
+
+    <varlistentry id="collation-managing-create-icu-en-u-kf-upper-kr-grek-latn">
+      <term><literal>CREATE COLLATION special (provider = icu, locale = 'en-u-kf-upper-kr-grek-latn');</literal></term>
+      <term><literal>CREATE COLLATION special (provider = icu, locale = 'en@colCaseFirst=upper;colReorder=grek-latn');</literal></term>
+      <listitem>
+       <para>
+        Combines both of the above options.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="collation-managing-create-icu-en-u-kn-true">
+      <term><literal>CREATE COLLATION numeric (provider = icu, locale = 'en-u-kn-true');</literal></term>
+      <term><literal>CREATE COLLATION numeric (provider = icu, locale = 'en@colNumeric=yes');</literal></term>
+      <listitem>
+       <para>
+        Numeric ordering, sorts sequences of digits by their numeric value,
+        for example: <literal>A-21</literal> &lt; <literal>A-123</literal>
+        (also known as natural sort).
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+
+    See <ulink url="https://www.unicode.org/reports/tr35/tr35-collation.html">Unicode
+    Technical Standard #35</ulink>
+    and <ulink url="https://tools.ietf.org/html/bcp47">BCP 47</ulink> for
+    details.  The list of possible collation types (<literal>co</literal>
+    subtag) can be found in
+    the <ulink url="https://github.com/unicode-org/cldr/blob/master/common/bcp47/collation.xml">CLDR
+    repository</ulink>.
+   </para>
+
+   <para>
+    Note that while this system allows creating collations that <quote>ignore
+    case</quote> or <quote>ignore accents</quote> or similar (using the
+    <literal>ks</literal> key), in order for such collations to act in a
+    truly case- or accent-insensitive manner, they also need to be declared as not
+    <firstterm>deterministic</firstterm> in <command>CREATE COLLATION</command>;
+    see <xref linkend="collation-nondeterministic"/>.
+    Otherwise, any strings that compare equal according to the collation but
+    are not byte-wise equal will be sorted according to their byte values.
+   </para>
+
+   <note>
+    <para>
+     By design, ICU will accept almost any string as a locale name and match
+     it to the closest locale it can provide, using the fallback procedure
+     described in its documentation.  Thus, there will be no direct feedback
+     if a collation specification is composed using features that the given
+     ICU installation does not actually support.  It is therefore recommended
+     to create application-level test cases to check that the collation
+     definitions satisfy one's requirements.
+    </para>
+   </note>
+  </sect2>
+
   <sect2 id="locale-problems">
    <title>Problems</title>
 
@@ -864,212 +1175,6 @@ CREATE COLLATION german (provider = libc, locale = 'de_DE');
      been upgraded to provide new locale definitions (in which case see
      also <link linkend="functions-admin-collation"><function>pg_import_system_collations()</function></link>).
     </para>
-   </sect4>
-
-   <sect4 id="collation-managing-create-icu">
-    <title>ICU Collations</title>
-
-   <para>
-    ICU allows collations to be customized beyond the basic language+country
-    set that is preloaded by <command>initdb</command>.  Users are encouraged
-    to define their own collation objects that make use of these facilities to
-    suit the sorting behavior to their requirements.
-   </para>
-
-   <para>
-    See <ulink url="https://unicode-org.github.io/icu/userguide/locale/"></ulink>
-    and <ulink url="https://unicode-org.github.io/icu/userguide/collation/api.html"></ulink> for
-    information on ICU locale naming.  The set of acceptable names and
-    attributes depends on the particular ICU version.
-   </para>
-
-   <para>
-     <table id="language-tag-collation-settings-table">
-      <title>Language Tag Collation Settings</title>
-      <tgroup cols="4">
-       <thead>
-        <row>
-         <entry>Key</entry>
-         <entry>Values</entry>
-         <entry>Default</entry>
-         <entry>Description</entry>
-        </row>
-       </thead>
-       <tbody>
-        <row>
-         <entry><literal>ks</literal></entry>
-         <entry><literal>level1</literal>, <literal>level2</literal>, <literal>level3</literal>, <literal>level4</literal>, <literal>identic</literal></entry>
-         <entry><literal>level3</literal></entry>
-         <entry>
-          Sensitivity when determining equality, with
-          <literal>level1</literal> the least sensitive and
-          <literal>identic</literal> the most sensitive. Lower sensitivity
-          settings consider strings to be equal despite some differences, such
-          as case. For lower-sensitivity settings, define the collation with
-          <option>deterministic</option> set to <literal>false</literal>.
-         </entry>
-        </row>
-        <row>
-         <entry><literal>ka</literal></entry>
-         <entry><literal>noignore</literal>, <literal>shifted</literal></entry>
-         <entry><literal>noignore</literal></entry>
-         <entry>
-          If set to <literal>shifted</literal>, causes some characters
-          (e.g. punctuation or space) to be ignored in comparison. For
-          instance, "ab" = "a-b".
-         </entry>
-        </row>
-        <row>
-         <entry><literal>kf</literal></entry>
-         <entry><literal>upper</literal>, <literal>lower</literal>, <literal>false</literal></entry>
-         <entry><literal>false</literal></entry>
-         <entry>
-          If set to <literal>upper</literal>, upper case sorts before
-          lowercase. If set to <literal>lower</literal>, lower case sorts
-          before uppercase. If set to <literal>false</literal>, it depends on
-          the locale.
-         </entry>
-        </row>
-        <row>
-         <entry><literal>kn</literal></entry>
-         <entry><literal>true</literal>, <literal>false</literal></entry>
-         <entry><literal>false</literal></entry>
-         <entry>
-          If set to <literal>true</literal>, numbers within a string are
-          treated as a single numeric value rather than a sequence of
-          digits. For example, "23" sorts before "123".
-         </entry>
-        </row>
-       </tbody>
-      </tgroup>
-     </table>
-    </para>   
-    <note>
-     <para>
-      The table above is meant as a guide and does not cover all available
-      possibilities. For complete details, see <ulink
-      url="https://www.unicode.org/reports/tr35/tr35-collation.html">Unicode
-      Technical Standard #35</ulink> and <ulink
-      url="https://tools.ietf.org/html/bcp47">BCP 47</ulink> for details.  The
-      list of possible collation types (<literal>co</literal> subtag) can be
-      found in the <ulink
-      url="https://github.com/unicode-org/cldr/blob/master/common/bcp47/collation.xml">CLDR
-      repository</ulink>
-     </para>
-    </note>
-   <para>
-    Here are some examples:
-
-    <variablelist>
-     <varlistentry id="collation-managing-create-icu-de-u-co-phonebk-x-icu">
-      <term><literal>CREATE COLLATION "de-u-co-phonebk-x-icu" (provider = icu, locale = 'de-u-co-phonebk');</literal></term>
-      <term><literal>CREATE COLLATION "de-u-co-phonebk-x-icu" (provider = icu, locale = 'de@collation=phonebook');</literal></term>
-      <listitem>
-       <para>German collation with phone book collation type</para>
-       <para>
-        The first example selects the ICU locale using a <quote>language
-        tag</quote> per BCP 47.  The second example uses the traditional
-        ICU-specific locale syntax.  The first style is preferred going
-        forward, and is used internally to store locales.
-       </para>
-       <para>
-        Note that you can name the collation objects in the SQL environment
-        anything you want.  In this example, we follow the naming style that
-        the predefined collations use, which in turn also follow BCP 47, but
-        that is not required for user-defined collations.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry id="collation-managing-create-icu-und-u-co-emoji-x-icu">
-      <term><literal>CREATE COLLATION "und-u-co-emoji-x-icu" (provider = icu, locale = 'und-u-co-emoji');</literal></term>
-      <term><literal>CREATE COLLATION "und-u-co-emoji-x-icu" (provider = icu, locale = '@collation=emoji');</literal></term>
-      <listitem>
-       <para>
-        Root collation with Emoji collation type, per Unicode Technical Standard #51
-       </para>
-       <para>
-        Observe how in the traditional ICU locale naming system, the root
-        locale is selected by an empty string.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry id="collation-managing-create-icu-en-u-kr-grek-latn">
-      <term><literal>CREATE COLLATION latinlast (provider = icu, locale = 'en-u-kr-grek-latn');</literal></term>
-      <term><literal>CREATE COLLATION latinlast (provider = icu, locale = 'en@colReorder=grek-latn');</literal></term>
-      <listitem>
-       <para>
-        Sort Greek letters before Latin ones.  (The default is Latin before Greek.)
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry id="collation-managing-create-icu-en-u-kf-upper">
-      <term><literal>CREATE COLLATION upperfirst (provider = icu, locale = 'en-u-kf-upper');</literal></term>
-      <term><literal>CREATE COLLATION upperfirst (provider = icu, locale = 'en@colCaseFirst=upper');</literal></term>
-      <listitem>
-       <para>
-        Sort upper-case letters before lower-case letters.  (The default is
-        lower-case letters first.)
-       </para>
-      </listitem>
-     </varlistentry>
-
-    <varlistentry id="collation-managing-create-icu-en-u-kf-upper-kr-grek-latn">
-      <term><literal>CREATE COLLATION special (provider = icu, locale = 'en-u-kf-upper-kr-grek-latn');</literal></term>
-      <term><literal>CREATE COLLATION special (provider = icu, locale = 'en@colCaseFirst=upper;colReorder=grek-latn');</literal></term>
-      <listitem>
-       <para>
-        Combines both of the above options.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry id="collation-managing-create-icu-en-u-kn-true">
-      <term><literal>CREATE COLLATION numeric (provider = icu, locale = 'en-u-kn-true');</literal></term>
-      <term><literal>CREATE COLLATION numeric (provider = icu, locale = 'en@colNumeric=yes');</literal></term>
-      <listitem>
-       <para>
-        Numeric ordering, sorts sequences of digits by their numeric value,
-        for example: <literal>A-21</literal> &lt; <literal>A-123</literal>
-        (also known as natural sort).
-       </para>
-      </listitem>
-     </varlistentry>
-    </variablelist>
-
-    See <ulink url="https://www.unicode.org/reports/tr35/tr35-collation.html">Unicode
-    Technical Standard #35</ulink>
-    and <ulink url="https://tools.ietf.org/html/bcp47">BCP 47</ulink> for
-    details.  The list of possible collation types (<literal>co</literal>
-    subtag) can be found in
-    the <ulink url="https://github.com/unicode-org/cldr/blob/master/common/bcp47/collation.xml">CLDR
-    repository</ulink>.
-   </para>
-
-   <para>
-    Note that while this system allows creating collations that <quote>ignore
-    case</quote> or <quote>ignore accents</quote> or similar (using the
-    <literal>ks</literal> key), in order for such collations to act in a
-    truly case- or accent-insensitive manner, they also need to be declared as not
-    <firstterm>deterministic</firstterm> in <command>CREATE COLLATION</command>;
-    see <xref linkend="collation-nondeterministic"/>.
-    Otherwise, any strings that compare equal according to the collation but
-    are not byte-wise equal will be sorted according to their byte values.
-   </para>
-
-   <note>
-    <para>
-     By design, ICU will accept almost any string as a locale name and match
-     it to the closest locale it can provide, using the fallback procedure
-     described in its documentation.  Thus, there will be no direct feedback
-     if a collation specification is composed using features that the given
-     ICU installation does not actually support.  It is therefore recommended
-     to create application-level test cases to check that the collation
-     definitions satisfy one's requirements.
-    </para>
-   </note>
    </sect4>
 
    <sect4 id="collation-copy">
