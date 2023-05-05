@@ -379,10 +379,10 @@ initdb --locale-provider=icu --icu-locale=en
   </sect2>
   <sect2 id="icu-locales">
    <title>ICU Locales</title>
-   <sect3 id="icu-locales-basic">
+   <sect3 id="icu-locale-names">
     <title>ICU Locale Names</title>
     <para>
-     The ICU format for the locale is a <link
+     The ICU format for the locale name is a <link
      linkend="icu-language-tag">Language Tag</link>.
 
 <programlisting>
@@ -399,13 +399,24 @@ CREATE COLLATION mycollation2 (PROVIDER = icu, LOCALE = 'fr');
      language tag if not already in that form. For instance,
 
 <screen>
-CREATE COLLATION mycollation2 (PROVIDER = icu, LOCALE = 'de_DE.utf8');
+CREATE COLLATION mycollation3 (PROVIDER = icu, LOCALE = 'en-US-u-kn-true');
+NOTICE:  using standard form "en-US-u-kn" for locale "en-US-u-kn-true"
+CREATE COLLATION mycollation4 (PROVIDER = icu, LOCALE = 'de_DE.utf8');
 NOTICE:  using standard form "de-DE" for locale "de_DE.utf8"
 </screen>
 
-     ICU can transform most <literal>libc</literal> locale names, as well as
-     some other formats, into language tags for easier transition to ICU.
+     If you see such a message, ensure that the <symbol>PROVIDER</symbol> and
+     <symbol>LOCALE</symbol> are as you expect, and consider specifying
+     directly as the canonical language tag instead of relying on the
+     transformation.
     </para>
+    <note>
+     <para>
+      ICU can transform most libc locale names, as well as some other formats,
+      into language tags for easier transition to ICU. If a libc locale name
+      is used in ICU, it may not have precisely the same behavior as in libc.
+     </para>
+    </note>
     <para>
      If there is some problem interpreting the locale name, or if it represents
      a language or region that ICU does not recognize, a message will be reported:
@@ -452,8 +463,8 @@ HINT:  To disable ICU locale validation, set parameter icu_validation_level to D
      setting. For boolean settings, the
      <literal>-</literal><replaceable>key</replaceable> may be specified
      without a corresponding
-     <literal>-</literal><replaceable>value</replaceable> to mean
-     <literal>true</literal>.
+     <literal>-</literal><replaceable>value</replaceable>, which implies a
+     value of <literal>true</literal>.
     </para>
     <para>
      For example, the language tag <literal>en-US-u-kn-ks-level2</literal>
@@ -464,14 +475,14 @@ HINT:  To disable ICU locale validation, set parameter icu_validation_level to D
      of digits as a single number:
 
 <screen>
-CREATE COLLATION mycollation3 (PROVIDER = icu, DETERMINISTIC = false, LOCALE = 'en-US-u-kn-ks-level2');
-SELECT 'aB' COLLATE mycollation3 = 'Ab' COLLATE mycollation3 as result;
+CREATE COLLATION mycollation5 (PROVIDER = icu, DETERMINISTIC = false, LOCALE = 'en-US-u-kn-ks-level2');
+SELECT 'aB' COLLATE mycollation5 = 'Ab' COLLATE mycollation5 as result;
  result
 --------
  t
 (1 row)
 
-SELECT 'N-45' COLLATE mycollation3 &lt; 'N-123' COLLATE mycollation3 as result;
+SELECT 'N-45' COLLATE mycollation5 &lt; 'N-123' COLLATE mycollation5 as result;
  result
 --------
  t
@@ -1093,19 +1104,17 @@ CREATE COLLATION ignore_accents (provider = icu, locale = 'und-u-ks-level1-kc-tr
 <programlisting>
 -- ignore differences in accents and case
 CREATE COLLATION ignore_accent_case (PROVIDER = icu, DETERMINISTIC = false, LOCALE = 'und-u-ks-level1');
+SELECT 'Å' collate ignore_accent_case = 'A' collate ignore_accent_case; -- true
+SELECT 'z' collate ignore_accent_case = 'Z' collate ignore_accent_case; -- true
 
 -- upper case letters sort before lower case.
 CREATE COLLATION upper_first (PROVIDER=icu, LOCALE = 'und-u-kf-upper');
+SELECT 'B' collate upper_first &lt; 'b' collate upper_first; -- true
 
 -- treat digits numerically and ignore punctuation
 CREATE COLLATION num_ignore_punct (PROVIDER = icu, DETERMINISTIC = false, LOCALE = 'und-u-ka-shifted-kn');
-
--- the following all return true
-SELECT 'Å' collate ignore_accent_case = 'A' collate ignore_accent_case;
-SELECT 'z' collate ignore_accent_case = 'Z' collate ignore_accent_case;
-SELECT 'B' collate upper_first &lt; 'b' collate upper_first;
-SELECT 'id-45' collate num_ignore_punct &lt; 'id-123' collate num_ignore_punct;
-SELECT 'w;x*y-z' collate num_ignore_punct = 'wxyz' collate num_ignore_punct;
+SELECT 'id-45' collate num_ignore_punct &lt; 'id-123' collate num_ignore_punct; -- true
+SELECT 'w;x*y-z' collate num_ignore_punct = 'wxyz' collate num_ignore_punct; -- true
 </programlisting>
 
      Many of the available options are described in <xref
