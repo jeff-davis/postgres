@@ -379,22 +379,109 @@ initdb --locale-provider=icu --icu-locale=en
   </sect2>
   <sect2 id="icu-locales">
    <title>ICU Locales</title>
+   <sect3 id="icu-locales-basic">
+    <title>ICU Locale Names</title>
+    <para>
+     The ICU format for the locale is a <link
+     linkend="icu-language-tag">Language Tag</link>.
+
+<programlisting>
+CREATE COLLATION mycollation1 (PROVIDER = icu, LOCALE = 'ja-JP);
+CREATE COLLATION mycollation2 (PROVIDER = icu, LOCALE = 'fr');
+</programlisting>
+    </para>
+   </sect3>
    <sect3 id="icu-canonicalization">
     <title>Locale Canonicalization and Validation</title>
     <para>
      When defining a new ICU collation object or database with ICU as the
      provider, the given locale name is transformed ("canonicalized") into a
      language tag if not already in that form. For instance,
-     <literal>en_US</literal> will be transformed into
-     <literal>en-US</literal>. If the locale name is changed, the user will be
-     notified.
+
+<screen>
+CREATE COLLATION mycollation2 (PROVIDER = icu, LOCALE = 'de_DE.utf8');
+NOTICE:  using standard form "de-DE" for locale "de_DE.utf8"
+</screen>
+
+     ICU can transform most <literal>libc</literal> locale names, as well as
+     some other formats, into language tags for easier transition to ICU.
     </para>
     <para>
      If there is some problem interpreting the locale name, or if it represents
-     a language or region that ICU does not recognize, <xref
+     a language or region that ICU does not recognize, a message will be reported:
+
+<screen>
+SET icu_validation_level = ERROR;
+CREATE COLLATION nonsense (PROVIDER = icu, LOCALE = 'nonsense');
+ERROR:  ICU locale "nonsense" has unknown language "nonsense"
+HINT:  To disable ICU locale validation, set parameter icu_validation_level to DISABLED.
+</screen>
+
+     <xref
      linkend="guc-icu-validation-level"/> controls how the message is
      reported. If set below <literal>ERROR</literal>, the collation will still
-     be created, but the semantics may not be what the user intended.
+     be created, but the behavior may not be what the user intended.
+    </para>
+   </sect3>
+   <sect3 id="icu-language-tag">
+    <title>Language Tag</title>
+    <para>
+     Basic language tags are simply
+     <replaceable>language</replaceable><literal>-</literal><replaceable>region</replaceable>;
+     or even just <replaceable>language</replaceable>. The
+     <replaceable>language</replaceable> is a language code
+     (e.g. <literal>fr</literal> for French or <literal>und</literal> for
+     "undefined"), and <replaceable>region</replaceable> is a region code
+     (e.g. <literal>CA</literal> for Canada). Examples:
+     <literal>ja-JP</literal>, <literal>de</literal>, or
+     <literal>fr-CA</literal>.
+    </para>
+    <para>
+     Collation settings may be included in the language tag to customize
+     collation behavior. ICU allows extensive customization, such as
+     sensitivity (or insensitivity) to accents, case, and punctuation;
+     treatment of digits within text; and many other options to satisfy a
+     variety of uses.
+    </para>
+    <para>
+     To include this additional collation information in a language tag,
+     append <literal>-u</literal>, followed by one or more
+     <literal>-</literal><replaceable>key</replaceable><literal>-</literal><replaceable>value</replaceable>
+     pairs, where <replaceable>key</replaceable> is the key for a collation
+     setting and <replaceable>value</replaceable> is a valid value for that
+     setting. For boolean settings, the
+     <literal>-</literal><replaceable>key</replaceable> may be specified
+     without a corresponding
+     <literal>-</literal><replaceable>value</replaceable> to mean
+     <literal>true</literal>.
+    </para>
+    <para>
+     For example, the language tag <literal>en-US-u-kn-ks-level2</literal>
+     means the locale with the English language in the US region, with
+     collation settings <literal>kn</literal> set to <literal>true</literal>
+     and <literal>ks</literal> set to <literal>level2</literal>. Those
+     settings mean the collation will be case-insensitive and treat a sequence
+     of digits as a single number:
+
+<screen>
+CREATE COLLATION mycollation3 (PROVIDER = icu, DETERMINISTIC = false, LOCALE = 'en-US-u-kn-ks-level2');
+SELECT 'aB' COLLATE mycollation3 = 'Ab' COLLATE mycollation3 as result;
+ result
+--------
+ t
+(1 row)
+
+SELECT 'N-45' COLLATE mycollation3 &lt; 'N-123' COLLATE mycollation3 as result;
+ result
+--------
+ t
+(1 row)
+</screen>
+    </para>
+    <para>
+     See <xref linkend="icu-custom-collations"/> for details and additional
+     examples of using language tags with custom collation information for the
+     locale.
     </para>
    </sect3>
   </sect2>
@@ -899,7 +986,7 @@ CREATE COLLATION german (provider = libc, locale = 'de_DE');
 CREATE COLLATION german (provider = icu, locale = 'de-DE');
 </programlisting>
 
-     ICU uses <link linkend="icu-language-tags">language tags</link> to
+     ICU uses <link linkend="icu-language-tag">language tags</link> to
      specify the locale, but can also accept most libc-style locale names
      (which will be transformed into language tags if possible).
     </para>
@@ -995,38 +1082,6 @@ CREATE COLLATION ignore_accents (provider = icu, locale = 'und-u-ks-level1-kc-tr
   <sect2 id="icu-custom-collations">
    <title>ICU Custom Collations</title>
 
-   <sect3 id="icu-locales-basic">
-    <title>Basic ICU Locale Names</title>
-    <para>
-     The ICU provider accepts multiple locale name formats, but the preferred
-     format is a BCP 47 language tag (see <xref
-     linkend="icu-language-tags"/>). Typically, a language tag is of the form
-     <literal>fr-CA</literal>, where <literal>fr</literal> is the language
-     code (French) and <literal>CA</literal> is the region code (Canada). An
-     even simpler form is just the language code, e.g. <literal>fr</literal>.
-    </para>
-    <para>
-     ICU also accepts most libc locale names, such as
-     <literal>de_DE.utf8</literal>, as well as some other formats which are no
-     longer preferred. These other formats are automatically transformed into
-     a language tag (see <xref linkend="icu-canonicalization"/>).
-    </para>
-    <para>
-<programlisting>
-CREATE COLLATION mycollation1 (PROVIDER = icu, LOCALE = 'fr-CA');
-CREATE COLLATION mycollation2 (PROVIDER = icu, LOCALE = 'fr');
--- transformed into locale 'de-DE'
-CREATE COLLATION mycollation3 (PROVIDER = icu, LOCALE = 'de_DE.utf8');
-</programlisting>
-    </para>
-    <para>
-     Many simple collations are built-in, representing many combinations of
-     languages and regions (see <xref
-     linkend="collation-managing-create-icu"/>). For instance, instead of
-     creating a new collation <literal>mycollation1</literal> as above, one
-     can simply use the built-in collation <literal>"fr-CA-x-icu"</literal>.
-    </para>
-   </sect3>
    <sect3 id="icu-locales-custom">
     <title>Custom Collation Behavior</title>
     <para>
@@ -1312,40 +1367,6 @@ SELECT 'x-y' COLLATE level4 = 'x_y' COLLATE level4; -- false
       The above tables are not meant to be complete. See <xref linkend="icu-locale-external-references"/> for details.
      </para>
     </note>
-   </sect3>
-   <sect3 id="icu-language-tags">
-    <title>Specifying a Language Tag</title>
-    <para>
-     A language tag must contain a language code (e.g. <literal>fr</literal>),
-     though it may be specified as <literal>und</literal> for the ICU root
-     locale.
-    </para>
-    <para>
-     Optionally, a region code may be appended to the language tag with
-     <literal>-<replaceable>region</replaceable></literal>;
-     e.g. <literal>-CA</literal>.
-    </para>
-    <para>
-     When using any collation types or collation settings, append <literal>-u</literal> to the language tag.
-    </para>
-    <para>
-     To use a collation type, append
-     <literal>-co-<replaceable>type</replaceable></literal> to the language
-     tag, where <replaceable>type</replaceable> is selected from <xref
-     linkend="icu-collation-types-table"/>; e.g. <literal>-co-emoji</literal>
-     uses collation type <literal>emoji</literal>.
-    </para>
-    <para>
-     For each collation setting, append
-     <literal>-<replaceable>key</replaceable></literal>-<replaceable>value</replaceable>,
-     where <replaceable>key</replaceable> is selected from <xref
-     linkend="icu-collation-settings-table"/> and
-     <replaceable>value</replaceable> is a valid value for that key (if the
-     setting is boolean, <literal>-true</literal> may be omitted). For
-     example, appending <literal>-ka-shifted-ks-level1</literal> sets key
-     <literal>ka</literal> to <literal>shifted</literal> and key
-     <literal>ks</literal> to <literal>level1</literal>.
-    </para>
    </sect3>
    <sect3 id="icu-locale-examples">
     <title>Examples</title>
