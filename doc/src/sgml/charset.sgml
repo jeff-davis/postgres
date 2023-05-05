@@ -776,6 +776,13 @@ SELECT * FROM test1 ORDER BY a || b COLLATE "fr_FR";
     code byte values.
    </para>
 
+   <note>
+    <para>
+     The <literal>C</literal> and <literal>POSIX</literal> locales may behave
+     differently depending on the database encoding.
+    </para>
+   </note>
+
    <para>
     Additionally, two SQL standard collation names are available:
 
@@ -988,26 +995,20 @@ CREATE COLLATION german (provider = libc, locale = 'de_DE');
     <title>ICU Collations</title>
 
     <para>
-     New ICU collations can be created like:
+     ICU collations can be created like:
 
 <programlisting>
 CREATE COLLATION german (provider = icu, locale = 'de-DE');
 </programlisting>
 
-     ICU uses <link linkend="icu-language-tag">language tags</link> to
-     specify the locale, but can also accept most libc-style locale names
-     (which will be transformed into language tags if possible).
+     ICU locales are specified as a <link linkend="icu-language-tag">Language
+     Tag</link>, but can also accept most libc-style locale names (which will
+     be transformed into language tags if possible).
     </para>
     <para>
-     ICU allows collations to be customized extensively to suit a variety of
-     needs. For example, a collation may be sensitive or insensitive to
-     accent, case, or punctuation; or it may treat sequences of digits as
-     individual characters or numeric values.
-    </para>
-    <para>
-     These customizations are specified as a part of the
-     <symbol>LOCALE</symbol>; see <xref linkend="icu-locales-custom"/> for details
-     and examples.
+     New ICU collations can customize collation behavior extensively by
+     including collation attributes in the langugage tag. See <xref
+     linkend="icu-custom-collations"/> for details and examples.
     </para>
    </sect4>
    <sect4 id="collation-copy">
@@ -1116,7 +1117,7 @@ SELECT 'w;x*y-z' collate num_ignore_punct = 'wxyz' collate num_ignore_punct; -- 
 
      Many of the available options are described in <xref
      linkend="icu-locale-collation-settings"/>, or see <xref
-     linkend="icu-locale-external-references"/> for more details.
+     linkend="icu-external-references"/> for more details.
     </para>
    </sect3>
    <sect3 id="icu-locale-comparison-levels">
@@ -1135,7 +1136,7 @@ SELECT 'w;x*y-z' collate num_ignore_punct = 'wxyz' collate num_ignore_punct; -- 
          <entry>Level</entry>
          <entry>Description</entry>
          <entry><literal>'f' = 'f'</literal></entry>        
-         <entry><literal>'ab' = U&gt;'a\2063b'</literal></entry>
+         <entry><literal>'ab' = U&amp;'a\2063b'</literal></entry>
          <entry><literal>'x-y' = 'x_y'</literal></entry>
          <entry><literal>'g' = 'G'</literal></entry>
          <entry><literal>'n' = 'ñ'</literal></entry>
@@ -1185,7 +1186,7 @@ SELECT 'w;x*y-z' collate num_ignore_punct = 'wxyz' collate num_ignore_punct; -- 
         </row>
         <row>
          <entry>identic</entry>
-         <entry>Sensitive to any difference.</entry>
+         <entry>All</entry>
          <entry><literal>true</literal></entry>
          <entry><literal>false</literal></entry>
          <entry><literal>false</literal></entry>
@@ -1232,39 +1233,6 @@ SELECT 'x-y' COLLATE level4 = 'x_y' COLLATE level4; -- false
    <sect3 id="icu-locale-collation-settings">
     <title>Collation Settings for an ICU Locale</title>
     <para>
-     <table id="icu-collation-types-table">
-      <title>ICU Collation Types</title>
-      <tgroup cols="2">
-       <thead>
-        <row>
-         <entry>Type</entry>
-         <entry>Description</entry>
-        </row>
-       </thead>
-       <tbody>
-        <row>
-         <entry><literal>emoji</literal></entry>
-         <entry>
-          Ordering for emoji characters.
-         </entry>
-        </row>
-        <row>
-         <entry><literal>phonebk</literal></entry>
-         <entry>
-          Phonebook style ordering (e.g. German).
-         </entry>
-        </row>
-        <row>
-         <entry><literal>standard</literal></entry>
-         <entry>
-          Default ordering for the locale.
-         </entry>
-        </row>
-       </tbody>
-      </tgroup>
-     </table>
-    </para>
-    <para>
      <table id="icu-collation-settings-table">
       <title>ICU Collation Settings</title>
       <tgroup cols="4">
@@ -1277,6 +1245,14 @@ SELECT 'x-y' COLLATE level4 = 'x_y' COLLATE level4; -- false
         </row>
        </thead>
        <tbody>
+        <row>
+         <entry><literal>co</literal></entry>
+         <entry><literal>emoji</literal>, <literal>phonebk</literal>, <literal>standard</literal>, <replaceable>...</replaceable></entry>
+         <entry><literal>standard</literal></entry>
+         <entry>
+          Collation type. See <xref linkend="icu-external-references"/> for additional options and details.
+         </entry>
+        </row>
         <row>
          <entry><literal>ks</literal></entry>
          <entry><literal>level1</literal>, <literal>level2</literal>, <literal>level3</literal>, <literal>level4</literal>, <literal>identic</literal></entry>
@@ -1309,9 +1285,19 @@ SELECT 'x-y' COLLATE level4 = 'x_y' COLLATE level4; -- false
         </row>
         <row>
          <entry><literal>kk</literal></entry>
-         <entry><literal></literal>, <literal></literal>, <literal></literal></entry>
-         <entry><literal></literal></entry>
+         <entry><literal>true</literal>, <literal>false</literal></entry>
+         <entry><literal>false</literal></entry>
          <entry>
+          <para>
+           Enable full normalization; may affect performance. Locales which
+           require this typically have it set to
+           <literal>true</literal>. Basic normalization is already performed
+           even when set to <literal>false</literal>.
+          </para>
+          <para>
+           Useful when text may include multiple accents on a single
+           character, such as in Vietnamese or Arabic.
+          </para>
          </entry>
         </row>
         <row>
@@ -1323,7 +1309,10 @@ SELECT 'x-y' COLLATE level4 = 'x_y' COLLATE level4; -- false
         </row>
         <row>
          <entry><literal>kf</literal></entry>
-         <entry><literal>upper</literal>, <literal>lower</literal>, <literal>false</literal></entry>
+         <entry>
+          <literal>upper</literal>, <literal>lower</literal>,
+          <literal>false</literal>
+         </entry>
          <entry><literal>false</literal></entry>
          <entry>
           If set to <literal>upper</literal>, upper case sorts before lower
@@ -1345,14 +1334,33 @@ SELECT 'x-y' COLLATE level4 = 'x_y' COLLATE level4; -- false
         </row>
         <row>
          <entry><literal>kr</literal></entry>
-         <entry><literal></literal>, <literal></literal>, <literal></literal></entry>
-         <entry><literal></literal></entry>
          <entry>
+          <literal>space</literal>, <literal>punct</literal>,
+          <literal>symbol</literal>, <literal>currency</literal>,
+          <literal>digit</literal>, <replaceable>script-id</replaceable>
+         </entry>
+         <entry></entry>
+         <entry>
+          <para>
+           Set to one or more of the available values, or any BCP 47
+           <replaceable>script-id</replaceable>, e.g. <literal>latn</literal>
+           ("Latin") or <literal>grek</literal> ("Greek"). Redefines the
+           ordering of classes of characters; those characters belonging to a
+           class earlier in the list sort before characters belonging to a
+           class later in the list.
+          </para>
+          <para>
+           For instance, the value <literal>digit-currency-space</literal> sorts
+           punctuation before digits and spaces.
+          </para>
          </entry>
         </row>
         <row>
          <entry><literal>kv</literal></entry>
-         <entry><literal>space</literal>, <literal>punct</literal>, <literal>symbol</literal>, <literal>currency</literal></entry>
+         <entry>
+          <literal>space</literal>, <literal>punct</literal>,
+          <literal>symbol</literal>, <literal>currency</literal>
+         </entry>
          <entry><literal>punct</literal></entry>
          <entry>
           Classes of characters ignored during comparison at level 3. Setting
@@ -1367,35 +1375,19 @@ SELECT 'x-y' COLLATE level4 = 'x_y' COLLATE level4; -- false
        </tbody>
       </tgroup>
      </table>
+      Defaults may depend on locale. The above table is not meant to be
+      complete. See <xref linkend="icu-external-references"/> for additinal
+      options and details.
     </para>
-    <note>
-     <para>
-      The above tables are not meant to be complete. See <xref linkend="icu-locale-external-references"/> for details.
-     </para>
-    </note>
    </sect3>
    <sect3 id="icu-locale-examples">
     <title>Examples</title>
     <para>
-     Here are some examples:
-
      <variablelist>
       <varlistentry id="collation-managing-create-icu-de-u-co-phonebk-x-icu">
        <term><literal>CREATE COLLATION "de-u-co-phonebk-x-icu" (provider = icu, locale = 'de-u-co-phonebk');</literal></term>
        <listitem>
         <para>German collation with phone book collation type</para>
-        <para>
-         The first example selects the ICU locale using a <quote>language
-         tag</quote> per BCP 47.  The second example uses the traditional
-         ICU-specific locale syntax.  The first style is preferred going
-         forward, and is used internally to store locales.
-        </para>
-        <para>
-         Note that you can name the collation objects in the SQL environment
-         anything you want.  In this example, we follow the naming style that
-         the predefined collations use, which in turn also follow BCP 47, but
-         that is not required for user-defined collations.
-        </para>
        </listitem>
       </varlistentry>
 
@@ -1404,10 +1396,6 @@ SELECT 'x-y' COLLATE level4 = 'x_y' COLLATE level4; -- false
        <listitem>
         <para>
          Root collation with Emoji collation type, per Unicode Technical Standard #51
-        </para>
-        <para>
-         Observe how in the traditional ICU locale naming system, the root
-         locale is selected by an empty string.
         </para>
        </listitem>
       </varlistentry>
@@ -1439,13 +1427,30 @@ SELECT 'x-y' COLLATE level4 = 'x_y' COLLATE level4; -- false
         </para>
        </listitem>
       </varlistentry>
+
+      <varlistentry id="collation-managing-create-icu-und-u-kk">
+       <term><literal>CREATE COLLATION normalized (provider = icu, locale = 'und-u-kk);</literal></term>
+       <listitem>
+        <para>
+         Turns full ICU normalization on.
+
+<programlisting>
+CREATE COLLATION normalized (provider = icu, deterministic = false, locale = 'und-u-kk');
+CREATE COLLATION not_normalized (provider = icu, deterministic = false, locale = 'und');
+SELECT U&amp;'e\0323\0302' collate normalized = U&amp;'ê\0323' collate normalized; -- true
+SELECT U&amp;'e\0323\0302' collate not_normalized = U&amp;'ê\0323' collate not_normalized; -- false
+</programlisting>
+
+        </para>
+       </listitem>
+      </varlistentry>
      </variablelist>
     </para>
    </sect3>
-   <sect3 id="icu-locale-external-references">
+   <sect3 id="icu-external-references">
     <title>External References for ICU</title>
     <para>
-     The above description (<xref linkend="icu-locales"/>) is only a brief
+     This section (<xref linkend="icu-custom-collations"/>) is only a brief
      overview of ICU behavior and language tags. Refer to the following
      documents for technical details, additional options, and new behavior:
     </para>
