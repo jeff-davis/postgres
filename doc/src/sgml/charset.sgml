@@ -765,18 +765,15 @@ SELECT * FROM test1 ORDER BY a || b COLLATE "fr_FR";
 
    <para>
     On all platforms, the collations named <literal>default</literal>,
-    <literal>C</literal>, and <literal>POSIX</literal> are available.
-    Additional collations may be available depending on operating system
-    support.  The <literal>default</literal> collation selects the
-    <symbol>LC_COLLATE</symbol> and <symbol>LC_CTYPE</symbol> values, or
-    <symbol>ICU_LOCALE</symbol> if the provider is <literal>icu</literal>,
-    specified at database creation time.  The <literal>C</literal> and
-    <literal>POSIX</literal> collations both specify <quote>traditional
-    C</quote> behavior, in which only the ASCII letters
-    <quote><literal>A</literal></quote> through
-    <quote><literal>Z</literal></quote> are treated as letters, and sorting is
-    done strictly by character code byte values (which may produce different
-    results for different encodings).
+    <literal>C</literal>, and <literal>POSIX</literal> are available.  Additional
+    collations may be available depending on operating system support.
+    The <literal>default</literal> collation selects the <symbol>LC_COLLATE</symbol>
+    and <symbol>LC_CTYPE</symbol> values specified at database creation time.
+    The <literal>C</literal> and <literal>POSIX</literal> collations both specify
+    <quote>traditional C</quote> behavior, in which only the ASCII letters
+    <quote><literal>A</literal></quote> through <quote><literal>Z</literal></quote>
+    are treated as letters, and sorting is done strictly by character
+    code byte values.
    </para>
 
    <para>
