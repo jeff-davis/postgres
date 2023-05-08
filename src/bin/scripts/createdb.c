@@ -172,6 +172,17 @@ main(int argc, char *argv[])
 			lc_collate = locale;
 	}
 
+	if (locale_provider && pg_strcasecmp(locale_provider, "icu") == 0 &&
+		icu_locale &&
+		(pg_strcasecmp(icu_locale, "C") == 0 ||
+		 pg_strcasecmp(icu_locale, "POSIX") == 0))
+	{
+		pg_log_info("using locale provider \"none\" for ICU locale \"%s\"",
+					 icu_locale);
+		icu_locale = NULL;
+		locale_provider = "none";
+	}
+
 	if (encoding)
 	{
 		if (pg_char_to_encoding(encoding) < 0)

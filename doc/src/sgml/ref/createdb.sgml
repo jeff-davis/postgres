@@ -154,6 +154,11 @@ PostgreSQL documentation
         Specifies the ICU locale ID to be used in this database, if the
         ICU locale provider is selected.
        </para>
+       <para>
+        If specified as <literal>C</literal> or <literal>POSIX</literal>, the
+        provider is automatically set to <literal>none</literal>, as the ICU
+        provider doesn't support an ICU locale of <literal>C</literal>.
+       </para>
       </listitem>
      </varlistentry>
 

@@ -375,6 +375,9 @@ $$;
 
 RESET client_min_messages;
 
+-- uses "none" provider instead
+CREATE COLLATION testc (provider = icu, locale='C');
+
 CREATE COLLATION test3 (provider = icu, lc_collate = 'en_US.utf8'); -- fail, needs "locale"
 SET icu_validation_level = ERROR;
 CREATE COLLATION testx (provider = icu, locale = 'nonsense-nowhere'); -- fails

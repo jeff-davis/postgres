@@ -75,6 +75,18 @@ if ($ENV{with_icu} eq 'yes')
 	$node2->command_ok(
 		[ 'createdb', '-T', 'template0', '--icu-locale', 'en-US', 'foobar56' ],
 		'create database with icu locale from template database with icu provider');
+
+	# transformed into provider "none"
+	$node->command_ok(
+		[ 'createdb', '-T', 'template0', '--locale-provider=icu', '--icu-locale=C',
+		  'test_none_icu1' ],
+		'create database with provider "icu" and ICU_LOCALE="C"');
+
+	# transformed into provider "none"
+	$node->command_ok(
+		[ 'createdb', '-T', 'template0', '--locale-provider=icu', '--icu-locale=C',
+		  '--lc-ctype=C', 'test_none_icu_2' ],
+		'create database with provider "icu" and ICU_LOCALE="C" and LC_CTYPE=C');
 }
 else
 {
