@@ -1035,6 +1035,9 @@ BEGIN
 END
 $$;
 RESET client_min_messages;
+-- uses "none" provider instead
+CREATE COLLATION testc (provider = icu, locale='C');
+NOTICE:  using locale provider "none" for ICU locale "C"
 CREATE COLLATION test3 (provider = icu, lc_collate = 'en_US.utf8'); -- fail, needs "locale"
 ERROR:  parameter "locale" must be specified
 SET icu_validation_level = ERROR;
@@ -1058,8 +1061,11 @@ SELECT collname FROM pg_collation WHERE collname LIKE 'test%' ORDER BY 1;
  test0
  test1
  test5
-(3 rows)
+ testc
+(4 rows)
 
+DROP COLLATION test1;
+CREATE COLLATION test1 (provider = icu, locale = 'und');
 ALTER COLLATION test1 RENAME TO test11;
 ALTER COLLATION test0 RENAME TO test11; -- fail
 ERROR:  collation "test11" already exists in schema "collate_tests"
@@ -1079,7 +1085,8 @@ SELECT collname, nspname, obj_description(pg_collation.oid, 'pg_collation')
  test0    | collate_tests | US English
  test11   | test_schema   | 
  test5    | collate_tests | 
-(3 rows)
+ testc    | collate_tests | 
+(4 rows)
 
 DROP COLLATION test0, test_schema.test11, test5;
 DROP COLLATION test0; -- fail
@@ -1089,7 +1096,8 @@ NOTICE:  collation "test0" does not exist, skipping
 SELECT collname FROM pg_collation WHERE collname LIKE 'test%';
  collname 
 ----------
-(0 rows)
+ testc
+(1 row)
 
 DROP SCHEMA test_schema;
 DROP ROLE regress_test_role;

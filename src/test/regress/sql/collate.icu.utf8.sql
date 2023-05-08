@@ -375,6 +375,9 @@ $$;
 
 RESET client_min_messages;
 
+-- uses "none" provider instead
+CREATE COLLATION testc (provider = icu, locale='C');
+
 CREATE COLLATION test3 (provider = icu, lc_collate = 'en_US.utf8'); -- fail, needs "locale"
 SET icu_validation_level = ERROR;
 CREATE COLLATION testx (provider = icu, locale = 'nonsense-nowhere'); -- fails
@@ -387,6 +390,9 @@ CREATE COLLATION test4 FROM nonsense;
 CREATE COLLATION test5 FROM test0;
 
 SELECT collname FROM pg_collation WHERE collname LIKE 'test%' ORDER BY 1;
+
+DROP COLLATION test1;
+CREATE COLLATION test1 (provider = icu, locale = 'und');
 
 ALTER COLLATION test1 RENAME TO test11;
 ALTER COLLATION test0 RENAME TO test11; -- fail
