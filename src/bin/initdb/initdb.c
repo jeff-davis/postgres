@@ -2395,6 +2395,23 @@ setlocales(void)
 	}
 
 	/*
+	 * Postgres defines the "C" (and equivalently, "POSIX") locales to be
+	 * optimizable to byte operations (memcmp(), pg_ascii_tolower(), etc.);
+	 * use the builtin provider instead of ICU if the locale is C.
+	 */
+	if (icu_locale && locale_provider == COLLPROVIDER_ICU &&
+		(strcmp(icu_locale, "C") == 0 ||
+		 strcmp(icu_locale, "POSIX") == 0 ||
+		 strncmp(icu_locale, "C.", 2) == 0 ||
+		 strncmp(icu_locale, "POSIX.", 6) == 0))
+	{
+		pg_log_info("using locale provider \"builtin\" for ICU locale \"%s\"",
+					 icu_locale);
+		icu_locale = NULL;
+		locale_provider = COLLPROVIDER_BUILTIN;
+	}
+
+	/*
 	 * canonicalize locale names, and obtain any missing values from our
 	 * current environment
 	 */

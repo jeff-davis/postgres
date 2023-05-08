@@ -111,6 +111,45 @@ if ($ENV{with_icu} eq 'yes')
 		],
 		'option --icu-locale');
 
+	# transformed to provider=builtin
+	command_ok(
+		[
+			'initdb',                '--no-sync',
+			'--locale-provider=icu', '--icu-locale=C',
+			"$tempdir/data4a"
+		],
+		'option --icu-locale=C');
+
+	# transformed to provider=builtin
+	command_ok(
+		[
+			'initdb',                '--no-sync',
+			'--locale-provider=icu', '--icu-locale=C',
+			'--locale=C',
+			"$tempdir/data4b"
+		],
+		'option --icu-locale=C --locale=C');
+
+	# transformed to provider=builtin
+	command_ok(
+		[
+			'initdb',                '--no-sync',
+			'--locale-provider=icu', '--icu-locale=C',
+			'--lc-collate=C',
+			"$tempdir/data4c"
+		],
+		'option --icu-locale=C --lc-collate=C');
+
+	# transformed to provider=builtin
+	command_ok(
+		[
+			'initdb',                '--no-sync',
+			'--locale-provider=icu', '--icu-locale=C',
+			'--lc-ctype=C',
+			"$tempdir/data4d"
+		],
+		'option --icu-locale=C --lc-ctype=C');
+
 	command_fails_like(
 		[
 			'initdb', '--no-sync',
