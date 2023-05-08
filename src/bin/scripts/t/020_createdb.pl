@@ -86,6 +86,24 @@ if ($ENV{with_icu} eq 'yes')
 		],
 		'create database with icu locale from template database with icu provider'
 	);
+
+	# transformed into provider "builtin"
+	$node->command_ok(
+		[
+			'createdb', '-T', 'template0', '--locale-provider=icu', '--icu-locale=C',
+			'test_builtin_icu1'
+		],
+		'create database with provider "icu" and ICU_LOCALE="C"'
+	);
+
+	# transformed into provider "builtin"
+	$node->command_ok(
+		[
+			'createdb', '-T', 'template0', '--locale-provider=icu', '--icu-locale=C',
+			'--lc-ctype=C', 'test_builtin_icu_2'
+		],
+		'create database with provider "icu" and ICU_LOCALE="C" and LC_CTYPE=C'
+	);
 }
 else
 {

@@ -190,6 +190,11 @@ CREATE DATABASE <replaceable class="parameter">name</replaceable>
        <para>
         Specifies the ICU locale ID if the ICU locale provider is used.
        </para>
+       <para>
+        If specified as <literal>C</literal> or <literal>POSIX</literal>, the
+        provider is automatically set to <literal>builtin</literal>, as the
+        ICU provider doesn't support an ICU locale of <literal>C</literal>.
+       </para>
       </listitem>
      </varlistentry>
 

@@ -252,6 +252,24 @@ DefineCollation(ParseState *pstate, List *names, List *parameters, bool if_not_e
 		if (lcctypeEl)
 			collctype = defGetString(lcctypeEl);
 
+		/*
+		 * Postgres defines the "C" (and equivalently, "POSIX") locales to be
+		 * optimizable to byte operations (memcmp(), pg_ascii_tolower(),
+		 * etc.); transform into the "builtin" provider. Don't transform during
+		 * binary upgrade.
+		 */
+		if (!IsBinaryUpgrade && collprovider == COLLPROVIDER_ICU &&
+			colliculocale && (pg_strcasecmp(colliculocale, "C") == 0 ||
+							  pg_strcasecmp(colliculocale, "POSIX") == 0))
+		{
+			ereport(NOTICE,
+					(errmsg("using locale provider \"builtin\" for ICU locale \"%s\"",
+							colliculocale)));
+			builtin_locale = colliculocale;
+			colliculocale = NULL;
+			collprovider = COLLPROVIDER_BUILTIN;
+		}
+
 		if (collprovider == COLLPROVIDER_BUILTIN)
 		{
 			if (!builtin_locale)

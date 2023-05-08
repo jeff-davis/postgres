@@ -1043,6 +1043,27 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 
 	check_encoding_locale_matches(encoding, dbcollate, dbctype);
 
+	/*
+	 * Postgres defines the "C" (and equivalently, "POSIX") locales to be
+	 * optimizable to byte operations (memcmp(), pg_ascii_tolower(), etc.);
+	 * transform into the "builtin" provider.
+	 *
+	 * Don't transform during binary upgrade or when both the provider and ICU
+	 * locale are unchanged from the template.
+	 */
+	if (!IsBinaryUpgrade && dblocprovider == COLLPROVIDER_ICU &&
+		(src_locprovider != COLLPROVIDER_ICU ||
+		 strcmp(dbiculocale, src_iculocale) != 0) &&
+		dbiculocale && (pg_strcasecmp(dbiculocale, "C") == 0 ||
+						pg_strcasecmp(dbiculocale, "POSIX") == 0))
+	{
+		ereport(NOTICE,
+				(errmsg("using locale provider \"builtin\" for ICU locale \"%s\"",
+						dbiculocale)));
+		dbiculocale = NULL;
+		dblocprovider = COLLPROVIDER_BUILTIN;
+	}
+
 	if (dblocprovider == COLLPROVIDER_ICU)
 	{
 		if (!(is_encoding_supported_by_icu(encoding)))

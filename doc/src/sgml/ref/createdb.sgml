@@ -154,6 +154,11 @@ PostgreSQL documentation
         Specifies the ICU locale ID to be used in this database, if the
         ICU locale provider is selected.
        </para>
+       <para>
+        If specified as <literal>C</literal> or <literal>POSIX</literal>, the
+        provider is automatically set to <literal>builtin</literal>, as the
+        ICU provider doesn't support an ICU locale of <literal>C</literal>.
+       </para>
       </listitem>
      </varlistentry>
 
@@ -168,7 +173,7 @@ PostgreSQL documentation
      </varlistentry>
 
      <varlistentry>
-      <term><option>--locale-provider={<literal>none</literal>|<literal>libc</literal>|<literal>icu</literal>}</option></term>
+      <term><option>--locale-provider={<literal>builtin</literal>|<literal>libc</literal>|<literal>icu</literal>}</option></term>
       <listitem>
        <para>
         Specifies the locale provider for the database's default collation.

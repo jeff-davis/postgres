@@ -405,6 +405,12 @@ initdb --locale-provider=icu --icu-locale=en
      change in results. <literal>LC_COLLATE</literal> and
      <literal>LC_CTYPE</literal> can be set independently of the ICU locale.
     </para>
+    <para>
+     The ICU provider does not accept the <literal>C</literal>
+     locale. Commands that create collations or database with the
+     <literal>icu</literal> provider and ICU locale <literal>C</literal> use
+     the provider <literal>builtin</literal> instead.
+    </para>
     <note>
      <para>
       For the ICU provider, results may depend on the version of the ICU

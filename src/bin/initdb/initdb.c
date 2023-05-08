@@ -2410,6 +2410,16 @@ setlocales(void)
 			lc_messages = locale;
 	}
 
+	if (icu_locale && locale_provider == COLLPROVIDER_ICU &&
+		(pg_strcasecmp(icu_locale, "C") == 0 ||
+		 pg_strcasecmp(icu_locale, "POSIX") == 0))
+	{
+		pg_log_info("using locale provider \"builtin\" for ICU locale \"%s\"",
+					 icu_locale);
+		icu_locale = NULL;
+		locale_provider = COLLPROVIDER_BUILTIN;
+	}
+
 	/*
 	 * canonicalize locale names, and obtain any missing values from our
 	 * current environment

@@ -251,6 +251,11 @@ PostgreSQL documentation
         is described in <xref linkend="locale"/>.
        </para>
        <para>
+        If specified as <literal>C</literal> or <literal>POSIX</literal>, the
+        provider is automatically set to <literal>none</literal>, as the ICU
+        provider doesn't support an ICU locale of <literal>C</literal>.
+       </para>
+       <para>
         If this option is not specified, the locale is inherited from the
         environment in which <command>initdb</command> runs. The environment's
         locale is matched to a similar ICU locale name, if possible.

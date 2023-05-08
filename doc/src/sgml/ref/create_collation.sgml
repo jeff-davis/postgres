@@ -126,6 +126,12 @@ CREATE COLLATION [ IF NOT EXISTS ] <replaceable>name</replaceable> FROM <replace
        <literal>libc</literal> is the default.  See <xref
        linkend="locale-providers"/> for details.
       </para>
+      <para>
+       If the provider is <literal>icu</literal> and the locale is
+       <literal>C</literal> or <literal>POSIX</literal>, the provider is
+       automatically set to <literal>builtin</literal>; as the ICU provider
+       doesn't support an ICU locale of <literal>C</literal>.
+      </para>
      </listitem>
     </varlistentry>
 
