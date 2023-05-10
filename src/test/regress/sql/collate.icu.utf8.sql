@@ -376,14 +376,14 @@ $$;
 RESET client_min_messages;
 
 CREATE COLLATION test3 (provider = icu, lc_collate = 'en_US.utf8'); -- fail, needs "locale"
+SET icu_validation_level = ERROR;
 CREATE COLLATION testx (provider = icu, locale = 'nonsense-nowhere'); -- fails
 CREATE COLLATION testx (provider = icu, locale = '@colStrength=primary;nonsense=yes'); -- fails
 CREATE COLLATION testx (provider = icu, locale = '@ASDF'); -- fails
-SET icu_validation_level = WARNING;
+RESET icu_validation_level;
 CREATE COLLATION testx (provider = icu, locale = '@colStrength=primary;nonsense=yes'); DROP COLLATION testx;
 CREATE COLLATION testx (provider = icu, locale = 'nonsense-nowhere'); DROP COLLATION testx;
 CREATE COLLATION testx (provider = icu, locale = '@ASDF'); DROP COLLATION testx;
-RESET icu_validation_level;
 
 -- test special variants
 CREATE COLLATION testx (provider = icu, locale = '@EURO'); DROP COLLATION testx;
