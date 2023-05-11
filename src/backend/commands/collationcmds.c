@@ -47,6 +47,7 @@ typedef struct
 	int			enc;			/* encoding */
 } CollAliasData;
 
+int		default_collation_provider = (int) COLLPROVIDER_LIBC;
 
 /*
  * CREATE COLLATION
@@ -228,7 +229,7 @@ DefineCollation(ParseState *pstate, List *names, List *parameters, bool if_not_e
 								collproviderstr)));
 		}
 		else
-			collprovider = COLLPROVIDER_LIBC;
+			collprovider = (char) default_collation_provider;
 
 		if (collprovider == COLLPROVIDER_NONE
 			&& (localeEl || lccollateEl || lcctypeEl))

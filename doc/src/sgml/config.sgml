@@ -9819,6 +9819,23 @@ SET XML OPTION { DOCUMENT | CONTENT };
       </listitem>
      </varlistentry>
 
+     <varlistentry id="guc-default-collation-provider" xreflabel="default_collation_provider">
+      <term><varname>default_collation_provider</varname> (<type>enum</type>)
+      <indexterm>
+       <primary><varname>default_collation_provider</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Default collation provider for <command>CREATE
+        COLLATION</command>. Does not affect <command>CREATE
+        DATABASE</command>, which gets the default collation provider from the
+        template database. Valid values are <literal>icu</literal> and
+        <literal>libc</literal>. The default is <literal>libc</literal>.
+       </para>
+      </listitem>
+     </varlistentry>
+
      <varlistentry id="guc-icu-validation-level" xreflabel="icu_validation_level">
       <term><varname>icu_validation_level</varname> (<type>enum</type>)
       <indexterm>

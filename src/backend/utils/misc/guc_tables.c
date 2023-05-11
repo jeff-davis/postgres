@@ -35,8 +35,10 @@
 #include "access/xlogrecovery.h"
 #include "archive/archive_module.h"
 #include "catalog/namespace.h"
+#include "catalog/pg_collation.h"
 #include "catalog/storage.h"
 #include "commands/async.h"
+#include "commands/collationcmds.h"
 #include "commands/tablespace.h"
 #include "commands/trigger.h"
 #include "commands/user.h"
@@ -163,6 +165,12 @@ static const struct config_enum_entry intervalstyle_options[] = {
 	{"postgres_verbose", INTSTYLE_POSTGRES_VERBOSE, false},
 	{"sql_standard", INTSTYLE_SQL_STANDARD, false},
 	{"iso_8601", INTSTYLE_ISO_8601, false},
+	{NULL, 0, false}
+};
+
+static const struct config_enum_entry collation_provider_options[] = {
+	{"icu", (int) 'i', false},
+	{"libc", (int) 'c', false},
 	{NULL, 0, false}
 };
 
@@ -4680,6 +4688,16 @@ struct config_enum ConfigureNamesEnum[] =
 		},
 		&IntervalStyle,
 		INTSTYLE_POSTGRES, intervalstyle_options,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"default_collation_provider", PGC_USERSET, CLIENT_CONN_LOCALE,
+		 gettext_noop("Default collation provider for CREATE COLLATION."),
+		 NULL
+		},
+		&default_collation_provider,
+		(int) COLLPROVIDER_LIBC, collation_provider_options,
 		NULL, NULL, NULL
 	},
 

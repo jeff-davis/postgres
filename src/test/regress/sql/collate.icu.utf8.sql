@@ -378,6 +378,16 @@ RESET client_min_messages;
 -- uses "none" provider instead
 CREATE COLLATION testc (provider = icu, locale='C');
 
+SET default_collation_provider = 'libc';
+CREATE COLLATION def_libc (LOCALE = 'C');
+SELECT collname, collprovider FROM pg_collation WHERE collname='def_libc';
+
+SET default_collation_provider = 'icu';
+CREATE COLLATION def_icu (LOCALE = 'und');
+SELECT collname, collprovider FROM pg_collation WHERE collname='def_icu';
+
+RESET default_collation_provider;
+
 CREATE COLLATION test3 (provider = icu, lc_collate = 'en_US.utf8'); -- fail, needs "locale"
 SET icu_validation_level = ERROR;
 CREATE COLLATION testx (provider = icu, locale = 'nonsense-nowhere'); -- fails

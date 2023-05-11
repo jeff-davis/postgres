@@ -1038,6 +1038,23 @@ RESET client_min_messages;
 -- uses "none" provider instead
 CREATE COLLATION testc (provider = icu, locale='C');
 NOTICE:  using locale provider "none" for ICU locale "C"
+SET default_collation_provider = 'libc';
+CREATE COLLATION def_libc (LOCALE = 'C');
+SELECT collname, collprovider FROM pg_collation WHERE collname='def_libc';
+ collname | collprovider 
+----------+--------------
+ def_libc | c
+(1 row)
+
+SET default_collation_provider = 'icu';
+CREATE COLLATION def_icu (LOCALE = 'und');
+SELECT collname, collprovider FROM pg_collation WHERE collname='def_icu';
+ collname | collprovider 
+----------+--------------
+ def_icu  | i
+(1 row)
+
+RESET default_collation_provider;
 CREATE COLLATION test3 (provider = icu, lc_collate = 'en_US.utf8'); -- fail, needs "locale"
 ERROR:  parameter "locale" must be specified
 SET icu_validation_level = ERROR;
