@@ -734,6 +734,10 @@
 #lc_numeric = 'C'			# locale for number formatting
 #lc_time = 'C'				# locale for time formatting
 
+#default_collation_provider = 'libc'	# default collation provider
+					# for CREATE COLLATION
+					# (none, icu, libc)
+
 #icu_validation_level = WARNING		# report ICU locale validation
 					# errors at the given level
 

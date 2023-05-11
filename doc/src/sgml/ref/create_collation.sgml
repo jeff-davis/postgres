@@ -121,10 +121,17 @@ CREATE COLLATION [ IF NOT EXISTS ] <replaceable>name</replaceable> FROM <replace
       <para>
        Specifies the provider to use for locale services associated with this
        collation.  Possible values are <literal>none</literal>,
-       <literal>icu</literal><indexterm><primary>ICU</primary></indexterm>
-       (if the server was built with ICU support) or <literal>libc</literal>.
-       <literal>libc</literal> is the default.  See <xref
-       linkend="locale-providers"/> for details.
+       <literal>icu</literal><indexterm><primary>ICU</primary></indexterm> (if
+       the server was built with ICU support) or <literal>libc</literal>.  See
+       <xref linkend="locale-providers"/> for details.
+      </para>
+      <para>
+       If <replaceable>provider</replaceable> is not specified, and
+       <replaceable>lc_collate</replaceable> or
+       <replaceable>lc_ctype</replaceable> is specified, the
+       <literal>libc</literal> provider is used. Otherwise, the default
+       provider is controlled by <xref
+       linkend="guc-default-collation-provider"/>.
       </para>
       <para>
        If the provider is <literal>icu</literal> and the locale is
