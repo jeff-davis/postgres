@@ -1062,7 +1062,7 @@ SELECT collname FROM pg_collation WHERE collname LIKE 'test%' ORDER BY 1;
 
 ALTER COLLATION test1 RENAME TO test11;
 ALTER COLLATION test0 RENAME TO test11; -- fail
-ERROR:  collation "test11" already exists in schema "collate_tests"
+ERROR:  collation "test11" for encoding "UTF8" already exists in schema "collate_tests"
 ALTER COLLATION test1 RENAME TO test22; -- fail
 ERROR:  collation "test1" for encoding "UTF8" does not exist
 ALTER COLLATION test11 OWNER TO regress_test_role;

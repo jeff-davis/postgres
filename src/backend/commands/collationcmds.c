@@ -302,16 +302,29 @@ DefineCollation(ParseState *pstate, List *names, List *parameters, bool if_not_e
 					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
 					 errmsg("ICU rules cannot be specified unless locale provider is ICU")));
 
+		/*
+		 * The collencoding is used to hide built-in collations that are
+		 * incompatible with the current database encoding, allowing users to
+		 * define a compatible collation with the same name if
+		 * desired. Built-in collations that work with any encoding have
+		 * collencoding=-1.
+		 *
+		 * A collation that's a match to the current database encoding will
+		 * shadow a collation with the same name and collencoding=-1. We never
+		 * want a user-created collation to be shadowed by a built-in
+		 * collation, so for user-created collations, always set collencoding
+		 * to the current database encoding.
+		 */
+		collencoding = GetDatabaseEncoding();
+
 		if (collprovider == COLLPROVIDER_ICU)
 		{
 #ifdef USE_ICU
 			/*
-			 * We could create ICU collations with collencoding == database
-			 * encoding, but it seems better to use -1 so that it matches the
-			 * way initdb would create ICU collations.  However, only allow
-			 * one to be created when the current database's encoding is
-			 * supported.  Otherwise the collation is useless, plus we get
-			 * surprising behaviors like not being able to drop the collation.
+			 * Only allow an ICU collation to be created when the current
+			 * database's encoding is supported.  Otherwise the collation is
+			 * useless, plus we get surprising behaviors like not being able
+			 * to drop the collation.
 			 *
 			 * Skip this test when !USE_ICU, because the error we want to
 			 * throw for that isn't thrown till later.
@@ -321,11 +334,10 @@ DefineCollation(ParseState *pstate, List *names, List *parameters, bool if_not_e
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("current database's encoding is not supported with this provider")));
 #endif
-			collencoding = -1;
 		}
 		else
 		{
-			collencoding = GetDatabaseEncoding();
+			Assert(collprovider == COLLPROVIDER_LIBC);
 			check_encoding_locale_matches(collencoding, collcollate, collctype);
 		}
 	}
