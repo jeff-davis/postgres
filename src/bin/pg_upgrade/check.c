@@ -26,6 +26,7 @@ static void check_for_tables_with_oids(ClusterInfo *cluster);
 static void check_for_composite_data_type_usage(ClusterInfo *cluster);
 static void check_for_reg_data_type_usage(ClusterInfo *cluster);
 static void check_for_aclitem_data_type_usage(ClusterInfo *cluster);
+static void check_icu_c_before_16(ClusterInfo *cluster);
 static void check_for_jsonb_9_4_usage(ClusterInfo *cluster);
 static void check_for_pg_role_prefix(ClusterInfo *cluster);
 static void check_for_new_tablespace_dir(ClusterInfo *new_cluster);
@@ -163,6 +164,9 @@ check_and_dump_old_cluster(bool live_check)
 	/* 9.5 and below should not have roles starting with pg_ */
 	if (GET_MAJOR_VERSION(old_cluster.major_version) <= 905)
 		check_for_pg_role_prefix(&old_cluster);
+
+	if (GET_MAJOR_VERSION(old_cluster.major_version) <= 1500)
+		check_icu_c_before_16(&old_cluster);
 
 	if (GET_MAJOR_VERSION(old_cluster.major_version) == 904 &&
 		old_cluster.controldata.cat_ver < JSONB_FORMAT_CHANGE_CAT_VER)
@@ -1231,6 +1235,99 @@ check_for_aclitem_data_type_usage(ClusterInfo *cluster)
 	}
 	else
 		check_ok();
+}
+
+/*
+ * check_icu_c_before_16
+ *
+ *  Version 16 adds support for the ICU C locale, but it was possible to
+ *  (incorrectly) create it in prior versions. Check for this invalid ICU
+ *  locale name in version 15 and earlier.
+ */
+static void
+check_icu_c_before_16(ClusterInfo *cluster)
+{
+	PGresult   *dat_res;
+	PGconn	   *template1_conn = connectToServer(cluster, "template1");
+	int			dat_ntups;
+	int			i_datname;
+	FILE	   *script = NULL;
+	char		output_path[MAXPGPATH];
+
+	prep_status("Checking for ICU collations with locale \"C\"");
+
+	snprintf(output_path, sizeof(output_path), "%s/%s",
+			 log_opts.basedir,
+			 "icu_c_before_16.txt");
+
+	/* check pg_database */
+	dat_res = executeQueryOrDie(template1_conn,
+								"SELECT datname "
+								"FROM pg_catalog.pg_database "
+								"WHERE datlocprovider='i' "
+								"AND daticulocale IN ('C','POSIX')");
+
+	i_datname = PQfnumber(dat_res, "datname");
+
+	dat_ntups = PQntuples(dat_res);
+
+	for (int rowno = 0; rowno < dat_ntups; rowno++)
+	{
+		if (script == NULL && (script = fopen_priv(output_path, "w")) == NULL)
+			pg_fatal("could not open file \"%s\": %s",
+					 output_path, strerror(errno));
+		fprintf(script, "default collation for database %s\n",
+				PQgetvalue(dat_res, rowno, i_datname));
+	}
+
+	PQclear(dat_res);
+	PQfinish(template1_conn);
+
+	/* check pg_collation in each database */
+	for (int dbnum = 0; dbnum < cluster->dbarr.ndbs; dbnum++)
+	{
+		DbInfo	   *active_db = &cluster->dbarr.dbs[dbnum];
+		PGconn	   *db_conn = connectToServer(cluster, active_db->db_name);
+		PGresult   *coll_res;
+		int			coll_ntups;
+		int			i_collid;
+		int			i_collname;
+
+		coll_res = executeQueryOrDie(db_conn,
+									 "SELECT oid as collid, collname "
+									 "FROM pg_catalog.pg_collation "
+									 "WHERE collprovider='i' "
+									 "AND colliculocale IN ('C','POSIX')");
+
+		i_collid = PQfnumber(coll_res, "collid");
+		i_collname = PQfnumber(coll_res, "collname");
+
+		coll_ntups = PQntuples(coll_res);
+
+		for (int rowno = 0; rowno < coll_ntups; rowno++)
+		{
+			if (script == NULL && (script = fopen_priv(output_path, "w")) == NULL)
+				pg_fatal("could not open file \"%s\": %s",
+						 output_path, strerror(errno));
+			fprintf(script, "database %s collation %s (oid=%s)\n",
+					active_db->db_name,
+					PQgetvalue(coll_res, rowno, i_collname),
+					PQgetvalue(coll_res, rowno, i_collid));
+		}
+
+		PQclear(coll_res);
+		PQfinish(db_conn);
+	}
+
+	if (script)
+	{
+		pg_log(PG_REPORT, "fatal");
+		pg_fatal("Your installation contains ICU collations with the locale \"C\" or \"POSIX\",\n"
+				 "which are not supported until version 16. Earlier versions using ICU \n"
+				 "collations with the \"C\" or \"POSIX\" locales cannot be upgraded.");
+	}
+
+	check_ok();
 }
 
 /*
