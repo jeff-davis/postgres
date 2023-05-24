@@ -136,9 +136,15 @@ CREATE COLLATION [ IF NOT EXISTS ] <replaceable>name</replaceable> FROM <replace
        Specifies the provider to use for locale services associated with this
        collation.  Possible values are <literal>builtin</literal>,
        <literal>icu</literal><indexterm><primary>ICU</primary></indexterm> (if
-       the server was built with ICU support) or <literal>libc</literal>.
-       <literal>libc</literal> is the default.  See <xref
-       linkend="locale-providers"/> for details.
+       the server was built with ICU support) or <literal>libc</literal>. See
+       <xref linkend="locale-providers"/> for details.
+      </para>
+      <para>
+       If <replaceable>lc_colllate</replaceable> or
+       <replaceable>lc_ctype</replaceable> is specified, the default is
+       <literal>libc</literal>; otherwise, the default is the same as the
+       provider for the database default collation (see <xref
+       linkend="sql-createdatabase"/>).
       </para>
       <para>
        If the provider is <literal>icu</literal> and the locale is
