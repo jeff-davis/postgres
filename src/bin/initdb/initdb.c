@@ -2247,24 +2247,10 @@ static char *
 icu_language_tag(const char *loc_str)
 {
 #ifdef USE_ICU
-	UErrorCode	status;
-	char		lang[ULOC_LANG_CAPACITY];
-	char	   *langtag;
-	size_t		buflen = 32;	/* arbitrary starting buffer size */
-	const bool	strict = true;
-
-	status = U_ZERO_ERROR;
-	uloc_getLanguage(loc_str, lang, ULOC_LANG_CAPACITY, &status);
-	if (U_FAILURE(status) || status == U_STRING_NOT_TERMINATED_WARNING)
-	{
-		pg_fatal("could not get language from locale \"%s\": %s",
-				 loc_str, u_errorName(status));
-		return NULL;
-	}
-
-	/* C/POSIX locales aren't handled by uloc_getLanguageTag() */
-	if (strcmp(lang, "c") == 0 || strcmp(lang, "posix") == 0)
-		return pstrdup("en-US-u-va-posix");
+	UErrorCode	 status;
+	char		*langtag;
+	size_t		 buflen = 32;	/* arbitrary starting buffer size */
+	const bool	 strict = true;
 
 	/*
 	 * A BCP47 language tag doesn't have a clearly-defined upper limit (cf.
@@ -2294,8 +2280,9 @@ icu_language_tag(const char *loc_str)
 	{
 		pg_free(langtag);
 
-		pg_fatal("could not convert locale name \"%s\" to language tag: %s",
-				 loc_str, u_errorName(status));
+		pg_log_warning("could not convert locale name \"%s\" to language tag: %s",
+					   loc_str, u_errorName(status));
+		return pstrdup(loc_str);
 	}
 
 	return langtag;
@@ -2323,15 +2310,14 @@ icu_validate_locale(const char *loc_str)
 	uloc_getLanguage(loc_str, lang, ULOC_LANG_CAPACITY, &status);
 	if (U_FAILURE(status))
 	{
-		pg_fatal("could not get language from locale \"%s\": %s",
-				 loc_str, u_errorName(status));
+		pg_log_warning("could not get language from locale \"%s\": %s",
+					   loc_str, u_errorName(status));
 		return;
 	}
 
 	/* check for special language name */
 	if (strcmp(lang, "") == 0 ||
-		strcmp(lang, "root") == 0 || strcmp(lang, "und") == 0 ||
-		strcmp(lang, "c") == 0 || strcmp(lang, "posix") == 0)
+		strcmp(lang, "root") == 0 || strcmp(lang, "und") == 0)
 		found = true;
 
 	/* search for matching language within ICU */
@@ -2350,8 +2336,8 @@ icu_validate_locale(const char *loc_str)
 	}
 
 	if (!found)
-		pg_fatal("locale \"%s\" has unknown language \"%s\"",
-				 loc_str, lang);
+		pg_log_warning("locale \"%s\" has unknown language \"%s\"",
+					   loc_str, lang);
 #else
 	pg_fatal("ICU is not supported in this build");
 #endif
@@ -2436,8 +2422,9 @@ setlocales(void)
 
 		/* canonicalize to a language tag */
 		langtag = icu_language_tag(icu_locale);
-		printf(_("Using language tag \"%s\" for ICU locale \"%s\".\n"),
-			   langtag, icu_locale);
+		if (strcmp(langtag, icu_locale) != 0)
+			printf(_("Using language tag \"%s\" for ICU locale \"%s\".\n"),
+				   langtag, icu_locale);
 		pg_free(icu_locale);
 		icu_locale = langtag;
 
