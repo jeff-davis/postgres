@@ -69,7 +69,7 @@
 #include "utils/regproc.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
-
+#include "utils/usercontext.h"
 
 /* non-export function prototypes */
 static bool CompareOpclassOptions(Datum *opts1, Datum *opts2, int natts);
@@ -1300,6 +1300,7 @@ DefineIndex(Oid relationId,
 				SetUserIdAndSecContext(childrel->rd_rel->relowner,
 									   child_save_sec_context | SECURITY_RESTRICTED_OPERATION);
 				child_save_nestlevel = NewGUCNestLevel();
+				RestrictSearchPath(child_save_userid, childrel->rd_rel->relowner);
 
 				/*
 				 * Don't try to create indexes on foreign tables, though. Skip
@@ -3750,6 +3751,7 @@ ReindexRelationConcurrently(Oid relationOid, ReindexParams *params)
 		SetUserIdAndSecContext(heapRel->rd_rel->relowner,
 							   save_sec_context | SECURITY_RESTRICTED_OPERATION);
 		save_nestlevel = NewGUCNestLevel();
+		RestrictSearchPath(save_userid, heapRel->rd_rel->relowner);
 
 		/* determine safety of this index for set_indexsafe_procflags */
 		idx->safe = (indexRel->rd_indexprs == NIL &&

@@ -90,3 +90,20 @@ RestoreUserContext(UserContext *context)
 		AtEOXact_GUC(false, context->save_nestlevel);
 	SetUserIdAndSecContext(context->save_userid, context->save_sec_context);
 }
+
+/*
+ * When potentially executing code on an object with the given owner, if
+ * userid does not have owner privileges, set a restricted safe search_path.
+ *
+ * Note: the caller is expected to save and restore the GUC nest level as
+ * necessary.
+ */
+void
+RestrictSearchPath(Oid userid, Oid owner)
+{
+	if (has_privs_of_role(userid, owner))
+		return;
+
+	SetConfigOption("search_path", GUC_SAFE_SEARCH_PATH, PGC_USERSET,
+					PGC_S_SESSION);
+}

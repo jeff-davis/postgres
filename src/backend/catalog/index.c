@@ -84,6 +84,7 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tuplesort.h"
+#include "utils/usercontext.h"
 
 /* Potentially set by pg_upgrade_support functions */
 Oid			binary_upgrade_next_index_pg_class_oid = InvalidOid;
@@ -1475,6 +1476,7 @@ index_concurrently_build(Oid heapRelationId,
 	SetUserIdAndSecContext(heapRel->rd_rel->relowner,
 						   save_sec_context | SECURITY_RESTRICTED_OPERATION);
 	save_nestlevel = NewGUCNestLevel();
+	RestrictSearchPath(save_userid, heapRel->rd_rel->relowner);
 
 	indexRelation = index_open(indexRelationId, RowExclusiveLock);
 
@@ -3006,6 +3008,7 @@ index_build(Relation heapRelation,
 	SetUserIdAndSecContext(heapRelation->rd_rel->relowner,
 						   save_sec_context | SECURITY_RESTRICTED_OPERATION);
 	save_nestlevel = NewGUCNestLevel();
+	RestrictSearchPath(save_userid, heapRelation->rd_rel->relowner);
 
 	/* Set up initial progress report status */
 	{
@@ -3341,6 +3344,7 @@ validate_index(Oid heapId, Oid indexId, Snapshot snapshot)
 	SetUserIdAndSecContext(heapRelation->rd_rel->relowner,
 						   save_sec_context | SECURITY_RESTRICTED_OPERATION);
 	save_nestlevel = NewGUCNestLevel();
+	RestrictSearchPath(save_userid, heapRelation->rd_rel->relowner);
 
 	indexRelation = index_open(indexId, RowExclusiveLock);
 
@@ -3601,6 +3605,7 @@ reindex_index(Oid indexId, bool skip_constraint_checks, char persistence,
 	SetUserIdAndSecContext(heapRelation->rd_rel->relowner,
 						   save_sec_context | SECURITY_RESTRICTED_OPERATION);
 	save_nestlevel = NewGUCNestLevel();
+	RestrictSearchPath(save_userid, heapRelation->rd_rel->relowner);
 
 	if (progress)
 	{

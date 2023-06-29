@@ -59,6 +59,7 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tuplesort.h"
+#include "utils/usercontext.h"
 
 /*
  * This struct is used to pass around the information on tables to be
@@ -355,7 +356,7 @@ cluster_rel(Oid tableOid, Oid indexOid, ClusterParams *params)
 	SetUserIdAndSecContext(OldHeap->rd_rel->relowner,
 						   save_sec_context | SECURITY_RESTRICTED_OPERATION);
 	save_nestlevel = NewGUCNestLevel();
-
+	RestrictSearchPath(save_userid, OldHeap->rd_rel->relowner);
 	/*
 	 * Since we may open a new transaction for each relation, we have to check
 	 * that the relation still is what we think it is.
