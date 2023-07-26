@@ -249,12 +249,6 @@ NOTICE:  in process utility: superuser attempting SET
 NOTICE:  in object_access_hook_str: non-superuser attempting alter (subId=0x1000, set) [session_authorization]
 ERROR:  permission denied: set session_authorization
 SELECT * FROM regress_test_table;
-NOTICE:  in object access: superuser attempting namespace search (subId=0x0) [no report on violation, allowed]
-LINE 1: SELECT * FROM regress_test_table;
-                      ^
-NOTICE:  in object access: superuser finished namespace search (subId=0x0) [no report on violation, allowed]
-LINE 1: SELECT * FROM regress_test_table;
-                      ^
 NOTICE:  in executor check perms: superuser attempting execute
 NOTICE:  in executor check perms: superuser finished execute
  t 
