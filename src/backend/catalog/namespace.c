@@ -41,6 +41,7 @@
 #include "catalog/pg_ts_template.h"
 #include "catalog/pg_type.h"
 #include "commands/dbcommands.h"
+#include "common/hashfn.h"
 #include "funcapi.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
@@ -109,11 +110,12 @@
  * activeSearchPath is always the actually active path; it points to
  * to baseSearchPath which is the list derived from namespace_search_path.
  *
- * If baseSearchPathValid is false, then baseSearchPath (and other
- * derived variables) need to be recomputed from namespace_search_path.
- * We mark it invalid upon an assignment to namespace_search_path or receipt
- * of a syscache invalidation event for pg_namespace.  The recomputation
- * is done during the next lookup attempt.
+ * If baseSearchPathValid is false, then baseSearchPath (and other derived
+ * variables) need to be recomputed from namespace_search_path, or retrieved
+ * from the search path cache if there haven't been any syscache
+ * invalidations.  We mark it invalid upon an assignment to
+ * namespace_search_path or receipt of a syscache invalidation event for
+ * pg_namespace.  The recomputation is done during the next lookup attempt.
  *
  * Any namespaces mentioned in namespace_search_path that are not readable
  * by the current user ID are simply left out of baseSearchPath; so
@@ -153,6 +155,22 @@ static Oid	namespaceUser = InvalidOid;
 
 /* The above four values are valid only if baseSearchPathValid */
 static bool baseSearchPathValid = true;
+static bool searchPathCacheValid = false;
+static MemoryContext SearchPathCacheContext = NULL;
+
+typedef struct SearchPathCacheKey
+{
+	const char	*searchPath;
+	Oid			 roleid;
+} SearchPathCacheKey;
+
+typedef struct SearchPathCacheEntry
+{
+	SearchPathCacheKey	*key;
+	List				*oidlist;
+	bool				 temp_missing;
+	char				 status;
+} SearchPathCacheEntry;
 
 /*
  * myTempNamespace is InvalidOid until and unless a TEMP namespace is set up
@@ -193,6 +211,44 @@ static bool MatchNamedCall(HeapTuple proctup, int nargs, List *argnames,
 						   bool include_out_arguments, int pronargs,
 						   int **argnumbers);
 
+/*
+ * Recomputing the namespace path can be costly when done frequently, such as
+ * when a function has search_path set in proconfig. Add a cache that can be
+ * used when the search_path changes to a value that was previously set, and
+ * no invalidation intervened.
+ *
+ * The cache is a simple hash table in its own memory context, with a key of
+ * search_path and role ID.
+ */
+
+static inline uint32
+nspcachekey_hash(SearchPathCacheKey *key)
+{
+	const unsigned char	*bytes = (const unsigned char *)key->searchPath;
+	int					 blen  = strlen(key->searchPath);
+
+	return hash_bytes(bytes, blen) ^ hash_uint32(key->roleid);
+}
+
+static inline bool
+nspcachekey_equal(SearchPathCacheKey *a, SearchPathCacheKey *b)
+{
+	return a->roleid == b->roleid &&
+		strcmp(a->searchPath, b->searchPath) == 0;
+}
+
+#define SH_PREFIX		nsphash
+#define SH_ELEMENT_TYPE	SearchPathCacheEntry
+#define SH_KEY_TYPE		SearchPathCacheKey *
+#define	SH_KEY			key
+#define SH_HASH_KEY(tb, key)   	nspcachekey_hash(key)
+#define SH_EQUAL(tb, a, b)		nspcachekey_equal(a, b)
+#define	SH_SCOPE		static inline
+#define SH_DECLARE
+#define SH_DEFINE
+#include "lib/simplehash.h"
+
+static nsphash_hash *SearchPathCache = NULL;
 
 /*
  * RangeVarGetRelidExtended
@@ -3370,6 +3426,7 @@ SetTempNamespaceState(Oid tempNamespaceId, Oid tempToastNamespaceId)
 	 */
 
 	baseSearchPathValid = false;	/* may need to rebuild list */
+	searchPathCacheValid = false;
 }
 
 
@@ -3633,28 +3690,19 @@ FindDefaultConversionProc(int32 for_encoding, int32 to_encoding)
 }
 
 /*
- * recomputeNamespacePath - recompute path derived variables if needed.
+ * Look up namespace IDs and perform ACL checks. Return newly-allocated list.
  */
-static void
-recomputeNamespacePath(void)
+static List *
+preprocessNamespacePath(const char *searchPath, Oid roleid,
+						bool *temp_missing)
 {
-	Oid			roleid = GetUserId();
 	char	   *rawname;
 	List	   *namelist;
 	List	   *oidlist;
-	List	   *newpath;
 	ListCell   *l;
-	bool		temp_missing;
-	Oid			firstNS;
-	bool		pathChanged;
-	MemoryContext oldcxt;
 
-	/* Do nothing if path is already valid. */
-	if (baseSearchPathValid && namespaceUser == roleid)
-		return;
-
-	/* Need a modifiable copy of namespace_search_path string */
-	rawname = pstrdup(namespace_search_path);
+	/* Need a modifiable copy */
+	rawname = pstrdup(searchPath);
 
 	/* Parse string into list of identifiers */
 	if (!SplitIdentifierString(rawname, ',', &namelist))
@@ -3671,7 +3719,7 @@ recomputeNamespacePath(void)
 	 * already been accepted.)	Don't make duplicate entries, either.
 	 */
 	oidlist = NIL;
-	temp_missing = false;
+	*temp_missing = false;
 	foreach(l, namelist)
 	{
 		char	   *curname = (char *) lfirst(l);
@@ -3691,10 +3739,8 @@ recomputeNamespacePath(void)
 				namespaceId = get_namespace_oid(rname, true);
 				ReleaseSysCache(tuple);
 				if (OidIsValid(namespaceId) &&
-					!list_member_oid(oidlist, namespaceId) &&
 					object_aclcheck(NamespaceRelationId, namespaceId, roleid,
-									ACL_USAGE) == ACLCHECK_OK &&
-					InvokeNamespaceSearchHook(namespaceId, false))
+									ACL_USAGE) == ACLCHECK_OK)
 					oidlist = lappend_oid(oidlist, namespaceId);
 			}
 		}
@@ -3702,16 +3748,12 @@ recomputeNamespacePath(void)
 		{
 			/* pg_temp --- substitute temp namespace, if any */
 			if (OidIsValid(myTempNamespace))
-			{
-				if (!list_member_oid(oidlist, myTempNamespace) &&
-					InvokeNamespaceSearchHook(myTempNamespace, false))
-					oidlist = lappend_oid(oidlist, myTempNamespace);
-			}
+				oidlist = lappend_oid(oidlist, myTempNamespace);
 			else
 			{
 				/* If it ought to be the creation namespace, set flag */
 				if (oidlist == NIL)
-					temp_missing = true;
+					*temp_missing = true;
 			}
 		}
 		else
@@ -3719,12 +3761,41 @@ recomputeNamespacePath(void)
 			/* normal namespace reference */
 			namespaceId = get_namespace_oid(curname, true);
 			if (OidIsValid(namespaceId) &&
-				!list_member_oid(oidlist, namespaceId) &&
 				object_aclcheck(NamespaceRelationId, namespaceId, roleid,
-								ACL_USAGE) == ACLCHECK_OK &&
-				InvokeNamespaceSearchHook(namespaceId, false))
+								ACL_USAGE) == ACLCHECK_OK)
 				oidlist = lappend_oid(oidlist, namespaceId);
 		}
+	}
+
+	pfree(rawname);
+	list_free(namelist);
+
+	return oidlist;
+}
+
+/*
+ * Remove duplicates, run namespace search hooks, and prepend
+ * implicitly-searched namespaces. Return newly-allocated list.
+ *
+ * All of this must happen after retrieving from cache, because we don't know
+ * what might invalidate the result from the last time the hook was
+ * invoked. It may seem that duplicate elimination is not dependent on the
+ * result of the hook, but if a hook returns different results on different
+ * calls for the same namespace ID, then it could affect the order in which
+ * that namespace appears in the final list.
+ */
+static List *
+finalNamespacePath(List *oidlist, Oid *firstNS)
+{
+	List		*finalPath = NIL;
+	ListCell	*lc;
+
+	foreach(lc, oidlist)
+	{
+		Oid namespaceId = lfirst_oid(lc);
+		if (!list_member_oid(finalPath, namespaceId) &&
+			InvokeNamespaceSearchHook(namespaceId, false))
+			finalPath = lappend_oid(finalPath, namespaceId);
 	}
 
 	/*
@@ -3732,49 +3803,123 @@ recomputeNamespacePath(void)
 	 * nominally wrong if temp_missing, but we need it anyway to distinguish
 	 * explicit from implicit mention of pg_catalog.)
 	 */
-	if (oidlist == NIL)
-		firstNS = InvalidOid;
+	if (finalPath == NIL)
+		*firstNS = InvalidOid;
 	else
-		firstNS = linitial_oid(oidlist);
+		*firstNS = linitial_oid(finalPath);
 
 	/*
 	 * Add any implicitly-searched namespaces to the list.  Note these go on
 	 * the front, not the back; also notice that we do not check USAGE
 	 * permissions for these.
 	 */
-	if (!list_member_oid(oidlist, PG_CATALOG_NAMESPACE))
-		oidlist = lcons_oid(PG_CATALOG_NAMESPACE, oidlist);
+	if (!list_member_oid(finalPath, PG_CATALOG_NAMESPACE))
+		finalPath = lcons_oid(PG_CATALOG_NAMESPACE, finalPath);
 
 	if (OidIsValid(myTempNamespace) &&
-		!list_member_oid(oidlist, myTempNamespace))
-		oidlist = lcons_oid(myTempNamespace, oidlist);
+		!list_member_oid(finalPath, myTempNamespace))
+		finalPath = lcons_oid(myTempNamespace, finalPath);
 
-	/*
-	 * We want to detect the case where the effective value of the base search
-	 * path variables didn't change.  As long as we're doing so, we can avoid
-	 * copying the OID list unnecessarily.
-	 */
+	return finalPath;
+}
+
+/*
+ * Retrieve search path information from the cache; or if not present,
+ * preprocess it and add it to the cache. Return OID list allocated in
+ * SearchPathCacheContext; caller should not free.
+ */
+static List *
+cachedNamespacePath(const char *searchPath, Oid roleid,
+					bool *temp_missing)
+{
+	SearchPathCacheKey		 cachekey;
+	SearchPathCacheEntry	*entry;
+	bool					 found;
+
+	/* clear the cache and start over when invalidated */
+	if (!searchPathCacheValid)
+	{
+		MemoryContextReset(SearchPathCacheContext);
+		/* arbitrary initial starting size of 16 elements */
+		SearchPathCache = nsphash_create(SearchPathCacheContext, 16, NULL);
+		searchPathCacheValid = true;
+	}
+
+	cachekey.searchPath = searchPath;
+	cachekey.roleid = roleid;
+
+	entry = nsphash_insert(SearchPathCache, &cachekey, &found);
+
+	if (!found)
+	{
+		MemoryContext		 oldcxt;
+		SearchPathCacheKey	*newkey;
+		List				*oidlist;
+
+		oidlist = preprocessNamespacePath(searchPath, roleid,
+										  &entry->temp_missing);
+
+		oldcxt = MemoryContextSwitchTo(SearchPathCacheContext);
+
+		newkey = palloc(sizeof(SearchPathCacheKey));
+		newkey->searchPath = pstrdup(searchPath);
+		newkey->roleid = roleid;
+
+		entry->key = newkey;
+		entry->oidlist = list_copy(oidlist);
+
+		MemoryContextSwitchTo(oldcxt);
+
+		/* oidlist already copied into cache entry */
+		list_free(oidlist);
+	}
+
+	*temp_missing = entry->temp_missing;
+	return entry->oidlist;
+}
+
+/*
+ * recomputeNamespacePath - recompute path derived variables if needed.
+ */
+static void
+recomputeNamespacePath(void)
+{
+	Oid			roleid = GetUserId();
+	List	   *oidlist;
+	Oid			firstNS;
+	bool		temp_missing;
+	bool		pathChanged;
+	List	   *finalPath;
+	MemoryContext	oldcxt;
+
+	/* Do nothing if path is already valid. */
+	if (baseSearchPathValid && namespaceUser == roleid)
+		return;
+
+	oidlist = cachedNamespacePath(namespace_search_path, roleid,
+								  &temp_missing);
+
+	/* Must save OID list in permanent storage. */
+	oldcxt = MemoryContextSwitchTo(TopMemoryContext);
+	finalPath = finalNamespacePath(oidlist, &firstNS);
+	MemoryContextSwitchTo(oldcxt);
+
 	if (baseCreationNamespace == firstNS &&
 		baseTempCreationPending == temp_missing &&
-		equal(oidlist, baseSearchPath))
+		equal(finalPath, baseSearchPath))
 	{
 		pathChanged = false;
 	}
 	else
 	{
 		pathChanged = true;
-
-		/* Must save OID list in permanent storage. */
-		oldcxt = MemoryContextSwitchTo(TopMemoryContext);
-		newpath = list_copy(oidlist);
-		MemoryContextSwitchTo(oldcxt);
-
-		/* Now safe to assign to state variables. */
-		list_free(baseSearchPath);
-		baseSearchPath = newpath;
-		baseCreationNamespace = firstNS;
-		baseTempCreationPending = temp_missing;
 	}
+
+	/* Now safe to assign to state variables. */
+	list_free(baseSearchPath);
+	baseSearchPath = finalPath;
+	baseCreationNamespace = firstNS;
+	baseTempCreationPending = temp_missing;
 
 	/* Mark the path valid. */
 	baseSearchPathValid = true;
@@ -3791,11 +3936,6 @@ recomputeNamespacePath(void)
 	 */
 	if (pathChanged)
 		activePathGeneration++;
-
-	/* Clean up. */
-	pfree(rawname);
-	list_free(namelist);
-	list_free(oidlist);
 }
 
 /*
@@ -3950,6 +4090,7 @@ InitTempTableNamespace(void)
 	myTempNamespaceSubID = GetCurrentSubTransactionId();
 
 	baseSearchPathValid = false;	/* need to rebuild list */
+	searchPathCacheValid = false;
 }
 
 /*
@@ -3975,6 +4116,7 @@ AtEOXact_Namespace(bool isCommit, bool parallel)
 			myTempNamespace = InvalidOid;
 			myTempToastNamespace = InvalidOid;
 			baseSearchPathValid = false;	/* need to rebuild list */
+			searchPathCacheValid = false;
 
 			/*
 			 * Reset the temporary namespace flag in MyProc.  We assume that
@@ -4016,6 +4158,7 @@ AtEOSubXact_Namespace(bool isCommit, SubTransactionId mySubid,
 			myTempNamespace = InvalidOid;
 			myTempToastNamespace = InvalidOid;
 			baseSearchPathValid = false;	/* need to rebuild list */
+			searchPathCacheValid = false;
 
 			/*
 			 * Reset the temporary namespace flag in MyProc.  We assume that
@@ -4130,6 +4273,10 @@ assign_search_path(const char *newval, void *extra)
 	 * We mark the path as needing recomputation, but don't do anything until
 	 * it's needed.  This avoids trying to do database access during GUC
 	 * initialization, or outside a transaction.
+	 *
+	 * This does not invalidate the search path cache, so if this value had
+	 * been previously set and no syscache invalidations happened,
+	 * recomputation may not be necessary.
 	 */
 	baseSearchPathValid = false;
 }
@@ -4164,6 +4311,9 @@ InitializeSearchPath(void)
 	}
 	else
 	{
+		SearchPathCacheContext = AllocSetContextCreate(TopMemoryContext,
+													   "search_path processing cache",
+													   ALLOCSET_DEFAULT_SIZES);
 		/*
 		 * In normal mode, arrange for a callback on any syscache invalidation
 		 * of pg_namespace rows.
@@ -4173,6 +4323,7 @@ InitializeSearchPath(void)
 									  (Datum) 0);
 		/* Force search path to be recomputed on next use */
 		baseSearchPathValid = false;
+		searchPathCacheValid = false;
 	}
 }
 
@@ -4183,8 +4334,13 @@ InitializeSearchPath(void)
 static void
 NamespaceCallback(Datum arg, int cacheid, uint32 hashvalue)
 {
-	/* Force search path to be recomputed on next use */
+	/*
+	 * Force search path to be recomputed on next use, also invalidating the
+	 * search path cache (because namespace names, ACLs, or role names may
+	 * have changed).
+	 */
 	baseSearchPathValid = false;
+	searchPathCacheValid = false;
 }
 
 /*
