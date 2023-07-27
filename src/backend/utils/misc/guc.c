@@ -6213,17 +6213,15 @@ ParseLongOption(const char *string, char **name, char **value)
 			*cp = '_';
 }
 
-
 /*
- * Handle options fetched from pg_db_role_setting.setconfig,
- * pg_proc.proconfig, etc.  Caller must specify proper context/source/action.
- *
- * The array parameter must be an array of TEXT (it must not be NULL).
+ * Transform array of GUC settings into a list of (name, value) pairs. The
+ * list is faster to process in cases where the settings must be applied
+ * repeatedly (e.g. for each function invocation).
  */
-void
-ProcessGUCArray(ArrayType *array,
-				GucContext context, GucSource source, GucAction action)
+List *
+TransformGUCArray(ArrayType *array)
 {
+	List	   *result = NIL;
 	int			i;
 
 	Assert(array != NULL);
@@ -6238,6 +6236,7 @@ ProcessGUCArray(ArrayType *array,
 		char	   *s;
 		char	   *name;
 		char	   *value;
+		List	   *pair;
 
 		d = array_ref(array, 1, &i,
 					  -1 /* varlenarray */ ,
@@ -6262,14 +6261,46 @@ ProcessGUCArray(ArrayType *array,
 			continue;
 		}
 
+		pair = list_make2(pstrdup(name), pstrdup(value));
+		result = lappend(result, pair);
+
+		pfree(name);
+		pfree(value);
+		pfree(s);
+	}
+
+	return result;
+}
+
+/*
+ * Handle options fetched from pg_db_role_setting.setconfig,
+ * pg_proc.proconfig, etc.  Caller must specify proper context/source/action.
+ *
+ * The array parameter must be an array of TEXT (it must not be NULL).
+ */
+void
+ProcessGUCArray(ArrayType *array,
+				GucContext context, GucSource source, GucAction action)
+{
+	List *gucList = TransformGUCArray(array);
+	ListCell *lc;
+
+	foreach(lc, gucList)
+	{
+		List *pair = lfirst(lc);
+		char *name = linitial(pair);
+		char *value = lsecond(pair);
+
 		(void) set_config_option(name, value,
 								 context, source,
 								 action, true, 0, false);
 
 		pfree(name);
 		pfree(value);
-		pfree(s);
+		list_free(pair);
 	}
+
+	list_free(gucList);
 }
 
 
