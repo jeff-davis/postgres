@@ -4101,19 +4101,13 @@ ResetTempTableNamespace(void)
 bool
 check_search_path(char **newval, void **extra, GucSource source)
 {
-	char	   *rawname;
-	List	   *namelist;
-
-	/* Need a modifiable copy of string */
-	rawname = pstrdup(*newval);
+	char *rawname = *newval;
 
 	/* Parse string into list of identifiers */
-	if (!SplitIdentifierString(rawname, ',', &namelist))
+	if (!CheckIdentifierString(rawname, ','))
 	{
 		/* syntax error in name list */
 		GUC_check_errdetail("List syntax is invalid.");
-		pfree(rawname);
-		list_free(namelist);
 		return false;
 	}
 
@@ -4124,9 +4118,6 @@ check_search_path(char **newval, void **extra, GucSource source)
 	 * here and so can't consult the system catalogs anyway.  So now, the only
 	 * requirement is syntactic validity of the identifier list.
 	 */
-
-	pfree(rawname);
-	list_free(namelist);
 
 	return true;
 }
