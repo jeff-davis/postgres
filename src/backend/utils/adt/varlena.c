@@ -3428,6 +3428,76 @@ textToQualifiedNameList(text *textval)
 }
 
 /*
+ * Check that an identifier list is syntactically valid; that is, that there
+ * are no mismatched quotes and that identifiers are separated with the given
+ * separator. Empty identifiers are considered acceptable if (and only if)
+ * quoted.
+ *
+ * Note that an empty string is considered okay here, though not in
+ * textToQualifiedNameList.
+ */
+bool
+CheckIdentifierString(const char *rawstring, char separator)
+{
+	const char *nextp = rawstring;
+	bool		done = false;
+
+	while (scanner_isspace(*nextp))
+		nextp++;				/* skip leading whitespace */
+
+	if (*nextp == '\0')
+		return true;			/* allow empty string */
+
+	/* At the top of the loop, we are at start of a new identifier. */
+	do
+	{
+		if (*nextp == '"')
+		{
+			for (;;)
+			{
+				nextp = strchr(nextp + 1, '"');
+				if (nextp == NULL)
+					return false;	/* mismatched quotes */
+				if (nextp[1] != '"')
+					break;		/* found end of quoted name */
+				nextp++;
+			}
+
+			nextp++;
+		}
+		else
+		{
+			/* Unquoted name --- extends to separator or whitespace */
+			const char *curname = nextp;
+			while (*nextp && *nextp != separator &&
+				   !scanner_isspace(*nextp))
+				nextp++;
+			if (curname == nextp)
+				return false;	/* empty unquoted name not allowed */
+		}
+
+		while (scanner_isspace(*nextp))
+			nextp++;			/* skip trailing whitespace */
+
+		if (*nextp == separator)
+		{
+			nextp++;
+			while (scanner_isspace(*nextp))
+				nextp++;		/* skip leading whitespace for next */
+			/* we expect another name, so done remains false */
+		}
+		else if (*nextp == '\0')
+			done = true;
+		else
+			return false;		/* invalid syntax */
+
+		/* Loop back if we didn't reach end of string */
+	} while (!done);
+
+	return true;
+}
+
+/*
  * SplitIdentifierString --- parse a string containing identifiers
  *
  * This is the guts of textToQualifiedNameList, and is exported for use in
