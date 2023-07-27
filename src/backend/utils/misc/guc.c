@@ -6213,6 +6213,64 @@ ParseLongOption(const char *string, char **name, char **value)
 			*cp = '_';
 }
 
+/*
+ * Transform array of GUC settings into a list of (name, value) pairs. The
+ * list is faster to process in cases where the settings must be applied
+ * repeatedly (e.g. for each function invocation).
+ */
+List *
+TransformGUCArray(ArrayType *array)
+{
+	List	   *result = NIL;
+	int			i;
+
+	Assert(array != NULL);
+	Assert(ARR_ELEMTYPE(array) == TEXTOID);
+	Assert(ARR_NDIM(array) == 1);
+	Assert(ARR_LBOUND(array)[0] == 1);
+
+	for (i = 1; i <= ARR_DIMS(array)[0]; i++)
+	{
+		Datum		d;
+		bool		isnull;
+		char	   *s;
+		char	   *name;
+		char	   *value;
+		List	   *pair;
+
+		d = array_ref(array, 1, &i,
+					  -1 /* varlenarray */ ,
+					  -1 /* TEXT's typlen */ ,
+					  false /* TEXT's typbyval */ ,
+					  TYPALIGN_INT /* TEXT's typalign */ ,
+					  &isnull);
+
+		if (isnull)
+			continue;
+
+		s = TextDatumGetCString(d);
+
+		ParseLongOption(s, &name, &value);
+		if (!value)
+		{
+			ereport(WARNING,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("could not parse setting for parameter \"%s\"",
+							name)));
+			pfree(name);
+			continue;
+		}
+
+		pair = list_make2(pstrdup(name), pstrdup(value));
+		result = lappend(result, pair);
+
+		pfree(name);
+		pfree(value);
+		pfree(s);
+	}
+
+	return result;
+}
 
 /*
  * Handle options fetched from pg_db_role_setting.setconfig,
