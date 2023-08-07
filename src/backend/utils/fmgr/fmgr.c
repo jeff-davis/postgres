@@ -703,9 +703,12 @@ fmgr_security_definer(PG_FUNCTION_ARGS)
 		char		*name	 = lfirst(lc1);
 		char		*value	 = lfirst(lc2);
 
-		(void) set_config_option(name, value,
-								 context, source,
-								 action, true, 0, false);
+		if (!strcmp(name, "search_path"))
+			fast_set_search_path(value);
+		else
+			(void) set_config_option(name, value,
+									 context, source,
+									 action, true, 0, false);
 	}
 
 	/* function manager hook */

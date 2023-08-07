@@ -387,6 +387,7 @@ extern int	set_config_option_ext(const char *name, const char *value,
 								  Oid srole,
 								  GucAction action, bool changeVal, int elevel,
 								  bool is_reload);
+extern void fast_set_search_path(const char *searchPath);
 extern void AlterSystemSetConfigFile(AlterSystemStmt *altersysstmt);
 extern char *GetConfigOptionByName(const char *name, const char **varname,
 								   bool missing_ok);

@@ -46,6 +46,7 @@
 #include "utils/builtins.h"
 #include "utils/conffiles.h"
 #include "utils/float.h"
+#include "utils/guc_hooks.h"
 #include "utils/guc_tables.h"
 #include "utils/memutils.h"
 #include "utils/timestamp.h"
@@ -225,6 +226,7 @@ static bool reporting_enabled;	/* true to enable GUC_REPORT */
 
 static int	GUCNestLevel = 0;	/* 1 when in main transaction */
 
+struct config_string *search_path_conf = NULL;
 
 static int	guc_var_compare(const void *a, const void *b);
 static uint32 guc_name_hash(const void *key, Size keysize);
@@ -4133,6 +4135,67 @@ set_config_option_ext(const char *name, const char *value,
 	}
 
 	return changeVal ? 1 : -1;
+}
+
+/*
+ * optimized version of:
+ *   set_config_option("search_path", searchPath,
+ *                     superuser() ? PGC_SUSET : PGC_USERSET,
+                       PGC_S_SESSION, GUC_ACTION_SAVE, true, 0, false);
+ *                     
+ */
+void
+fast_set_search_path(const char *searchPath)
+{
+	char		*newval	  = guc_strdup(ERROR, searchPath);
+	void		*newextra = NULL;
+	Oid			 srole	  = GetUserId();
+	GucContext	 context  = superuser() ? PGC_SUSET : PGC_USERSET;
+	GucSource    source	  = PGC_S_SESSION;
+
+	if (search_path_conf == NULL)
+	{
+		struct config_generic *record;
+		record = find_option("search_path", true, false, ERROR);
+		Assert(record != NULL);
+		search_path_conf = (struct config_string *) record;
+	}
+
+	/* Reset variables that might be set by hook */
+	GUC_check_errcode_value = ERRCODE_INVALID_PARAMETER_VALUE;
+	GUC_check_errmsg_string = NULL;
+	GUC_check_errdetail_string = NULL;
+	GUC_check_errhint_string = NULL;
+
+	if (!check_search_path(&newval, NULL, source))
+	{
+		guc_free(newval);
+		ereport(ERROR,
+				(errcode(GUC_check_errcode_value),
+				 GUC_check_errmsg_string ?
+				 errmsg_internal("%s", GUC_check_errmsg_string) :
+				 errmsg("invalid value for parameter \"%s\": \"%s\"",
+						search_path_conf->gen.name, newval ? newval : ""),
+				 GUC_check_errdetail_string ?
+				 errdetail_internal("%s", GUC_check_errdetail_string) : 0,
+				 GUC_check_errhint_string ?
+				 errhint("%s", GUC_check_errhint_string) : 0));
+	}
+
+	assign_search_path(newval, newextra);
+	set_string_field(search_path_conf, search_path_conf->variable, newval);
+	set_extra_field(&search_path_conf->gen, &search_path_conf->gen.extra,
+					newextra);
+	set_guc_source(&search_path_conf->gen, source);
+	search_path_conf->gen.scontext = context;
+	search_path_conf->gen.srole = srole;
+
+	/* Perhaps we didn't install newval anywhere */
+	if (newval && !string_field_used(search_path_conf, newval))
+		guc_free(newval);
+	/* Perhaps we didn't install newextra anywhere */
+	if (newextra && !extra_field_used(&search_path_conf->gen, newextra))
+		guc_free(newextra);
 }
 
 
