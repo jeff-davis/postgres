@@ -1,19 +1,13 @@
-Parsed test spec with 3 sessions
+Parsed test spec with 2 sessions
 
-starting permutation: s1a s2a s1a s2b
+starting permutation: s1a s2a s2b s2c s2d
 step s1a: 
     SELECT CURRENT_USER;
-    SHOW search_path;
     SELECT t FROM x;
 
 current_user    
 ----------------
 regress_sp_user1
-(1 row)
-
-search_path               
---------------------------
-"$user", regress_sp_public
 (1 row)
 
 t                         
@@ -24,19 +18,27 @@ data in regress_sp_user1.x
 step s2a: 
     ALTER ROLE regress_sp_user1 RENAME TO regress_sp_user2;
 
+step s2b: 
+    ALTER ROLE regress_sp_user2 RENAME TO regress_sp_user1;
+
+step s2c: 
+    ALTER SCHEMA regress_sp_user1 RENAME TO regress_sp_user2;
+
+step s2d: 
+    ALTER SCHEMA regress_sp_user2 RENAME TO regress_sp_user1;
+
+
+starting permutation: s2a s1a s2b s2c s2d
+step s2a: 
+    ALTER ROLE regress_sp_user1 RENAME TO regress_sp_user2;
+
 step s1a: 
     SELECT CURRENT_USER;
-    SHOW search_path;
     SELECT t FROM x;
 
 current_user    
 ----------------
 regress_sp_user2
-(1 row)
-
-search_path               
---------------------------
-"$user", regress_sp_public
 (1 row)
 
 t                          
@@ -47,21 +49,27 @@ data in regress_sp_public.x
 step s2b: 
     ALTER ROLE regress_sp_user2 RENAME TO regress_sp_user1;
 
+step s2c: 
+    ALTER SCHEMA regress_sp_user1 RENAME TO regress_sp_user2;
 
-starting permutation: s1a s3a s1a s3b
+step s2d: 
+    ALTER SCHEMA regress_sp_user2 RENAME TO regress_sp_user1;
+
+
+starting permutation: s2a s2b s1a s2c s2d
+step s2a: 
+    ALTER ROLE regress_sp_user1 RENAME TO regress_sp_user2;
+
+step s2b: 
+    ALTER ROLE regress_sp_user2 RENAME TO regress_sp_user1;
+
 step s1a: 
     SELECT CURRENT_USER;
-    SHOW search_path;
     SELECT t FROM x;
 
 current_user    
 ----------------
 regress_sp_user1
-(1 row)
-
-search_path               
---------------------------
-"$user", regress_sp_public
 (1 row)
 
 t                         
@@ -69,12 +77,25 @@ t
 data in regress_sp_user1.x
 (1 row)
 
-step s3a: 
+step s2c: 
+    ALTER SCHEMA regress_sp_user1 RENAME TO regress_sp_user2;
+
+step s2d: 
+    ALTER SCHEMA regress_sp_user2 RENAME TO regress_sp_user1;
+
+
+starting permutation: s2a s2b s2c s1a s2d
+step s2a: 
+    ALTER ROLE regress_sp_user1 RENAME TO regress_sp_user2;
+
+step s2b: 
+    ALTER ROLE regress_sp_user2 RENAME TO regress_sp_user1;
+
+step s2c: 
     ALTER SCHEMA regress_sp_user1 RENAME TO regress_sp_user2;
 
 step s1a: 
     SELECT CURRENT_USER;
-    SHOW search_path;
     SELECT t FROM x;
 
 current_user    
@@ -82,16 +103,39 @@ current_user
 regress_sp_user1
 (1 row)
 
-search_path               
---------------------------
-"$user", regress_sp_public
-(1 row)
-
 t                          
 ---------------------------
 data in regress_sp_public.x
 (1 row)
 
-step s3b: 
+step s2d: 
     ALTER SCHEMA regress_sp_user2 RENAME TO regress_sp_user1;
+
+
+starting permutation: s2a s2b s2c s2d s1a
+step s2a: 
+    ALTER ROLE regress_sp_user1 RENAME TO regress_sp_user2;
+
+step s2b: 
+    ALTER ROLE regress_sp_user2 RENAME TO regress_sp_user1;
+
+step s2c: 
+    ALTER SCHEMA regress_sp_user1 RENAME TO regress_sp_user2;
+
+step s2d: 
+    ALTER SCHEMA regress_sp_user2 RENAME TO regress_sp_user1;
+
+step s1a: 
+    SELECT CURRENT_USER;
+    SELECT t FROM x;
+
+current_user    
+----------------
+regress_sp_user1
+(1 row)
+
+t                         
+--------------------------
+data in regress_sp_user1.x
+(1 row)
 
