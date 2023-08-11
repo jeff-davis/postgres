@@ -61,6 +61,41 @@ SELECT proname, provolatile FROM pg_proc
 		     'functest_B_4'::regproc) ORDER BY proname;
 
 --
+-- SEARCH FROM DEFAULT | TRUSTED | SESSION
+--
+
+CREATE FUNCTION show_search_path() RETURNS TEXT
+  LANGUAGE plpgsql AS
+$$
+  BEGIN
+    RETURN current_setting('search_path');
+  END;
+$$;
+
+SET safe_function_search_path = true;
+ALTER FUNCTION show_search_path() SEARCH FROM DEFAULT;
+SELECT show_search_path();
+ALTER FUNCTION show_search_path() SEARCH FROM TRUSTED;
+SELECT show_search_path();
+ALTER FUNCTION show_search_path() SEARCH FROM SESSION;
+SELECT show_search_path();
+
+RESET safe_function_search_path;
+ALTER FUNCTION show_search_path() SEARCH FROM DEFAULT;
+SELECT show_search_path();
+ALTER FUNCTION show_search_path() SEARCH FROM TRUSTED;
+SELECT show_search_path();
+ALTER FUNCTION show_search_path() SEARCH FROM SESSION;
+SELECT show_search_path();
+
+ALTER FUNCTION show_search_path() SEARCH FROM TRUSTED SET search_path = test1;
+SELECT show_search_path();
+ALTER FUNCTION show_search_path() SEARCH FROM SESSION SET search_path = test1;
+SELECT show_search_path();
+
+DROP FUNCTION show_search_path();
+
+--
 -- SECURITY DEFINER | INVOKER
 --
 CREATE FUNCTION functest_C_1(int) RETURNS bool LANGUAGE 'sql'

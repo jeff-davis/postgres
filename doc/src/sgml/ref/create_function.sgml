@@ -31,6 +31,7 @@ CREATE [ OR REPLACE ] FUNCTION
     | { IMMUTABLE | STABLE | VOLATILE }
     | [ NOT ] LEAKPROOF
     | { CALLED ON NULL INPUT | RETURNS NULL ON NULL INPUT | STRICT }
+    | SEARCH FROM { DEFAULT | TRUSTED | SESSION }
     | { [ EXTERNAL ] SECURITY INVOKER | [ EXTERNAL ] SECURITY DEFINER }
     | PARALLEL { UNSAFE | RESTRICTED | SAFE }
     | COST <replaceable class="parameter">execution_cost</replaceable>
@@ -402,6 +403,49 @@ CREATE [ OR REPLACE ] FUNCTION
      </listitem>
     </varlistentry>
 
+    <varlistentry>
+     <term><literal>SEARCH FROM DEFAULT</literal></term>
+     <term><literal>SEARCH FROM TRUSTED</literal></term>
+     <term><literal>SEARCH FROM SESSION</literal></term>
+
+     <listitem>
+      <para>
+       Declare the source from which <xref linkend="guc-search-path"/> will be
+       initialized when executing the function. <literal>SEARCH FROM
+       TRUSTED</literal> causes the search_path to be initialized to a safe
+       value that includes built-in objects. <literal>SEARCH FROM
+       SESSION</literal> causes the search_path to be inherited from the last
+       setting in caller's session (including settings due to <literal>SEARCH
+       FROM TRUSTED</literal> if the caller is another function).
+      </para>
+      <para>
+       Regardless of the <literal>SEARCH</literal> clause or where
+       <literal>search_path</literal> comes from initially, the
+       <literal>search_path</literal> may be changed just like any other GUC
+       with a <literal>SET</literal> clause in the function declaration or a
+       <xref linkend="sql-set"/> command executed by the function.
+      </para>
+      <para>
+       The <literal>search_path</literal> setting during execution is
+       important for functions that parse at execution time, such as PL/pgSQL
+       functions, SQL functions defined with a string literal, and functions
+       that use the <link linkend="spi">Server Programming
+       Interface</link>. It's also important for functions that call any such
+       functions.
+      </para>
+      <para>
+       The <literal>SEARCH</literal> clause does not affect the
+       <literal>search_path</literal> used to find objects referenced in a
+       function's <replaceable>sql_body</replaceable>, because the body is
+       parsed at definition time.
+      </para>
+      <para>
+       <literal>SEARCH FROM DEFAULT</literal> is the same as not specifying
+       any <literal>SEARCH</literal> clause at all, and the behavior is
+       equivalent to <literal>SEARCH FROM SESSION</literal>.
+      </para>
+     </listitem>
+    </varlistentry>
    <varlistentry>
     <term><literal><optional>EXTERNAL</optional> SECURITY INVOKER</literal></term>
     <term><literal><optional>EXTERNAL</optional> SECURITY DEFINER</literal></term>
