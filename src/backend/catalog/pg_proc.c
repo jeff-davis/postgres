@@ -81,6 +81,7 @@ ProcedureCreate(const char *procedureName,
 				const char *probin,
 				Node *prosqlbody,
 				char prokind,
+				char prosearch,
 				bool security_definer,
 				bool isLeakProof,
 				bool isStrict,
@@ -308,6 +309,7 @@ ProcedureCreate(const char *procedureName,
 	values[Anum_pg_proc_provariadic - 1] = ObjectIdGetDatum(variadicType);
 	values[Anum_pg_proc_prosupport - 1] = ObjectIdGetDatum(prosupport);
 	values[Anum_pg_proc_prokind - 1] = CharGetDatum(prokind);
+	values[Anum_pg_proc_prosearch - 1] = CharGetDatum(prosearch);
 	values[Anum_pg_proc_prosecdef - 1] = BoolGetDatum(security_definer);
 	values[Anum_pg_proc_proleakproof - 1] = BoolGetDatum(isLeakProof);
 	values[Anum_pg_proc_proisstrict - 1] = BoolGetDatum(isStrict);
@@ -986,6 +988,16 @@ sql_function_parse_error_callback(void *arg)
 		/* If it's not a syntax error, push info onto context stack */
 		errcontext("SQL function \"%s\"", callback_arg->proname);
 	}
+}
+
+/*
+ * Check whether the search_path must be set while executing this function.
+ */
+bool
+prosearch_is_system(char prosearch)
+{
+	return (prosearch == PROSEARCH_SYSTEM ||
+			(prosearch == PROSEARCH_DEFAULT && safe_function_search_path));
 }
 
 /*

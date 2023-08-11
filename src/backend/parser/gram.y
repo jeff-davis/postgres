@@ -8528,6 +8528,21 @@ common_func_opt_item:
 				{
 					$$ = makeDefElem("support", (Node *) $2, @1);
 				}
+			| SEARCH DEFAULT
+				{
+					/* we abuse the normal content of a DefElem here */
+					$$ = makeDefElem("search", (Node *) makeString("default"), @1);
+				}
+			| SEARCH SYSTEM_P
+				{
+					/* we abuse the normal content of a DefElem here */
+					$$ = makeDefElem("search", (Node *) makeString("system"), @1);
+				}
+			| SEARCH SESSION
+				{
+					/* we abuse the normal content of a DefElem here */
+					$$ = makeDefElem("search", (Node *) makeString("session"), @1);
+				}
 			| FunctionSetResetClause
 				{
 					/* we abuse the normal content of a DefElem here */

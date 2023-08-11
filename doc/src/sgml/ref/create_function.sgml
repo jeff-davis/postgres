@@ -31,6 +31,7 @@ CREATE [ OR REPLACE ] FUNCTION
     | { IMMUTABLE | STABLE | VOLATILE }
     | [ NOT ] LEAKPROOF
     | { CALLED ON NULL INPUT | RETURNS NULL ON NULL INPUT | STRICT }
+    | SEARCH { DEFAULT | SYSTEM | SESSION }
     | { [ EXTERNAL ] SECURITY INVOKER | [ EXTERNAL ] SECURITY DEFINER }
     | PARALLEL { UNSAFE | RESTRICTED | SAFE }
     | COST <replaceable class="parameter">execution_cost</replaceable>
@@ -402,6 +403,39 @@ CREATE [ OR REPLACE ] FUNCTION
      </listitem>
     </varlistentry>
 
+    <varlistentry>
+     <term><literal>SEARCH DEFAULT</literal></term>
+     <term><literal>SEARCH SYSTEM</literal></term>
+     <term><literal>SEARCH SESSION</literal></term>
+
+     <listitem>
+      <para>
+       These settings control the function's <xref linkend="guc-search-path"/>
+       while executing if not set explicitly with a <literal>SET</literal>
+       clause in the <command>CREATE FUNCTION</command> command.
+      </para>
+      <para>
+       <literal>SEARCH SYSTEM</literal> indicates that the function will use
+       <literal>pg_catalog, pg_temp</literal>. This is the safest option
+       because the function will have consistent behavior regardless of the
+       session's setting.
+      </para>
+      <para>
+       <literal>SEARCH SESSION</literal> indicates that the function will
+       inherit session's current <literal>search_path</literal>
+       setting. Behavior of the function may change when the session's
+       <literal>search_path</literal> changes.
+      </para>
+      <para>
+       <literal>SEARCH DEFAULT</literal> is the same as not specifying any
+       <literal>SEARCH</literal> clause at all. If <xref
+       linkend="guc-safe-function-search-path"/> is set to
+       <literal>true</literal>, then the function will use
+       <literal>pg_catalog, pg_temp</literal>; otherwise it will inherit the
+       session's current <literal>search_path</literal> setting.
+      </para>
+     </listitem>
+    </varlistentry>
    <varlistentry>
     <term><literal><optional>EXTERNAL</optional> SECURITY INVOKER</literal></term>
     <term><literal><optional>EXTERNAL</optional> SECURITY DEFINER</literal></term>

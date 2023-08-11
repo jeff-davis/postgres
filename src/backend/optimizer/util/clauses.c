@@ -4474,6 +4474,7 @@ inline_function(Oid funcid, Oid result_type, Oid result_collid,
 	 */
 	if (funcform->prolang != SQLlanguageId ||
 		funcform->prokind != PROKIND_FUNCTION ||
+		prosearch_is_system(funcform->prosearch) ||
 		funcform->prosecdef ||
 		funcform->proretset ||
 		funcform->prorettype == RECORDOID ||

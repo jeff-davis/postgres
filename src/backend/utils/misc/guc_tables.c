@@ -504,6 +504,7 @@ bool		log_btree_build_stats = false;
 char	   *event_source;
 
 bool		row_security;
+bool		safe_function_search_path = false;
 bool		check_function_bodies = true;
 
 /*
@@ -1591,6 +1592,15 @@ struct config_bool ConfigureNamesBool[] =
 		},
 		&row_security,
 		true,
+		NULL, NULL, NULL
+	},
+	{
+		{"safe_function_search_path", PGC_SUSET, CLIENT_CONN_STATEMENT,
+			gettext_noop("Use safe search path for all functions, unless otherwise specified."),
+			NULL
+		},
+		&safe_function_search_path,
+		false,
 		NULL, NULL, NULL
 	},
 	{

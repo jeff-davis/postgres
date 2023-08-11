@@ -10271,6 +10271,32 @@ dynamic_library_path = 'C:\tools\postgresql;H:\my_project\lib;$libdir'
       </listitem>
      </varlistentry>
 
+     <varlistentry id="guc-safe-function-search-path" xreflabel="safe_function_search_path">
+      <term><varname>safe_function_search_path</varname> (<type>boolean</type>)
+      <indexterm>
+       <primary><varname>safe_function_search_path</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        If set to <literal>true</literal>, functions declared with
+        <literal>SEARCH DEFAULT</literal> (or no <literal>SEARCH</literal>
+        clause) behave as if <literal>SEARCH SYSTEM</literal> was
+        specified. This is the safest option because functions will have
+        consistent behavior regardless of the session's current setting of
+        <xref linkend="guc-search-path"/>.
+       </para>
+       <para>
+        If set to <literal>false</literal> (the default), functions declared
+        with <literal>SEARCH DEFAULT</literal> (or no
+        <literal>SEARCH</literal> clause) behave as if <literal>SEARCH
+        SESSION</literal> was specified.
+       </para>
+       <para>
+        See <xref linkend="sql-createfunction"/> for more information.
+       </para>
+      </listitem>
+     </varlistentry>
      <varlistentry id="guc-backslash-quote" xreflabel="backslash_quote">
       <term><varname>backslash_quote</varname> (<type>enum</type>)
       <indexterm><primary>strings</primary><secondary>backslash quotes</secondary></indexterm>
