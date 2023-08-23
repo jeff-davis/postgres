@@ -2067,6 +2067,27 @@ selectDumpableStatisticsObject(StatsExtInfo *sobj, Archive *fout)
 }
 
 /*
+ * selectDumpableAccessMethod: policy-setting subroutine
+ *		Mark an access method as to be dumped or not
+ *
+ * Access methods do not belong to any particular namespace.  To identify
+ * built-in access methods, we must resort to checking whether the
+ * method's OID is in the range reserved for initdb.
+ */
+static void
+selectDumpableFdw(FdwInfo *fdwinfo, Archive *fout)
+{
+	if (checkExtensionMembership(&fdwinfo->dobj, fout))
+		return;					/* extension membership overrides all else */
+
+	if (fdwinfo->dobj.catId.oid <= (Oid) g_last_builtin_oid)
+		fdwinfo->dobj.dump = DUMP_COMPONENT_NONE;
+	else
+		fdwinfo->dobj.dump = fout->dopt->include_everything ?
+			DUMP_COMPONENT_ALL : DUMP_COMPONENT_NONE;
+}
+
+/*
  * selectDumpableObject: policy-setting subroutine
  *		Mark a generic dumpable object as to be dumped or not
  *
@@ -4633,6 +4654,7 @@ getSubscriptions(Archive *fout)
 	int			i_subdisableonerr;
 	int			i_subpasswordrequired;
 	int			i_subrunasowner;
+	int			i_subservername;
 	int			i_subconninfo;
 	int			i_subslotname;
 	int			i_subsynccommit;
@@ -4701,10 +4723,19 @@ getSubscriptions(Archive *fout)
 						  " '%s' AS suborigin\n",
 						  LOGICALREP_ORIGIN_ANY);
 
-	appendPQExpBufferStr(query,
-						 "FROM pg_subscription s\n"
-						 "WHERE s.subdbid = (SELECT oid FROM pg_database\n"
-						 "                   WHERE datname = current_database())");
+	if (fout->remoteVersion >= 170000)
+		appendPQExpBufferStr(query,
+							 " fs.srvname AS subservername\n"
+							 "FROM pg_subscription s LEFT JOIN pg_foreign_server fs\n"
+							 "  ON (s.subserver = fs.oid)\n"
+							 "WHERE s.subdbid = (SELECT oid FROM pg_database\n"
+							 "                   WHERE datname = current_database())");
+	else
+		appendPQExpBufferStr(query,
+							 " NULL AS subservername\n"
+							 "FROM pg_subscription s\n"
+							 "WHERE s.subdbid = (SELECT oid FROM pg_database\n"
+							 "                   WHERE datname = current_database())");
 
 	res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
 
@@ -4724,6 +4755,7 @@ getSubscriptions(Archive *fout)
 	i_subdisableonerr = PQfnumber(res, "subdisableonerr");
 	i_subpasswordrequired = PQfnumber(res, "subpasswordrequired");
 	i_subrunasowner = PQfnumber(res, "subrunasowner");
+	i_subservername = PQfnumber(res, "subservername");
 	i_subconninfo = PQfnumber(res, "subconninfo");
 	i_subslotname = PQfnumber(res, "subslotname");
 	i_subsynccommit = PQfnumber(res, "subsynccommit");
@@ -4741,7 +4773,10 @@ getSubscriptions(Archive *fout)
 		AssignDumpId(&subinfo[i].dobj);
 		subinfo[i].dobj.name = pg_strdup(PQgetvalue(res, i, i_subname));
 		subinfo[i].rolname = getRoleName(PQgetvalue(res, i, i_subowner));
-
+		if (PQgetisnull(res, i, i_subservername))
+			subinfo[i].subservername = NULL;
+		else
+			subinfo[i].subservername = pg_strdup(PQgetvalue(res, i, i_subservername));
 		subinfo[i].subbinary =
 			pg_strdup(PQgetvalue(res, i, i_subbinary));
 		subinfo[i].substream =
@@ -4804,9 +4839,17 @@ dumpSubscription(Archive *fout, const SubscriptionInfo *subinfo)
 	appendPQExpBuffer(delq, "DROP SUBSCRIPTION %s;\n",
 					  qsubname);
 
-	appendPQExpBuffer(query, "CREATE SUBSCRIPTION %s CONNECTION ",
+	appendPQExpBuffer(query, "CREATE SUBSCRIPTION %s ",
 					  qsubname);
-	appendStringLiteralAH(query, subinfo->subconninfo, fout);
+	if (subinfo->subservername)
+	{
+		appendPQExpBuffer(query, "SERVER %s", fmtId(subinfo->subservername));
+	}
+	else
+	{
+		appendPQExpBuffer(query, "CONNECTION ");
+		appendStringLiteralAH(query, subinfo->subconninfo, fout);
+	}
 
 	/* Build list of quoted publications and append them to query. */
 	if (!parsePGArray(subinfo->subpublications, &pubnames, &npubnames))
@@ -9513,7 +9556,7 @@ getForeignDataWrappers(Archive *fout, int *numForeignDataWrappers)
 		fdwinfo[i].fdwoptions = pg_strdup(PQgetvalue(res, i, i_fdwoptions));
 
 		/* Decide whether we want to dump it */
-		selectDumpableObject(&(fdwinfo[i].dobj), fout);
+		selectDumpableFdw(&fdwinfo[i], fout);
 
 		/* Mark whether FDW has an ACL */
 		if (!PQgetisnull(res, i, i_fdwacl))

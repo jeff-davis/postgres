@@ -5793,7 +5793,7 @@ listForeignDataWrappers(const char *pattern, bool verbose)
 						  gettext_noop("Description"));
 	}
 
-	appendPQExpBufferStr(&buf, "\nFROM pg_catalog.pg_foreign_data_wrapper fdw\n");
+	appendPQExpBufferStr(&buf, "\nFROM (SELECT tableoid, * FROM pg_catalog.pg_foreign_data_wrapper WHERE oid>=16384) fdw\n");
 
 	if (verbose)
 		appendPQExpBufferStr(&buf,
