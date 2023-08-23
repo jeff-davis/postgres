@@ -21,6 +21,7 @@
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/objectaccess.h"
+#include "catalog/pg_authid.h"
 #include "catalog/pg_foreign_data_wrapper.h"
 #include "catalog/pg_foreign_server.h"
 #include "catalog/pg_foreign_table.h"
@@ -35,6 +36,7 @@
 #include "tcop/utility.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
+#include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
@@ -1267,15 +1269,13 @@ AlterUserMapping(AlterUserMappingStmt *stmt)
 
 	if (stmt->options)
 	{
-		ForeignDataWrapper *fdw;
+		ForeignDataWrapper *fdw = GetForeignDataWrapper(srv->fdwid);
 		Datum		datum;
 		bool		isnull;
 
 		/*
 		 * Process the options.
 		 */
-
-		fdw = GetForeignDataWrapper(srv->fdwid);
 
 		datum = SysCacheGetAttr(USERMAPPINGUSERSERVER,
 								tp,
