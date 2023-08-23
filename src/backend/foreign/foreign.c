@@ -18,11 +18,14 @@
 #include "catalog/pg_foreign_server.h"
 #include "catalog/pg_foreign_table.h"
 #include "catalog/pg_user_mapping.h"
+#include "commands/defrem.h"
 #include "foreign/fdwapi.h"
 #include "foreign/foreign.h"
 #include "funcapi.h"
 #include "lib/stringinfo.h"
+#include "mb/pg_wchar.h"
 #include "miscadmin.h"
+#include "replication/walreceiver.h"
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
@@ -187,6 +190,94 @@ GetForeignServerByName(const char *srvname, bool missing_ok)
 		return NULL;
 
 	return GetForeignServer(serverid);
+}
+
+
+/*
+ * Escape a connection option value. Helper for options_to_connstr().
+ */
+static char *
+escape_value(char *val)
+{
+	StringInfoData result;
+
+	initStringInfo(&result);
+
+	for (int i = 0; val[i] != '\0'; i++)
+	{
+		if (val[i] == '\\' || val[i] == '\'')
+			appendStringInfoChar(&result, '\\');
+		appendStringInfoChar(&result, val[i]);
+	}
+
+	return result.data;
+}
+
+
+/*
+ * Helper for ForeignServerConnectionString() and pg_connection_validator().
+ *
+ * Transform a List of DefElem into a connection string.
+ *
+ * XXX: might leak memory, investigate
+ */
+static char *
+options_to_connstr(List *options)
+{
+	StringInfoData	 connstr;
+	ListCell		*lc;
+	bool			 first = true;
+
+	initStringInfo(&connstr);
+	foreach(lc, options)
+	{
+		DefElem *d = (DefElem *) lfirst(lc);
+		char *name = d->defname;
+		char *value;
+
+		/* not a libpq option; skip */
+		if (strcmp(name, "password_required") == 0)
+			continue;
+
+		/* XXX: pfree() result of defGetString() if needed? */
+		value = escape_value(defGetString(d));
+
+		appendStringInfo(&connstr, "%s%s = '%s'",
+						 first ? "" : " ", name, value);
+		first = false;
+
+		pfree(value);
+	}
+
+	/* override client_encoding */
+	appendStringInfo(&connstr, "%sclient_encoding = '%s'",
+					 first ? "" : " ", GetDatabaseEncodingName());
+
+	return connstr.data;
+}
+
+
+/*
+ * Given a user ID and server ID, return a postgres connection string suitable
+ * to pass to libpq.
+ *
+ * XXX: might leak memory, investigate
+ */
+char *
+ForeignServerConnectionString(Oid userid, Oid serverid)
+{
+	ForeignServer	*server	 = GetForeignServer(serverid);
+	UserMapping		*um		 = GetUserMapping(userid, serverid);
+	List			*options = list_concat(um->options, server->options);
+	char			*connstr;
+
+	connstr = options_to_connstr(options);
+
+	pfree(server);
+	pfree(um);
+	list_free(options);
+
+	return connstr;
 }
 
 
@@ -597,6 +688,129 @@ is_conninfo_option(const char *option, Oid context)
 		if (context == opt->optcontext && strcmp(opt->optname, option) == 0)
 			return true;
 	return false;
+}
+
+/*
+ * pg_connection_handler
+ *
+ * pg_connection_fdw is not used for foreign tables, so the handler should
+ * never be called.
+ */
+Datum
+pg_connection_handler(PG_FUNCTION_ARGS)
+{
+	elog(ERROR, "pg_connection_handler unexpectedly called");
+}
+
+/*
+ * Option validator for CREATE SERVER ... FOR CONNECTION ONLY.
+ *
+ * XXX: try to unify with validators for CREATE SUBSCRIPTION ... CONNECTION,
+ * postgres_fdw, and dblink. Also investigate if memory leaks are a problem
+ * here.
+ */
+Datum
+pg_connection_validator(PG_FUNCTION_ARGS)
+{
+	List			*options_list = untransformRelOptions(PG_GETARG_DATUM(0));
+	Oid				 catalog	  = PG_GETARG_OID(1);
+
+	if (catalog == ForeignServerRelationId)
+	{
+		char		*conninfo;
+		ListCell	*lc;
+
+		foreach(lc, options_list)
+		{
+			DefElem *d = (DefElem *) lfirst(lc);
+
+			if (strcmp(d->defname, "client_encoding") == 0)
+				ereport(ERROR,
+						(errmsg("cannot specify client_encoding for pg_connection_fdw")));
+
+			if (strcmp(d->defname, "user") == 0 ||
+				strcmp(d->defname, "password") == 0 ||
+				strcmp(d->defname, "sslpassword") == 0 ||
+				strcmp(d->defname, "password_required") == 0)
+				ereport(ERROR,
+						(errmsg("invalid option \"%s\" for pg_connection_fdw",
+								d->defname),
+						 errhint("Specify option \"%s\" for a user mapping associated with the server instead.",
+								 d->defname)));
+		}
+
+		conninfo = options_to_connstr(options_list);
+
+		/* Load the library providing us libpq calls. */
+		load_file("libpqwalreceiver", false);
+
+		walrcv_check_conninfo(conninfo, false);
+	}
+	else if (catalog == UserMappingRelationId)
+	{
+		bool		 password_required = true;
+		bool		 password_provided = false;
+		ListCell	*lc;
+
+		foreach(lc, options_list)
+		{
+			DefElem *d = (DefElem *) lfirst(lc);
+
+			if (strcmp(d->defname, "password_required") == 0)
+			{
+				/*
+				 * Only the superuser may set this option on a user mapping, or
+				 * alter a user mapping on which this option is set. We allow a
+				 * user to clear this option if it's set - in fact, we don't have
+				 * a choice since we can't see the old mapping when validating an
+				 * alter.
+				 */
+				if (!superuser() && !defGetBoolean(d))
+					ereport(ERROR,
+							(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+							 errmsg("password_required=false is superuser-only for pg_connection_fdw"),
+							 errhint("User mappings with the password_required option set to false may only be created or modified by the superuser.")));
+
+				password_required = defGetBoolean(d);
+			}
+
+			if ((strcmp(d->defname, "sslkey") == 0 || strcmp(d->defname, "sslcert") == 0) && !superuser())
+				ereport(ERROR,
+						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+						 errmsg("sslcert and sslkey are superuser-only for pg_connection_fdw"),
+						 errhint("User mappings with the sslcert or sslkey options set may only be created or modified by the superuser.")));
+
+			if (strcmp(d->defname, "password") == 0)
+				password_provided = true;
+
+			if (strcmp(d->defname, "user") != 0 &&
+				strcmp(d->defname, "password") != 0 &&
+				strcmp(d->defname, "sslpassword") != 0 &&
+				strcmp(d->defname, "sslkey") != 0 &&
+				strcmp(d->defname, "sslcert") != 0 &&
+				strcmp(d->defname, "password_required") != 0)
+				ereport(ERROR,
+						(errmsg("invalid user mapping option \"%s\" for pg_connection_fdw",
+								d->defname)));
+		}
+
+		if (password_required && !password_provided)
+			ereport(ERROR,
+					(errcode(ERRCODE_S_R_E_PROHIBITED_SQL_STATEMENT_ATTEMPTED),
+					 errmsg("password is required"),
+					 errdetail("Non-superusers must provide a password in the connection string.")));
+	}
+	else if (catalog == ForeignTableRelationId)
+		ereport(ERROR,
+				(errmsg("cannot create foreign table using a pg_connection_fdw server"),
+				 errhint("Use the server with CREATE SUBSCRIPTION instead.")));
+	else if (catalog == AttributeRelationId)
+		elog(ERROR, "unexpected call to pg_connection_validator for pg_attribute catalog");
+	else
+		elog(ERROR, "unexpected call to pg_connection_validator for catalog %d", catalog);
+
+
+	PG_RETURN_BOOL(true);
 }
 
 
