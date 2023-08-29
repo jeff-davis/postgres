@@ -152,9 +152,9 @@ GRANT CREATE ON DATABASE REGRESSION TO regress_subscription_user3;
 SET SESSION AUTHORIZATION regress_subscription_user3;
 -- fail - not a member of pg_create_connection, cannot use CONNECTION
 CREATE SUBSCRIPTION regress_testsub6 CONNECTION 'dbname=regress_doesnotexist password=regress_fakepassword' PUBLICATION testpub WITH (slot_name = NONE, connect = false);
-ERROR:  permission denied to create subscription connection
+ERROR:  permission denied to create subscription with a connection string
 DETAIL:  Only roles with privileges of the "pg_create_connection" role may create subscriptions with CONNECTION specified.
-HINT:  Create a subscription with SERVER specified instead.
+HINT:  Create a subscription to a foreign server by specifying SERVER instead.
 -- re-grant pg_create_connection to pg_create_subscription
 RESET SESSION AUTHORIZATION;
 GRANT pg_create_connection TO pg_create_subscription;

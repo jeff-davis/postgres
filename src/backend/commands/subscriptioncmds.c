@@ -602,8 +602,8 @@ CreateSubscription(ParseState *pstate, CreateSubscriptionStmt *stmt,
 	if (IsSet(opts.specified_opts, SUBOPT_PASSWORD_REQUIRED) && stmt->servername)
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("option \"password_required\" invalid on subscriptions with SERVER specified"),
-				 errhint("Use the \"password_required\" option on the user mappings associated with the server.")));
+				 errmsg("option \"password_required\" invalid on subscriptions to a foreign server"),
+				 errhint("Use the \"password_required\" option on the user mappings associated with the foreign server.")));
 
 	/*
 	 * Since creating a replication slot is not transactional, rolling back
@@ -716,10 +716,10 @@ CreateSubscription(ParseState *pstate, CreateSubscriptionStmt *stmt,
 		if (!has_privs_of_role(owner, ROLE_PG_CREATE_CONNECTION))
 			ereport(ERROR,
 					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-					 errmsg("permission denied to create subscription connection"),
+					 errmsg("permission denied to create subscription with a connection string"),
 					 errdetail("Only roles with privileges of the \"%s\" role may create subscriptions with CONNECTION specified.",
 							   "pg_create_connection"),
-					 errhint("Create a subscription with SERVER specified instead.")));
+					 errhint("Create a subscription to a foreign server by specifying SERVER instead.")));
 
 		/* Check the connection info string. */
 		walrcv_check_conninfo(stmt->conninfo, opts.passwordrequired && !superuser());
@@ -1268,8 +1268,8 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 					if (OidIsValid(form->subserver))
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
-								 errmsg("option \"password_required\" invalid on subscriptions with SERVER specified"),
-								 errhint("Use the \"password_required\" option on the user mappings associated with the server.")));
+								 errmsg("option \"password_required\" invalid on subscriptions to a foreign server"),
+								 errhint("Use the \"password_required\" option on the user mappings associated with the foreign server.")));
 
 					/* Non-superuser may not disable password_required. */
 					if (!opts.passwordrequired && !superuser())
