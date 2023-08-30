@@ -194,6 +194,8 @@ CREATE SERVER t3 FOR CONNECTION ONLY OPTIONS (password 'foo'); --fails
 CREATE SERVER t3 FOR CONNECTION ONLY OPTIONS (password_required 'true'); --fails
 CREATE SERVER t3 FOR CONNECTION ONLY;
 
+IMPORT FOREIGN SCHEMA foo FROM SERVER t3 INTO bar; -- fails
+
 CREATE USER MAPPING FOR PUBLIC SERVER t3 OPTIONS (user 'x'); -- fails
 CREATE USER MAPPING FOR PUBLIC SERVER t3 OPTIONS (user 'x', password_required 'false'); -- fails
 CREATE USER MAPPING FOR PUBLIC SERVER t3 OPTIONS (user 'x', application_name 'nonsense'); -- fails

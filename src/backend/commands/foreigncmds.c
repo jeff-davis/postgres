@@ -1318,7 +1318,7 @@ AlterUserMapping(AlterUserMappingStmt *stmt)
 
 	if (stmt->options)
 	{
-		ForeignDataWrapper *fdw;
+		Oid			fdwvalidator;
 		Datum		datum;
 		bool		isnull;
 
@@ -1326,7 +1326,15 @@ AlterUserMapping(AlterUserMappingStmt *stmt)
 		 * Process the options.
 		 */
 
-		fdw = GetForeignDataWrapper(srv->fdwid);
+		if (!OidIsValid(srv->fdwid))
+		{
+			fdwvalidator = F_PG_CONNECTION_VALIDATOR;
+		}
+		else
+		{
+			ForeignDataWrapper *fdw = GetForeignDataWrapper(srv->fdwid);
+			fdwvalidator = fdw->fdwvalidator;
+		}
 
 		datum = SysCacheGetAttr(USERMAPPINGUSERSERVER,
 								tp,
@@ -1339,7 +1347,7 @@ AlterUserMapping(AlterUserMappingStmt *stmt)
 		datum = transformGenericOptions(UserMappingRelationId,
 										datum,
 										stmt->options,
-										fdw->fdwvalidator);
+										fdwvalidator);
 
 		if (PointerIsValid(DatumGetPointer(datum)))
 			repl_val[Anum_pg_user_mapping_umoptions - 1] = datum;
@@ -1552,6 +1560,12 @@ ImportForeignSchema(ImportForeignSchemaStmt *stmt)
 	aclresult = object_aclcheck(ForeignServerRelationId, server->serverid, GetUserId(), ACL_USAGE);
 	if (aclresult != ACLCHECK_OK)
 		aclcheck_error(aclresult, OBJECT_FOREIGN_SERVER, server->servername);
+
+	if (!OidIsValid(server->fdwid))
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("cannot import foreign schema using server that has FOR CONNECTION ONLY specified"),
+				 errhint("Use a foreign server that has a FOREIGN DATA WRAPPER specified instead.")));
 
 	/* Check that the schema exists and we have CREATE permissions on it */
 	(void) LookupCreationNamespace(stmt->local_schema);

@@ -782,6 +782,12 @@ pg_connection_validator(PG_FUNCTION_ARGS)
 				password_required = defGetBoolean(d);
 			}
 
+			if ((strcmp(d->defname, "sslkey") == 0 || strcmp(d->defname, "sslcert") == 0) && !superuser())
+				ereport(ERROR,
+						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+						 errmsg("sslcert and sslkey are superuser-only"),
+						 errhint("User mappings with the sslcert or sslkey options set may only be created or modified by the superuser.")));
+
 			if (strcmp(d->defname, "password") == 0)
 				password_provided = true;
 

@@ -414,6 +414,9 @@ CREATE SERVER t3 FOR CONNECTION ONLY OPTIONS (password_required 'true'); --fails
 ERROR:  invalid option "password_required" for server FOR CONNECTION ONLY
 HINT:  Specify option "password_required" for a user mapping associated with the server instead.
 CREATE SERVER t3 FOR CONNECTION ONLY;
+IMPORT FOREIGN SCHEMA foo FROM SERVER t3 INTO bar; -- fails
+ERROR:  cannot import foreign schema using server that has FOR CONNECTION ONLY specified
+HINT:  Use a foreign server that has a FOREIGN DATA WRAPPER specified instead.
 CREATE USER MAPPING FOR PUBLIC SERVER t3 OPTIONS (user 'x'); -- fails
 ERROR:  password is required
 DETAIL:  Non-superusers must provide a password in the connection string.
