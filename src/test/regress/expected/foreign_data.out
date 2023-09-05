@@ -395,29 +395,27 @@ CREATE SERVER t2 FOREIGN DATA WRAPPER regress_foo;
 
 RESET ROLE;
 REVOKE regress_test_indirect FROM regress_test_role;
--- test SERVER ... FOR CONNECTION ONLY
+-- test SERVER ... FOREIGN DATA WRAPPER pg_connection_fdw
 SET ROLE regress_test_role;
-CREATE SERVER t3 FOR CONNECTION ONLY; 			   -- ERROR: not a member of pg_create_connection
-ERROR:  permission denied to create server connection
-DETAIL:  Only roles with privileges of the "pg_create_connection" role may create servers FOR CONNECTION ONLY.
+CREATE SERVER t3 FOREIGN DATA WRAPPER pg_connection_fdw; 			   -- ERROR: not a member of pg_create_connection
+ERROR:  permission denied for foreign-data wrapper pg_connection_fdw
 RESET ROLE;
 GRANT pg_create_connection TO regress_test_role;
 SET ROLE regress_test_role;
-CREATE SERVER t3 FOR CONNECTION ONLY OPTIONS (client_encoding 'foo'); --fails
-ERROR:  cannot specify client_encoding in server FOR CONNECTION ONLY
-CREATE SERVER t3 FOR CONNECTION ONLY OPTIONS (user 'foo'); --fails
-ERROR:  invalid option "user" for server FOR CONNECTION ONLY
+CREATE SERVER t3 FOREIGN DATA WRAPPER pg_connection_fdw OPTIONS (client_encoding 'foo'); --fails
+ERROR:  invalid option for foreign data wrapper "pg_connection_fdw"
+CREATE SERVER t3 FOREIGN DATA WRAPPER pg_connection_fdw OPTIONS (user 'foo'); --fails
+ERROR:  invalid option "user" for foreign data wrapper "pg_connection_fdw"
 HINT:  Specify option "user" for a user mapping associated with the server instead.
-CREATE SERVER t3 FOR CONNECTION ONLY OPTIONS (password 'foo'); --fails
-ERROR:  invalid option "password" for server FOR CONNECTION ONLY
+CREATE SERVER t3 FOREIGN DATA WRAPPER pg_connection_fdw OPTIONS (password 'foo'); --fails
+ERROR:  invalid option "password" for foreign data wrapper "pg_connection_fdw"
 HINT:  Specify option "password" for a user mapping associated with the server instead.
-CREATE SERVER t3 FOR CONNECTION ONLY OPTIONS (password_required 'true'); --fails
-ERROR:  invalid option "password_required" for server FOR CONNECTION ONLY
+CREATE SERVER t3 FOREIGN DATA WRAPPER pg_connection_fdw OPTIONS (password_required 'true'); --fails
+ERROR:  invalid option "password_required" for foreign data wrapper "pg_connection_fdw"
 HINT:  Specify option "password_required" for a user mapping associated with the server instead.
-CREATE SERVER t3 FOR CONNECTION ONLY;
-IMPORT FOREIGN SCHEMA foo FROM SERVER t3 INTO bar; -- fails
-ERROR:  cannot import foreign schema using server that has FOR CONNECTION ONLY specified
-HINT:  Use a foreign server that has a FOREIGN DATA WRAPPER specified instead.
+CREATE SERVER t3 FOREIGN DATA WRAPPER pg_connection_fdw;
+IMPORT FOREIGN SCHEMA foo FROM SERVER t3 INTO public; -- fails
+ERROR:  foreign-data wrapper "pg_connection_fdw" has no handler
 CREATE USER MAPPING FOR PUBLIC SERVER t3 OPTIONS (user 'x'); -- fails
 ERROR:  password is required
 DETAIL:  Non-superusers must provide a password in the connection string.

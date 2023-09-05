@@ -195,7 +195,7 @@ CREATE SERVER t3 FOREIGN DATA WRAPPER pg_connection_fdw OPTIONS (password 'foo')
 CREATE SERVER t3 FOREIGN DATA WRAPPER pg_connection_fdw OPTIONS (password_required 'true'); --fails
 CREATE SERVER t3 FOREIGN DATA WRAPPER pg_connection_fdw;
 
-IMPORT FOREIGN SCHEMA foo FROM SERVER t3 INTO bar; -- fails
+IMPORT FOREIGN SCHEMA foo FROM SERVER t3 INTO public; -- fails
 
 CREATE USER MAPPING FOR PUBLIC SERVER t3 OPTIONS (user 'x'); -- fails
 CREATE USER MAPPING FOR PUBLIC SERVER t3 OPTIONS (user 'x', password_required 'false'); -- fails
