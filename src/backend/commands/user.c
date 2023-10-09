@@ -452,8 +452,12 @@ CreateRole(ParseState *pstate, CreateRoleStmt *stmt)
 	else
 		new_record_nulls[Anum_pg_authid_rolpassword - 1] = true;
 
+	new_record_nulls[Anum_pg_authid_rolsecondpassword - 1] = true;
+
 	new_record[Anum_pg_authid_rolvaliduntil - 1] = validUntil_datum;
 	new_record_nulls[Anum_pg_authid_rolvaliduntil - 1] = validUntil_null;
+
+	new_record_nulls[Anum_pg_authid_rolsecondvaliduntil - 1] = true;
 
 	new_record[Anum_pg_authid_rolbypassrls - 1] = BoolGetDatum(bypassrls);
 
