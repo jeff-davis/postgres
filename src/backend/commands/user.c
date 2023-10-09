@@ -30,7 +30,9 @@
 #include "commands/defrem.h"
 #include "commands/seclabel.h"
 #include "commands/user.h"
+#include "common/scram-common.h"
 #include "libpq/crypt.h"
+#include "libpq/scram.h"
 #include "miscadmin.h"
 #include "storage/lmgr.h"
 #include "utils/acl.h"
@@ -125,6 +127,86 @@ have_createrole_privilege(void)
 	return has_createrole_privilege(GetUserId());
 }
 
+/*
+ * Inspect the current passwords of a role, and return the salt that can be used
+ * for hashing of newer passwords.
+ *
+ * Returns success on error, and false otherwise. On error the reason is stored in
+ * logdetail. On success, salt may be null which indicates that the caller is
+ * free to generate a new salt.
+ */
+static bool
+get_salt(char *rolename, char **salt, const char **logdetail)
+{
+	char	  **current_secrets;
+	int			i, num_secrets;
+	char	   *salt1, *salt2 = NULL;
+	PasswordType passtype;
+
+	if (Password_encryption == PASSWORD_TYPE_MD5)
+	{
+		*salt = rolename; /* md5 always uses role name, no need to look through the passwords */
+		return true;
+	}
+	else if (Password_encryption == PASSWORD_TYPE_PLAINTEXT)
+	{
+		*salt = NULL; /* Plaintext does not have a salt */
+		return true;
+	}
+
+	current_secrets = get_role_passwords(rolename, logdetail, &num_secrets);
+	if (num_secrets == 0)
+	{
+		*salt = NULL; /* No existing passwords, allow salt to be generated */
+		return true;
+	}
+
+	for (i = 0; i < num_secrets; i++)
+	{
+		passtype = get_password_type(current_secrets[i]);
+
+		if (passtype == PASSWORD_TYPE_MD5 || passtype == PASSWORD_TYPE_PLAINTEXT)
+			continue; /* md5 uses rolename as salt so it is always the same, and plaintext has no salt */
+		else if (passtype == PASSWORD_TYPE_SCRAM_SHA_256)
+		{
+				int			iterations;
+				int			key_length = 0;
+				pg_cryptohash_type hash_type;
+				uint8		stored_key[SCRAM_MAX_KEY_LEN];
+				uint8		server_key[SCRAM_MAX_KEY_LEN];
+
+				if (!parse_scram_secret(current_secrets[i], &iterations, &hash_type, &key_length,
+										&salt1, stored_key, server_key))
+				{
+						*logdetail = psprintf(_("could not parse SCRAM secret"));
+						*salt = NULL;
+						return false;
+				}
+
+				if (salt2 != NULL)
+				{
+					if (strcmp(salt1, salt2))
+					{
+						*logdetail = psprintf(_("inconsistent salts, clearing password")); // TODO: Better message
+						*salt = NULL;
+						return false;
+					}
+				}
+				else
+					salt2 = salt1;
+		}
+	}
+
+	for (i = 0; i < num_secrets; i++)
+		pfree(current_secrets[i]);
+	if (current_secrets)
+		pfree(current_secrets);
+
+	if (salt2)
+		*salt = pstrdup(salt2);
+
+	return true;
+}
 
 /*
  * CREATE ROLE
@@ -153,8 +235,8 @@ CreateRole(ParseState *pstate, CreateRoleStmt *stmt)
 	List	   *addroleto = NIL;	/* roles to make this a member of */
 	List	   *rolemembers = NIL;	/* roles to be members of this role */
 	List	   *adminmembers = NIL; /* roles to be admins of this role */
-	char	   *validUntil = NULL;	/* time the login is valid until */
-	Datum		validUntil_datum;	/* same, as timestamptz Datum */
+	char	   *validUntil = NULL;	/* time the password is valid until */
+	Datum		validUntil_datum;	/* validuntil, as timestamptz Datum */
 	bool		validUntil_null;
 	DefElem    *dpassword = NULL;
 	DefElem    *dissuper = NULL;
@@ -442,11 +524,16 @@ CreateRole(ParseState *pstate, CreateRoleStmt *stmt)
 		}
 		else
 		{
+			char *salt;
+
+			if (!get_salt(stmt->role, &salt, &logdetail))
+				ereport(ERROR,
+						(errmsg("could not get a valid salt for password"),
+						errdetail("%s", logdetail)));
+
 			/* Encrypt the password to the requested format. */
-			shadow_pass = encrypt_password(Password_encryption, stmt->role,
-										   password);
-			new_record[Anum_pg_authid_rolpassword - 1] =
-				CStringGetTextDatum(shadow_pass);
+			shadow_pass = encrypt_password(Password_encryption, salt, password);
+			new_record[Anum_pg_authid_rolpassword - 1] = CStringGetTextDatum(shadow_pass);
 		}
 	}
 	else
@@ -772,7 +859,7 @@ AlterRole(ParseState *pstate, AlterRoleStmt *stmt)
 						   "SUPERUSER", "SUPERUSER")));
 
 	/*
-	 * Most changes to a role require that you both have CREATEROLE privileges
+	 * Most changes to a role require that you have both CREATEROLE privileges
 	 * and also ADMIN OPTION on the role.
 	 */
 	if (!have_createrole_privilege() ||
@@ -931,9 +1018,16 @@ AlterRole(ParseState *pstate, AlterRoleStmt *stmt)
 		}
 		else
 		{
+			char	   *salt;
+
+			if (!get_salt(rolename, &salt, &logdetail))
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						errmsg("could not get a valid salt for password"),
+						errdetail("%s", logdetail)));
+
 			/* Encrypt the password to the requested format. */
-			shadow_pass = encrypt_password(Password_encryption, rolename,
-										   password);
+			shadow_pass = encrypt_password(Password_encryption, salt, password);
 			new_record[Anum_pg_authid_rolpassword - 1] =
 				CStringGetTextDatum(shadow_pass);
 		}
