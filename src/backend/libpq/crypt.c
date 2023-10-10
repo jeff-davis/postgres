@@ -33,7 +33,7 @@
  * for the postmaster log, in *logdetail.  The error reason should *not* be
  * sent to the client, to avoid giving away user information!
  */
-char **
+char	  **
 get_role_passwords(const char *role, const char **logdetail, int *num_passwords)
 {
 	TimestampTz vuntil = 0;
@@ -64,8 +64,8 @@ get_role_passwords(const char *role, const char **logdetail, int *num_passwords)
 							Anum_pg_authid_rolpassword,
 							&password_isnull);
 	second_datum = SysCacheGetAttr(AUTHNAME, roleTup,
-									Anum_pg_authid_rolsecondpassword,
-									&second_password_isnull);
+								   Anum_pg_authid_rolsecondpassword,
+								   &second_password_isnull);
 	if (password_isnull && second_password_isnull)
 	{
 		ReleaseSysCache(roleTup);
@@ -82,8 +82,8 @@ get_role_passwords(const char *role, const char **logdetail, int *num_passwords)
 	datum = SysCacheGetAttr(AUTHNAME, roleTup,
 							Anum_pg_authid_rolvaliduntil, &vuntil_isnull);
 	second_datum = SysCacheGetAttr(AUTHNAME, roleTup,
-							Anum_pg_authid_rolsecondvaliduntil,
-							&second_vuntil_isnull);
+								   Anum_pg_authid_rolsecondvaliduntil,
+								   &second_vuntil_isnull);
 	if (!vuntil_isnull)
 		vuntil = DatumGetTimestampTz(datum);
 	if (!second_vuntil_isnull)
@@ -96,14 +96,14 @@ get_role_passwords(const char *role, const char **logdetail, int *num_passwords)
 	 */
 	current_ts = GetCurrentTimestamp();
 	*num_passwords = (!password_isnull &&
-						(vuntil_isnull || vuntil >= current_ts))
-					+ (!second_password_isnull &&
-						(second_vuntil_isnull || second_vuntil >= current_ts));
+					  (vuntil_isnull || vuntil >= current_ts))
+		+ (!second_password_isnull &&
+		   (second_vuntil_isnull || second_vuntil >= current_ts));
 
 	if (*num_passwords >= 1)
 	{
-		int i = 0;
-		char **passwords = palloc(sizeof(char *) * (*num_passwords));
+		int			i = 0;
+		char	  **passwords = palloc(sizeof(char *) * (*num_passwords));
 
 		if (!password_isnull && (vuntil_isnull || vuntil >= current_ts))
 		{

@@ -789,8 +789,9 @@ CheckPasswordAuth(Port *port, const char **logdetail)
 {
 	char	   *passwd;
 	int			result = STATUS_ERROR;
-	int			i, num_passwords;
-	char	   **passwords;
+	int			i,
+				num_passwords;
+	char	  **passwords;
 
 	sendAuthRequest(port, AUTH_REQ_PASSWORD, NULL, 0);
 
@@ -806,7 +807,8 @@ CheckPasswordAuth(Port *port, const char **logdetail)
 			result = plain_crypt_verify(port->user_name, passwords[i], passwd,
 										logdetail);
 			if (result == STATUS_OK)
-				break; /* Found a matching password, no need to try any others */
+				break;			/* Found a matching password, no need to try
+								 * any others */
 		}
 		for (i = 0; i < num_passwords; i++)
 			pfree(passwords[i]);
@@ -830,9 +832,10 @@ CheckPWChallengeAuth(Port *port, const char **logdetail)
 {
 	bool		scram_pw_avail = false;
 	int			auth_result = STATUS_ERROR;
-	int			i, num_passwords;
+	int			i,
+				num_passwords;
 	char	  **passwords;
-	PasswordType	pwtype;
+	PasswordType pwtype;
 
 	Assert(port->hba->auth_method == uaSCRAM ||
 		   port->hba->auth_method == uaMD5);
@@ -842,12 +845,12 @@ CheckPWChallengeAuth(Port *port, const char **logdetail)
 
 	/*
 	 * If the user does not exist, or has no passwords or they're all expired,
-	 * we still go through the motions of authentication, to avoid revealing to
-	 * the client that the user didn't exist.  If 'md5' is allowed, we choose
-	 * whether to use 'md5' or 'scram-sha-256' authentication based on current
-	 * password_encryption setting.  The idea is that most genuine users
-	 * probably have a password of that type, and if we pretend that this user
-	 * had a password of that type, too, it "blends in" best.
+	 * we still go through the motions of authentication, to avoid revealing
+	 * to the client that the user didn't exist.  If 'md5' is allowed, we
+	 * choose whether to use 'md5' or 'scram-sha-256' authentication based on
+	 * current password_encryption setting.  The idea is that most genuine
+	 * users probably have a password of that type, and if we pretend that
+	 * this user had a password of that type, too, it "blends in" best.
 	 */
 	if (!passwords)
 		pwtype = Password_encryption;
@@ -855,8 +858,8 @@ CheckPWChallengeAuth(Port *port, const char **logdetail)
 	/*
 	 * If 'md5' authentication is allowed, decide whether to perform 'md5' or
 	 * 'scram-sha-256' authentication based on the type of password the user
-	 * has.  If there's a SCRAM password available then we'll do SCRAM, otherwise we
-	 * will fall back to trying to use MD5.
+	 * has.  If there's a SCRAM password available then we'll do SCRAM,
+	 * otherwise we will fall back to trying to use MD5.
 	 *
 	 * If MD5 authentication is not allowed, always use SCRAM.  If the user
 	 * had an MD5 password, CheckSASLAuth() with the SCRAM mechanism will
@@ -885,7 +888,7 @@ CheckPWChallengeAuth(Port *port, const char **logdetail)
 			auth_result = CheckMD5Auth(port, (const char **) passwords, num_passwords, logdetail);
 		else
 			auth_result = CheckSASLAuth(&pg_be_scram_mech, port, (const char **) passwords, num_passwords,
-											logdetail);
+										logdetail);
 
 		for (i = 0; i < num_passwords; i++)
 		{
@@ -893,7 +896,7 @@ CheckPWChallengeAuth(Port *port, const char **logdetail)
 				pfree(passwords[i]);
 			else
 				ereport(DEBUG2,
-					(errmsg("Password %d was null", i)));
+						(errmsg("Password %d was null", i)));
 		}
 		pfree(passwords);
 	}

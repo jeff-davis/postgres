@@ -136,7 +136,7 @@ typedef struct
 {
 	uint8		StoredKey[SCRAM_MAX_KEY_LEN];
 	uint8		ServerKey[SCRAM_MAX_KEY_LEN];
-} scram_secret;
+}			scram_secret;
 
 typedef struct
 {
@@ -152,15 +152,15 @@ typedef struct
 	int			key_length;
 
 	/*
-	 * The salt and iterations must be the same for all
-	 * secrets since they are sent as part of the initial message
+	 * The salt and iterations must be the same for all secrets since they are
+	 * sent as part of the initial message
 	 */
 	int			iterations;
 	char	   *salt;			/* base64-encoded */
 	/* Array of possible secrets */
 	scram_secret *secrets;
 	int			num_secrets;
-	int			chosen_secret; /* secret chosen during final client message */
+	int			chosen_secret;	/* secret chosen during final client message */
 
 	/* Fields of the first message from client */
 	char		cbind_flag;
@@ -255,8 +255,8 @@ scram_init(Port *port, const char *selected_mech, const char **secrets, const in
 	scram_state *state;
 	bool		got_secret = false;
 	int			i;
-	int	iterations;
-	char *salt = NULL;			/* base64-encoded */
+	int			iterations;
+	char	   *salt = NULL;	/* base64-encoded */
 
 	state = (scram_state *) palloc0(sizeof(scram_state));
 	state->port = port;
@@ -303,12 +303,16 @@ scram_init(Port *port, const char *selected_mech, const char **secrets, const in
 				{
 					if (salt)
 					{
-						/* The stored iterations and salt must match or we cannot proceed, allow failure via mock */
+						/*
+						 * The stored iterations and salt must match or we
+						 * cannot proceed, allow failure via mock
+						 */
 						if (strcmp(salt, state->salt) || iterations != state->iterations)
 						{
 							ereport(WARNING, (errmsg("inconsistent salt or iterations for user \"%s\"",
-														state->port->user_name)));
-							got_secret = false; /* fail and allow mock creditials to be created */
+													 state->port->user_name)));
+							got_secret = false; /* fail and allow mock
+												 * creditials to be created */
 							pfree(state->secrets);
 							state->num_secrets = 0;
 							break;
@@ -318,15 +322,16 @@ scram_init(Port *port, const char *selected_mech, const char **secrets, const in
 					{
 						salt = state->salt;
 						iterations = state->iterations;
-						got_secret = true; /* We got at least one good SCRAM secret */
+						got_secret = true;	/* We got at least one good SCRAM
+											 * secret */
 					}
 				}
 				else
 				{
 					/*
-					* The password looked like a SCRAM secret, but could not be
-					* parsed.
-					*/
+					 * The password looked like a SCRAM secret, but could not
+					 * be parsed.
+					 */
 					ereport(LOG,
 							(errmsg("invalid SCRAM secret for user \"%s\"",
 									state->port->user_name)));
@@ -527,7 +532,7 @@ pg_be_scram_build_secret(const char *password, const char *salt)
 		if (pg_b64_decode(salt, strlen(salt), saltbuf, SCRAM_DEFAULT_SALT_LEN) == -1)
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg("could not decode SCRAM salt")));
+					 errmsg("could not decode SCRAM salt")));
 	}
 
 	result = scram_build_secret(PG_SHA256, SCRAM_SHA_256_KEY_LEN,
@@ -1176,8 +1181,10 @@ verify_client_proof(scram_state *state)
 	uint8		ClientKey[SCRAM_MAX_KEY_LEN];
 	uint8		client_StoredKey[SCRAM_MAX_KEY_LEN];
 	pg_hmac_ctx *ctx;
-	int			i, j;
+	int			i,
+				j;
 	const char *errstr = NULL;
+
 	/*
 	 * Calculate ClientSignature.  Note that we don't log directly a failure
 	 * here even when processing the calculations as this could involve a mock
@@ -1186,29 +1193,30 @@ verify_client_proof(scram_state *state)
 	for (j = 0; j < state->num_secrets; j++)
 	{
 		ctx = pg_hmac_create(state->hash_type);
-		elog(LOG, "Trying to verify password %d", j); // TODO: Convert to DEBUG2
+		elog(LOG, "Trying to verify password %d", j);
+//TODO: Convert to DEBUG2
 
-		if (pg_hmac_init(ctx, state->secrets[j].StoredKey, state->key_length) < 0 ||
-			pg_hmac_update(ctx,
-						(uint8 *) state->client_first_message_bare,
-						strlen(state->client_first_message_bare)) < 0 ||
-			pg_hmac_update(ctx, (uint8 *) ",", 1) < 0 ||
-			pg_hmac_update(ctx,
-						(uint8 *) state->server_first_message,
-						strlen(state->server_first_message)) < 0 ||
-			pg_hmac_update(ctx, (uint8 *) ",", 1) < 0 ||
-			pg_hmac_update(ctx,
-						(uint8 *) state->client_final_message_without_proof,
-						strlen(state->client_final_message_without_proof)) < 0 ||
-			pg_hmac_final(ctx, ClientSignature, state->key_length) < 0)
+			if (pg_hmac_init(ctx, state->secrets[j].StoredKey, state->key_length) < 0 ||
+				pg_hmac_update(ctx,
+							   (uint8 *) state->client_first_message_bare,
+							   strlen(state->client_first_message_bare)) < 0 ||
+				pg_hmac_update(ctx, (uint8 *) ",", 1) < 0 ||
+				pg_hmac_update(ctx,
+							   (uint8 *) state->server_first_message,
+							   strlen(state->server_first_message)) < 0 ||
+				pg_hmac_update(ctx, (uint8 *) ",", 1) < 0 ||
+				pg_hmac_update(ctx,
+							   (uint8 *) state->client_final_message_without_proof,
+							   strlen(state->client_final_message_without_proof)) < 0 ||
+				pg_hmac_final(ctx, ClientSignature, state->key_length) < 0)
 		{
-			// TODO: Convert to DEBUG2
+			/* TODO: Convert to DEBUG2 */
 			elog(LOG, "could not calculate client signature for secret %d", j);
 			pg_hmac_free(ctx);
 			continue;
 		}
 
-		// TODO: Convert to DEBUG2
+		/* TODO: Convert to DEBUG2 */
 		elog(LOG, "succeeded on %d password", j);
 
 		pg_hmac_free(ctx);
@@ -1222,8 +1230,9 @@ verify_client_proof(scram_state *state)
 					client_StoredKey, &errstr) < 0)
 			elog(ERROR, "could not hash stored key: %s", errstr);
 
-		if (memcmp(client_StoredKey, state->secrets[j].StoredKey, state->key_length) == 0) {
-			// TODO: Convert to DEBUG2
+		if (memcmp(client_StoredKey, state->secrets[j].StoredKey, state->key_length) == 0)
+		{
+			/* TODO: Convert to DEBUG2 */
 			elog(LOG, "Moving forward with Password %d", j);
 			state->chosen_secret = j;
 			return true;
