@@ -699,8 +699,7 @@ $ENV{"PGPASSWORD"} = 'md5';
 test_conn(
 	$node,
 	'user=regress_password_rollover_md5',
-	'md5',
-	0,
+	'md5', 0,
 	log_like => [
 		qr/connection authenticated: identity="regress_password_rollover_md5" method=md5/
 	]);
@@ -708,8 +707,7 @@ $ENV{"PGPASSWORD"} = 'md5_2';
 test_conn(
 	$node,
 	'user=regress_password_rollover_md5',
-	'md5',
-	0,
+	'md5', 0,
 	log_like => [
 		qr/connection authenticated: identity="regress_password_rollover_md5" method=md5/
 	]);
