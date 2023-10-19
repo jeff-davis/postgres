@@ -234,6 +234,10 @@ static bool MatchNamedCall(HeapTuple proctup, int nargs, List *argnames,
  * when a function has search_path set in proconfig. Add a search path cache
  * that can be used by recomputeNamespacePath().
  *
+ * The cache is also used to remember already-validated strings in
+ * check_search_path() to avoid the need to call SplitIdentifierString()
+ * repeatedly. In this case, the caller uses roleid=InvalidOid.
+ *
  * The search path cache is based on a wrapper around a simplehash hash table
  * (nsphash, defined below). The spcache wrapper deals with OOM while trying
  * to initialize a key, and also offers a more convenient API.
@@ -312,6 +316,21 @@ static uint32
 spcache_members(void)
 {
 	return SearchPathCache->members;
+}
+
+/*
+ * Look up entry in search path cache without inserting. Returns NULL if not
+ * present.
+ */
+static SearchPathCacheEntry *
+spcache_lookup(const char *searchPath, Oid roleid)
+{
+	SearchPathCacheKey		 cachekey = {
+		.searchPath					  = searchPath,
+		.roleid						  = roleid
+	};
+
+	return nsphash_lookup(SearchPathCache, cachekey);
 }
 
 /*
@@ -4633,9 +4652,10 @@ ResetTempTableNamespace(void)
 bool
 check_search_path(char **newval, void **extra, GucSource source)
 {
-	const char				*searchPath = *newval;
-	char					*rawname;
-	List					*namelist;
+	Oid			 roleid		= InvalidOid;
+	const char	*searchPath = *newval;
+	char		*rawname;
+	List		*namelist;
 
 	/*
 	 * We used to try to check that the named schemas exist, but there are
@@ -4644,6 +4664,24 @@ check_search_path(char **newval, void **extra, GucSource source)
 	 * here and so can't consult the system catalogs anyway.  So now, the only
 	 * requirement is syntactic validity of the identifier list.
 	 */
+
+	/*
+	 * Checking only the syntactic validity also allows us to use the search
+	 * path cache (if available) to avoid calling SplitIdentifierString() on
+	 * the same string repeatedly.
+	 */
+	if (SearchPathCacheContext != NULL)
+	{
+		spcache_init();
+
+		roleid = GetUserId();
+
+		if (spcache_lookup(searchPath, roleid) != NULL)
+			return true;
+
+		if (spcache_members() >= SPCACHE_RESET_THRESHOLD)
+			spcache_reset();
+	}
 
 	/*
 	 * Ensure validity check succeeds before creating cache entry.
@@ -4663,6 +4701,12 @@ check_search_path(char **newval, void **extra, GucSource source)
 
 	pfree(rawname);
 	list_free(namelist);
+
+	/* create empty cache entry */
+	if (SearchPathCacheContext != NULL)
+	{
+		(void) spcache_insert(searchPath, roleid);
+	}
 
 	return true;
 }
