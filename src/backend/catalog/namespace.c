@@ -240,7 +240,8 @@ static bool MatchNamedCall(HeapTuple proctup, int nargs, List *argnames,
  *
  * The search path cache is based on a wrapper around a simplehash hash table
  * (nsphash, defined below). The spcache wrapper deals with OOM while trying
- * to initialize a key, and also offers a more convenient API.
+ * to initialize a key, optimizes repeated lookups of the same key, and also
+ * offers a more convenient API.
  */
 
 static inline uint32
@@ -280,6 +281,7 @@ spcachekey_equal(SearchPathCacheKey a, SearchPathCacheKey b)
 #define SPCACHE_RESET_THRESHOLD		1024
 
 static nsphash_hash *SearchPathCache = NULL;
+static SearchPathCacheEntry *LastSearchPathCacheEntry = NULL;
 
 /*
  * Create search path cache.
@@ -308,6 +310,7 @@ spcache_reset(void)
 
 	MemoryContextReset(SearchPathCacheContext);
 	SearchPathCache = NULL;
+	LastSearchPathCacheEntry = NULL;
 
 	spcache_init();
 }
@@ -325,12 +328,25 @@ spcache_members(void)
 static SearchPathCacheEntry *
 spcache_lookup(const char *searchPath, Oid roleid)
 {
-	SearchPathCacheKey		 cachekey = {
-		.searchPath					  = searchPath,
-		.roleid						  = roleid
-	};
+	if (LastSearchPathCacheEntry &&
+		LastSearchPathCacheEntry->key.roleid == roleid &&
+		strcmp(LastSearchPathCacheEntry->key.searchPath, searchPath) == 0)
+	{
+		return LastSearchPathCacheEntry;
+	}
+	else
+	{
+		SearchPathCacheEntry	*entry;
+		SearchPathCacheKey		 cachekey = {
+			.searchPath					  = searchPath,
+			.roleid						  = roleid
+		};
 
-	return nsphash_lookup(SearchPathCache, cachekey);
+		entry = nsphash_lookup(SearchPathCache, cachekey);
+
+		LastSearchPathCacheEntry = entry;
+		return entry;
+	}
 }
 
 /*
@@ -342,48 +358,59 @@ spcache_lookup(const char *searchPath, Oid roleid)
 static SearchPathCacheEntry *
 spcache_insert(const char *searchPath, Oid roleid)
 {
-	SearchPathCacheEntry	*entry;
-	bool					 found;
-	SearchPathCacheKey		 cachekey = {
-		.searchPath					  = searchPath,
-		.roleid						  = roleid
-	};
-
-	entry = nsphash_insert(SearchPathCache, cachekey, &found);
-
-	/* ensure that key is initialized and the rest is zeroed */
-	if (!found)
+	if (LastSearchPathCacheEntry &&
+		LastSearchPathCacheEntry->key.roleid == roleid &&
+		strcmp(LastSearchPathCacheEntry->key.searchPath, searchPath) == 0)
 	{
-		size_t	 size = strlen(searchPath) + 1;
-		char	*newstr;
+		return LastSearchPathCacheEntry;
+	}
+	else
+	{
+		SearchPathCacheEntry	*entry;
+		bool					 found;
+		SearchPathCacheKey		 cachekey = {
+			.searchPath					  = searchPath,
+			.roleid						  = roleid
+		};
 
-		/* do not touch entry->status, used by simplehash */
-		entry->oidlist = NIL;
-		entry->finalPath = NIL;
-		entry->firstNS = InvalidOid;
-		entry->temp_missing = false;
+		entry = nsphash_insert(SearchPathCache, cachekey, &found);
 
-		newstr = MemoryContextAllocExtended(SearchPathCacheContext, size,
-											MCXT_ALLOC_NO_OOM);
-
-		/* if we can't initialize the key due to OOM, delete the entry */
-		if (newstr == NULL)
+		/* ensure that key is initialized and the rest is zeroed */
+		if (!found)
 		{
-			nsphash_delete_item(SearchPathCache, entry);
-			MemoryContextStats(TopMemoryContext);
-			ereport(ERROR,
-					(errcode(ERRCODE_OUT_OF_MEMORY),
-					 errmsg("out of memory"),
-					 errdetail("Failed on request of size %zu in memory context \"%s\".",
-							   size, SearchPathCacheContext->name)));
+			size_t	 size = strlen(searchPath) + 1;
+			char	*newstr;
+
+			/* do not touch entry->status, used by simplehash */
+			entry->oidlist = NIL;
+			entry->finalPath = NIL;
+			entry->firstNS = InvalidOid;
+			entry->temp_missing = false;
+
+			newstr = MemoryContextAllocExtended(SearchPathCacheContext, size,
+												MCXT_ALLOC_NO_OOM);
+
+			/* if we can't initialize the key due to OOM, delete the entry */
+			if (newstr == NULL)
+			{
+				nsphash_delete_item(SearchPathCache, entry);
+				MemoryContextStats(TopMemoryContext);
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("out of memory"),
+						 errdetail("Failed on request of size %zu in memory context \"%s\".",
+								   size, SearchPathCacheContext->name)));
+
+			}
+
+			memcpy(newstr, searchPath, size);
+			entry->key.searchPath = newstr;
+			entry->key.roleid = roleid;
 		}
 
-		memcpy(newstr, searchPath, size);
-		entry->key.searchPath = newstr;
-		entry->key.roleid = roleid;
+		LastSearchPathCacheEntry = entry;
+		return entry;
 	}
-
-	return entry;
 }
 
 /*
