@@ -1264,6 +1264,10 @@ guc_var_compare(const void *a, const void *b)
 int
 guc_name_compare(const char *namea, const char *nameb)
 {
+	/* fast path if the name matches exactly */
+	if (strcmp(namea, nameb) == 0)
+		return 0;
+
 	/*
 	 * The temptation to use strcasecmp() here must be resisted, because the
 	 * hash mapping has to remain stable across setlocale() calls. So, build
