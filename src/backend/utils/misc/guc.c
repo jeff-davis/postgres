@@ -33,6 +33,7 @@
 #include "catalog/objectaccess.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_parameter_acl.h"
+#include "common/hashfn.h"
 #include "guc_internal.h"
 #include "libpq/pqformat.h"
 #include "parser/scansup.h"
@@ -200,7 +201,7 @@ static MemoryContext GUCMemoryContext;
  */
 typedef struct
 {
-	const char *gucname;		/* hash key */
+	const char *guc_lc_name;		/* hash key */
 	struct config_generic *gucvar;	/* -> GUC's defining structure */
 
 	/* needed by simplehash */
@@ -266,7 +267,7 @@ static bool call_enum_check_hook(struct config_enum *conf, int *newval,
 #define SH_PREFIX		GUCHash
 #define SH_ELEMENT_TYPE	GUCHashEntry
 #define SH_KEY_TYPE		const char *
-#define	SH_KEY			gucname
+#define	SH_KEY			guc_lc_name
 #define SH_HASH_KEY(tb, key)   	guc_name_hash(key)
 #define SH_EQUAL(tb, a, b)		(guc_name_compare(a, b) == 0)
 #define	SH_SCOPE		static inline
@@ -899,6 +900,19 @@ get_guc_variables(int *num_vars)
 }
 
 
+static char *
+strdup_case_fold(const char *name)
+{
+	char *newstr = MemoryContextStrdup(GUCMemoryContext, name);
+
+	for(char *p = newstr; *p; p++)
+		if (*p >= 'A' && *p <= 'Z')
+			*p += 'a' - 'A';
+
+	return newstr;
+}
+
+
 /*
  * Build the GUC hash table.  This is split out so that help_config.c can
  * extract all the variables without running all of InitializeGUCOptions.
@@ -930,6 +944,8 @@ build_guc_variables(void)
 
 		/* Rather than requiring vartype to be filled in by hand, do this: */
 		conf->gen.vartype = PGC_BOOL;
+
+		conf->gen.lc_name = strdup_case_fold(conf->gen.name);
 		num_vars++;
 	}
 
@@ -938,6 +954,8 @@ build_guc_variables(void)
 		struct config_int *conf = &ConfigureNamesInt[i];
 
 		conf->gen.vartype = PGC_INT;
+
+		conf->gen.lc_name = strdup_case_fold(conf->gen.name);
 		num_vars++;
 	}
 
@@ -946,6 +964,8 @@ build_guc_variables(void)
 		struct config_real *conf = &ConfigureNamesReal[i];
 
 		conf->gen.vartype = PGC_REAL;
+
+		conf->gen.lc_name = strdup_case_fold(conf->gen.name);
 		num_vars++;
 	}
 
@@ -954,6 +974,8 @@ build_guc_variables(void)
 		struct config_string *conf = &ConfigureNamesString[i];
 
 		conf->gen.vartype = PGC_STRING;
+
+		conf->gen.lc_name = strdup_case_fold(conf->gen.name);
 		num_vars++;
 	}
 
@@ -962,6 +984,8 @@ build_guc_variables(void)
 		struct config_enum *conf = &ConfigureNamesEnum[i];
 
 		conf->gen.vartype = PGC_ENUM;
+
+		conf->gen.lc_name = strdup_case_fold(conf->gen.name);
 		num_vars++;
 	}
 
@@ -976,7 +1000,7 @@ build_guc_variables(void)
 	{
 		struct config_generic *gucvar = &ConfigureNamesBool[i].gen;
 
-		hentry = GUCHash_insert(guc_hashtab, gucvar->name, &found);
+		hentry = GUCHash_insert(guc_hashtab, gucvar->lc_name, &found);
 
 		Assert(!found);
 		hentry->gucvar = gucvar;
@@ -986,7 +1010,7 @@ build_guc_variables(void)
 	{
 		struct config_generic *gucvar = &ConfigureNamesInt[i].gen;
 
-		hentry = GUCHash_insert(guc_hashtab, gucvar->name, &found);
+		hentry = GUCHash_insert(guc_hashtab, gucvar->lc_name, &found);
 
 		Assert(!found);
 		hentry->gucvar = gucvar;
@@ -996,7 +1020,7 @@ build_guc_variables(void)
 	{
 		struct config_generic *gucvar = &ConfigureNamesReal[i].gen;
 
-		hentry = GUCHash_insert(guc_hashtab, gucvar->name, &found);
+		hentry = GUCHash_insert(guc_hashtab, gucvar->lc_name, &found);
 
 		Assert(!found);
 		hentry->gucvar = gucvar;
@@ -1006,7 +1030,7 @@ build_guc_variables(void)
 	{
 		struct config_generic *gucvar = &ConfigureNamesString[i].gen;
 
-		hentry = GUCHash_insert(guc_hashtab, gucvar->name, &found);
+		hentry = GUCHash_insert(guc_hashtab, gucvar->lc_name, &found);
 
 		Assert(!found);
 		hentry->gucvar = gucvar;
@@ -1016,7 +1040,7 @@ build_guc_variables(void)
 	{
 		struct config_generic *gucvar = &ConfigureNamesEnum[i].gen;
 
-		hentry = GUCHash_insert(guc_hashtab, gucvar->name, &found);
+		hentry = GUCHash_insert(guc_hashtab, gucvar->lc_name, &found);
 
 		Assert(!found);
 		hentry->gucvar = gucvar;
@@ -1035,7 +1059,7 @@ add_guc_variable(struct config_generic *var, int elevel)
 	GUCHashEntry *hentry;
 	bool		found;
 
-	hentry = GUCHash_insert(guc_hashtab, var->name, &found);
+	hentry = GUCHash_insert(guc_hashtab, var->lc_name, &found);
 
 	if (unlikely(hentry == NULL))
 	{
@@ -1117,7 +1141,8 @@ add_placeholder_variable(const char *name, int elevel)
 	gen->short_desc = "GUC placeholder variable";
 	gen->flags = GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE | GUC_CUSTOM_PLACEHOLDER;
 	gen->vartype = PGC_STRING;
-
+	gen->lc_name = strdup_case_fold(gen->name);
+	
 	/*
 	 * The char* is allocated at the end of the struct since we have no
 	 * 'static' place to point to.  Note that the current value, as well as
@@ -1156,11 +1181,17 @@ find_option(const char *name, bool create_placeholders, bool skip_errors,
 {
 	GUCHashEntry *hentry;
 	int			i;
+	char lc_name[256];
 
 	Assert(name);
 
+	strlcpy(lc_name, name, 256);
+	for(char *p = lc_name; *p; p++)
+		if (*p >= 'A' && *p <= 'Z')
+			*p += 'a' - 'A';
+
 	/* Look it up using the hash table. */
-	hentry = GUCHash_lookup(guc_hashtab, name);
+	hentry = GUCHash_lookup(guc_hashtab, lc_name);
 
 	if (hentry)
 		return hentry->gucvar;
@@ -1253,32 +1284,7 @@ guc_var_compare(const void *a, const void *b)
 int
 guc_name_compare(const char *namea, const char *nameb)
 {
-	/* fast path if the name matches exactly */
-	if (strcmp(namea, nameb) == 0)
-		return 0;
-
-	/*
-	 * The temptation to use strcasecmp() here must be resisted, because the
-	 * hash mapping has to remain stable across setlocale() calls. So, build
-	 * our own with a simple ASCII-only downcasing.
-	 */
-	while (*namea && *nameb)
-	{
-		char		cha = *namea++;
-		char		chb = *nameb++;
-
-		if (cha >= 'A' && cha <= 'Z')
-			cha += 'a' - 'A';
-		if (chb >= 'A' && chb <= 'Z')
-			chb += 'a' - 'A';
-		if (cha != chb)
-			return cha - chb;
-	}
-	if (*namea)
-		return 1;				/* a is longer */
-	if (*nameb)
-		return -1;				/* b is longer */
-	return 0;
+	return strcmp(namea, nameb);
 }
 
 /*
@@ -1287,21 +1293,10 @@ guc_name_compare(const char *namea, const char *nameb)
 static uint32
 guc_name_hash(const char *name)
 {
-	uint32		result = 0;
+	const unsigned char *bytes = (const unsigned char *)name;
+	int                  blen  = strlen(name);
 
-	while (*name)
-	{
-		char		ch = *name++;
-
-		/* Case-fold in the same way as guc_name_compare */
-		if (ch >= 'A' && ch <= 'Z')
-			ch += 'a' - 'A';
-
-		/* Merge into hash ... not very bright, but it needn't be */
-		result = pg_rotate_left32(result, 5);
-		result ^= (uint32) ch;
-	}
-	return result;
+	return hash_bytes(bytes, blen);
 }
 
 /*
@@ -1587,6 +1582,7 @@ InitializeGUCOptionsFromEnvironment(void)
 static void
 InitializeOneGUCOption(struct config_generic *gconf)
 {
+	gconf->lc_name = strdup_case_fold(gconf->name);
 	gconf->status = 0;
 	gconf->source = PGC_S_DEFAULT;
 	gconf->reset_source = PGC_S_DEFAULT;
@@ -4738,14 +4734,20 @@ define_custom_variable(struct config_generic *variable)
 	const char *name = variable->name;
 	GUCHashEntry *hentry;
 	struct config_string *pHolder;
+	char lc_name[256];
 
 	/* Check mapping between initial and default value */
 	Assert(check_GUC_init(variable));
 
+	strlcpy(lc_name, name, 256);
+	for(char *p = lc_name; *p; p++)
+		if (*p >= 'A' && *p <= 'Z')
+			*p += 'a' - 'A';
+
 	/*
 	 * See if there's a placeholder by the same name.
 	 */
-	hentry = GUCHash_lookup(guc_hashtab, name);
+	hentry = GUCHash_lookup(guc_hashtab, lc_name);
 
 	if (hentry == NULL)
 	{
@@ -4780,7 +4782,7 @@ define_custom_variable(struct config_generic *variable)
 	 * Replace the placeholder in the hash table.  We aren't changing the name
 	 * (at least up to case-folding), so the hash value is unchanged.
 	 */
-	hentry->gucname = name;
+	hentry->guc_lc_name = variable->lc_name;
 	hentry->gucvar = variable;
 
 	/*
@@ -5108,7 +5110,7 @@ MarkGUCPrefixReserved(const char *className)
 					 errdetail("\"%s\" is now a reserved prefix.",
 							   className)));
 			/* Remove it from the hash table */
-			GUCHash_delete(guc_hashtab, var->name);
+			GUCHash_delete(guc_hashtab, var->lc_name);
 
 			/* Remove it from any lists it's in, too */
 			RemoveGUCFromLists(var);
