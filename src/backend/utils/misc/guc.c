@@ -269,7 +269,7 @@ static bool call_enum_check_hook(struct config_enum *conf, int *newval,
 #define SH_KEY_TYPE		const char *
 #define	SH_KEY			guc_lc_name
 #define SH_HASH_KEY(tb, key)   	guc_name_hash(key)
-#define SH_EQUAL(tb, a, b)		(guc_name_compare(a, b) == 0)
+#define SH_EQUAL(tb, a, b)		(strcmp(a, b) == 0)
 #define	SH_SCOPE		static inline
 #define SH_DECLARE
 #define SH_DEFINE
@@ -1185,12 +1185,17 @@ find_option(const char *name, bool create_placeholders, bool skip_errors,
 
 	Assert(name);
 
+	/* Look it up using the hash table. */
+	hentry = GUCHash_lookup(guc_hashtab, name);
+
+	if (hentry)
+		return hentry->gucvar;
+
 	strlcpy(lc_name, name, 256);
 	for(char *p = lc_name; *p; p++)
 		if (*p >= 'A' && *p <= 'Z')
 			*p += 'a' - 'A';
 
-	/* Look it up using the hash table. */
 	hentry = GUCHash_lookup(guc_hashtab, lc_name);
 
 	if (hentry)
