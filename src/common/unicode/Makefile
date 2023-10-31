@@ -21,7 +21,7 @@ CPPFLAGS += $(ICU_CFLAGS)
 # By default, do nothing.
 all:
 
-update-unicode: unicode_category_table.h unicode_norm_table.h unicode_nonspacing_table.h unicode_east_asian_fw_table.h unicode_normprops_table.h unicode_norm_hashfunc.h unicode_version.h
+update-unicode: unicode_case_table.h unicode_category_table.h unicode_norm_table.h unicode_nonspacing_table.h unicode_east_asian_fw_table.h unicode_normprops_table.h unicode_norm_hashfunc.h unicode_version.h
 	mv $^ $(top_srcdir)/src/include/common/
 	$(MAKE) category-check
 	$(MAKE) normalization-check
@@ -34,6 +34,9 @@ UnicodeData.txt EastAsianWidth.txt DerivedNormalizationProps.txt CompositionExcl
 
 unicode_version.h: generate-unicode_version.pl
 	$(PERL) $< --version $(UNICODE_VERSION)
+
+unicode_case_table.h: generate-unicode_case_table.pl UnicodeData.txt SpecialCasing.txt
+	$(PERL) $<
 
 unicode_category_table.h: generate-unicode_category_table.pl UnicodeData.txt
 	$(PERL) $<
@@ -60,6 +63,8 @@ category-check: category_test
 
 normalization-check: norm_test
 	./norm_test
+
+category_test: case_test.o ../unicode_case.o | submake-common
 
 category_test: category_test.o ../unicode_category.o | submake-common
 
