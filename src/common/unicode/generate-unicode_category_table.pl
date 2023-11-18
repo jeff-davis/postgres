@@ -48,21 +48,30 @@ while (my $line = <$FH>)
 	my $category = $elts[2];
 
 	die "codepoint out of range" if $code > 0x10FFFF;
-	die "unassigned codepoint in UnicodeData.txt" if $category eq $CATEGORY_UNASSIGNED;
+	die "unassigned codepoint in UnicodeData.txt"
+	  if $category eq $CATEGORY_UNASSIGNED;
 
-	if (!defined($range_start)) {
+	if (!defined($range_start))
+	{
 		my $code_str = sprintf "0x%06x", $code;
-		die if defined($range_end) || defined($range_category) || defined($gap_category);
+		die
+		  if defined($range_end)
+		  || defined($range_category)
+		  || defined($gap_category);
 		die "unexpected first entry <..., Last>" if ($name =~ /Last>/);
-		die "expected 0x000000 for first entry, got $code_str" if $code != 0x000000;
+		die "expected 0x000000 for first entry, got $code_str"
+		  if $code != 0x000000;
 
 		# initialize
 		$range_start = $code;
 		$range_end = $code;
 		$range_category = $category;
-		if ($name =~ /<.*, First>$/) {
+		if ($name =~ /<.*, First>$/)
+		{
 			$gap_category = $category;
-		} else {
+		}
+		else
+		{
 			$gap_category = $CATEGORY_UNASSIGNED;
 		}
 		next;
@@ -71,10 +80,17 @@ while (my $line = <$FH>)
 	# Gap in codepoints detected. If it's a different category than
 	# the current range, emit the current range and initialize a new
 	# range representing the gap.
-	if ($range_end + 1 != $code && $range_category ne $gap_category) {
-		if ($range_category ne $CATEGORY_UNASSIGNED) {
-			push(@category_ranges, {start => $range_start, end => $range_end,
-									category => $range_category});
+	if ($range_end + 1 != $code && $range_category ne $gap_category)
+	{
+		if ($range_category ne $CATEGORY_UNASSIGNED)
+		{
+			push(
+				@category_ranges,
+				{
+					start => $range_start,
+					end => $range_end,
+					category => $range_category
+				});
 		}
 		$range_start = $range_end + 1;
 		$range_end = $code - 1;
@@ -82,27 +98,39 @@ while (my $line = <$FH>)
 	}
 
 	# different category; new range
-	if ($range_category ne $category) {
-		if ($range_category ne $CATEGORY_UNASSIGNED) {
-			push(@category_ranges, {start => $range_start, end => $range_end,
-									category => $range_category});
+	if ($range_category ne $category)
+	{
+		if ($range_category ne $CATEGORY_UNASSIGNED)
+		{
+			push(
+				@category_ranges,
+				{
+					start => $range_start,
+					end => $range_end,
+					category => $range_category
+				});
 		}
 		$range_start = $code;
 		$range_end = $code;
 		$range_category = $category;
 	}
 
-	if ($name =~ /<.*, First>$/) {
-		die "<..., First> entry unexpectedly follows another <..., First> entry"
+	if ($name =~ /<.*, First>$/)
+	{
+		die
+		  "<..., First> entry unexpectedly follows another <..., First> entry"
 		  if $gap_category ne $CATEGORY_UNASSIGNED;
 		$gap_category = $category;
 	}
-	elsif ($name =~ /<.*, Last>$/) {
-		die "<..., First> and <..., Last> entries have mismatching general category"
+	elsif ($name =~ /<.*, Last>$/)
+	{
+		die
+		  "<..., First> and <..., Last> entries have mismatching general category"
 		  if $gap_category ne $category;
 		$gap_category = $CATEGORY_UNASSIGNED;
 	}
-	else {
+	else
+	{
 		die "unexpected entry found between <..., First> and <..., Last>"
 		  if $gap_category ne $CATEGORY_UNASSIGNED;
 	}
@@ -115,12 +143,16 @@ die "<..., First> entry with no corresponding <..., Last> entry"
   if $gap_category ne $CATEGORY_UNASSIGNED;
 
 # emit final range
-if ($range_category ne $CATEGORY_UNASSIGNED) {
-	push(@category_ranges, {start => $range_start, end => $range_end,
-							category => $range_category});
+if ($range_category ne $CATEGORY_UNASSIGNED)
+{
+	push(
+		@category_ranges,
+		{
+			start => $range_start,
+			end => $range_end,
+			category => $range_category
+		});
 }
-
-my $num_ranges = scalar @category_ranges;
 
 # See: https://www.unicode.org/reports/tr44/#General_Category_Values
 my $categories = {
@@ -156,11 +188,110 @@ my $categories = {
 	Pf => 'PG_U_FINAL_PUNCTUATION'
 };
 
-# Start writing out the output files
+# Find White_Space and Hex_Digit characters
+my @white_space = ();
+my @hex_digits = ();
+my @join_control = ();
+open($FH, '<', "$output_path/PropList.txt")
+  or die "Could not open $output_path/PropList.txt: $!.";
+while (my $line = <$FH>)
+{
+	my $pattern = qr/([0-9A-F\.]+)\s*;\s*(\w+)\s*#.*/s;
+	next unless $line =~ $pattern;
+
+	my $code = $line =~ s/$pattern/$1/rg;
+	my $property = $line =~ s/$pattern/$2/rg;
+	my $start;
+	my $end;
+
+	if ($code =~ /\.\./)
+	{
+		# code range
+		my @sp = split /\.\./, $code;
+		$start = hex($sp[0]);
+		$end = hex($sp[1]);
+	}
+	else
+	{
+		# single code point
+		$start = hex($code);
+		$end = hex($code);
+	}
+
+	if ($property eq "White_Space")
+	{
+		push @white_space, { start => $start, end => $end };
+	}
+	elsif ($property eq "Hex_Digit")
+	{
+		push @hex_digits, { start => $start, end => $end };
+	}
+	elsif ($property eq "Join_Control")
+	{
+		push @join_control, { start => $start, end => $end };
+	}
+}
+
+# Find Alphabetic, Lowercase, and Uppercase characters
+my @alphabetic = ();
+my @lowercase = ();
+my @uppercase = ();
+open($FH, '<', "$output_path/DerivedCoreProperties.txt")
+  or die "Could not open $output_path/DerivedCoreProperties.txt: $!.";
+while (my $line = <$FH>)
+{
+	my $pattern = qr/^([0-9A-F\.]+)\s*;\s*(\w+)\s*#.*$/s;
+	next unless $line =~ $pattern;
+
+	my $code = $line =~ s/$pattern/$1/rg;
+	my $property = $line =~ s/$pattern/$2/rg;
+	my $start;
+	my $end;
+
+	if ($code =~ /\.\./)
+	{
+		# code range
+		my @sp = split /\.\./, $code;
+		die "line: {$line} code: {$code} sp[0] {$sp[0]} sp[1] {$sp[1]}"
+		  unless $sp[0] =~ /^[0-9A-F]+$/ && $sp[1] =~ /^[0-9A-F]+$/;
+		$start = hex($sp[0]);
+		$end = hex($sp[1]);
+	}
+	else
+	{
+		die "line: {$line} code: {$code}" unless $code =~ /^[0-9A-F]+$/;
+		# single code point
+		$start = hex($code);
+		$end = hex($code);
+	}
+
+	if ($property eq "Alphabetic")
+	{
+		push @alphabetic, { start => $start, end => $end };
+	}
+	elsif ($property eq "Lowercase")
+	{
+		push @lowercase, { start => $start, end => $end };
+	}
+	elsif ($property eq "Uppercase")
+	{
+		push @uppercase, { start => $start, end => $end };
+	}
+}
+
+my $num_category_ranges = scalar @category_ranges;
+my $num_alphabetic_ranges = scalar @alphabetic;
+my $num_lowercase_ranges = scalar @lowercase;
+my $num_uppercase_ranges = scalar @uppercase;
+my $num_white_space_ranges = scalar @white_space;
+my $num_hex_digit_ranges = scalar @hex_digits;
+my $num_join_control_ranges = scalar @join_control;
+
+# Start writing out the output file
 open my $OT, '>', $output_table_file
   or die "Could not open output file $output_table_file: $!\n";
 
-print $OT <<HEADER;
+print $OT <<"EOS";
 /*-------------------------------------------------------------------------
  *
  * unicode_category_table.h
@@ -188,18 +319,104 @@ typedef struct
 	uint8		category;		/* General Category */
 }			pg_category_range;
 
-/* table of Unicode codepoint ranges and their categories */
-static const pg_category_range unicode_categories[$num_ranges] =
+typedef struct
 {
-HEADER
+	uint32		first;			/* Unicode codepoint */
+	uint32		last;			/* Unicode codepoint */
+}			pg_unicode_range;
 
-my $firsttime = 1;
-foreach my $range (@category_ranges) {
-	printf $OT ",\n" unless $firsttime;
-	$firsttime = 0;
+EOS
 
-	my $category = $categories->{$range->{category}};
+print $OT <<"EOS";
+/* table of Unicode codepoint ranges and their categories */
+static const pg_category_range unicode_categories[$num_category_ranges] =
+{
+EOS
+
+foreach my $range (@category_ranges)
+{
+	my $category = $categories->{ $range->{category} };
 	die "category missing: $range->{category}" unless $category;
-	printf $OT "\t{0x%06x, 0x%06x, %s}", $range->{start}, $range->{end}, $category;
+	printf $OT "\t{0x%06x, 0x%06x, %s},\n", $range->{start}, $range->{end},
+	  $category;
 }
-print $OT "\n};\n";
+
+print $OT "};\n\n";
+
+print $OT <<"EOS";
+/* table of Unicode codepoint ranges of Alphabetic characters */
+static const pg_unicode_range unicode_alphabetic[$num_alphabetic_ranges] =
+{
+EOS
+
+foreach my $range (@alphabetic)
+{
+	printf $OT "\t{0x%06x, 0x%06x},\n", $range->{start}, $range->{end};
+}
+
+print $OT "};\n\n";
+
+print $OT <<"EOS";
+/* table of Unicode codepoint ranges of Lowercase characters */
+static const pg_unicode_range unicode_lowercase[$num_lowercase_ranges] =
+{
+EOS
+
+foreach my $range (@lowercase)
+{
+	printf $OT "\t{0x%06x, 0x%06x},\n", $range->{start}, $range->{end};
+}
+
+print $OT "};\n\n";
+
+print $OT <<"EOS";
+/* table of Unicode codepoint ranges of Uppercase characters */
+static const pg_unicode_range unicode_uppercase[$num_uppercase_ranges] =
+{
+EOS
+
+foreach my $range (@uppercase)
+{
+	printf $OT "\t{0x%06x, 0x%06x},\n", $range->{start}, $range->{end};
+}
+
+print $OT "};\n\n";
+
+print $OT <<"EOS";
+/* table of Unicode codepoint ranges of White_Space characters */
+static const pg_unicode_range unicode_white_space[$num_white_space_ranges] =
+{
+EOS
+
+foreach my $range (@white_space)
+{
+	printf $OT "\t{0x%06x, 0x%06x},\n", $range->{start}, $range->{end};
+}
+
+print $OT "};\n\n";
+
+print $OT <<"EOS";
+/* table of Unicode codepoint ranges of Hex_Digit characters */
+static const pg_unicode_range unicode_hex_digit[$num_hex_digit_ranges] =
+{
+EOS
+
+foreach my $range (@hex_digits)
+{
+	printf $OT "\t{0x%06x, 0x%06x},\n", $range->{start}, $range->{end};
+}
+
+print $OT "};\n\n";
+
+print $OT <<"EOS";
+/* table of Unicode codepoint ranges of Join_Control characters */
+static const pg_unicode_range unicode_join_control[$num_join_control_ranges] =
+{
+EOS
+
+foreach my $range (@join_control)
+{
+	printf $OT "\t{0x%06x, 0x%06x},\n", $range->{start}, $range->{end};
+}
+
+print $OT "};\n";
