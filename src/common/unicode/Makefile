@@ -30,7 +30,7 @@ update-unicode: unicode_case_table.h unicode_category_table.h unicode_east_asian
 # These files are part of the Unicode Character Database. Download
 # them on demand.  The dependency on Makefile.global is for
 # UNICODE_VERSION.
-CompositionExclusions.txt DerivedNormalizationProps.txt EastAsianWidth.txt NormalizationTest.txt SpecialCasing.txt UnicodeData.txt: $(top_builddir)/src/Makefile.global
+CompositionExclusions.txt DerivedCoreProperties.txt DerivedNormalizationProps.txt EastAsianWidth.txt NormalizationTest.txt SpecialCasing.txt UnicodeData.txt: $(top_builddir)/src/Makefile.global
 	$(DOWNLOAD) https://www.unicode.org/Public/$(UNICODE_VERSION)/ucd/$(@F)
 
 unicode_version.h: generate-unicode_version.pl
@@ -39,7 +39,7 @@ unicode_version.h: generate-unicode_version.pl
 unicode_case_table.h: generate-unicode_case_table.pl UnicodeData.txt SpecialCasing.txt
 	$(PERL) $<
 
-unicode_category_table.h: generate-unicode_category_table.pl UnicodeData.txt
+unicode_category_table.h: generate-unicode_category_table.pl DerivedCoreProperties.txt PropList.txt UnicodeData.txt
 	$(PERL) $<
 
 # Generation of conversion tables used for string normalization with
@@ -91,4 +91,4 @@ clean:
 	rm -f $(OBJS) category_test category_test.o norm_test norm_test.o
 
 distclean: clean
-	rm -f CompositionExclusions.txt DerivedNormalizationProps.txt EastAsianWidth.txt NormalizationTest.txt SpecialCasing.txt UnicodeData.txt norm_test_table.h unicode_case_table.h unicode_category_table.h unicode_norm_table.h
+	rm -f CompositionExclusions.txt DerivedCoreProperties.txt DerivedNormalizationProps.txt EastAsianWidth.txt NormalizationTest.txt SpecialCasing.txt UnicodeData.txt norm_test_table.h unicode_case_table.h unicode_category_table.h unicode_norm_table.h

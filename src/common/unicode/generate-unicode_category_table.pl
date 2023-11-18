@@ -156,6 +156,27 @@ my $categories = {
 	Pf => 'PG_U_FINAL_PUNCTUATION'
 };
 
+# Find White_Space and Hex_Digit characters
+my %white_space = ();
+my %hex_digits = ();
+open($FH, '<', "$output_path/PropList.txt")
+  or die "Could not open $output_path/PropList.txt: $!.";
+while (my $line = <$FH>)
+{
+
+}
+
+# Find Alphabetic, Lowercase, and Uppercase characters
+my %alphabetic = ();
+my %lowercase = ();
+my %uppercase = ();
+open($FH, '<', "$output_path/DerivedCoreProperties.txt")
+  or die "Could not open $output_path/DerivedCoreProperties.txt: $!.";
+while (my $line = <$FH>)
+{
+
+}
+
 # Start writing out the output files
 open my $OT, '>', $output_table_file
   or die "Could not open output file $output_table_file: $!\n";
