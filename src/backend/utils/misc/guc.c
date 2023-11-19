@@ -265,6 +265,7 @@ static bool call_string_check_hook(struct config_string *conf, char **newval,
 								   void **extra, GucSource source, int elevel);
 static bool call_enum_check_hook(struct config_enum *conf, int *newval,
 								 void **extra, GucSource source, int elevel);
+static bool guc_is_name_key(const char *name);
 static char * guc_name_key(int elevel, const char *name);
 
 #define SH_PREFIX		GUCHash
@@ -904,6 +905,22 @@ get_guc_variables(int *num_vars)
 
 
 /*
+ * Check if name is already case-folded.
+ */
+static bool
+guc_is_name_key(const char *name)
+{
+	for(const char *p = name; *p; p++)
+	{
+		if (*p >= 'A' && *p <= 'Z')
+			return false;
+	}
+
+	return true;
+}
+
+
+/*
  * Convert to key by case folding.
  */
 static char *
@@ -953,7 +970,11 @@ build_guc_variables(void)
 		/* Rather than requiring vartype to be filled in by hand, do this: */
 		conf->gen.vartype = PGC_BOOL;
 
-		conf->gen.name_key = guc_name_key(ERROR, conf->gen.name);
+		if (guc_is_name_key(conf->gen.name))
+			conf->gen.name_key = conf->gen.name;
+		else
+			conf->gen.name_key = guc_name_key(ERROR, conf->gen.name);
+
 		num_vars++;
 	}
 
@@ -963,7 +984,11 @@ build_guc_variables(void)
 
 		conf->gen.vartype = PGC_INT;
 
-		conf->gen.name_key = guc_name_key(ERROR, conf->gen.name);
+		if (guc_is_name_key(conf->gen.name))
+			conf->gen.name_key = conf->gen.name;
+		else
+			conf->gen.name_key = guc_name_key(ERROR, conf->gen.name);
+
 		num_vars++;
 	}
 
@@ -973,7 +998,11 @@ build_guc_variables(void)
 
 		conf->gen.vartype = PGC_REAL;
 
-		conf->gen.name_key = guc_name_key(ERROR, conf->gen.name);
+		if (guc_is_name_key(conf->gen.name))
+			conf->gen.name_key = conf->gen.name;
+		else
+			conf->gen.name_key = guc_name_key(ERROR, conf->gen.name);
+
 		num_vars++;
 	}
 
@@ -983,7 +1012,11 @@ build_guc_variables(void)
 
 		conf->gen.vartype = PGC_STRING;
 
-		conf->gen.name_key = guc_name_key(ERROR, conf->gen.name);
+		if (guc_is_name_key(conf->gen.name))
+			conf->gen.name_key = conf->gen.name;
+		else
+			conf->gen.name_key = guc_name_key(ERROR, conf->gen.name);
+
 		num_vars++;
 	}
 
@@ -993,7 +1026,11 @@ build_guc_variables(void)
 
 		conf->gen.vartype = PGC_ENUM;
 
-		conf->gen.name_key = guc_name_key(ERROR, conf->gen.name);
+		if (guc_is_name_key(conf->gen.name))
+			conf->gen.name_key = conf->gen.name;
+		else
+			conf->gen.name_key = guc_name_key(ERROR, conf->gen.name);
+
 		num_vars++;
 	}
 
@@ -1212,13 +1249,18 @@ add_placeholder_variable(const char *constname, int elevel)
 		return NULL;
 	}
 
-	name_key = guc_name_key(elevel, name);
-	if (name_key == NULL)
+	if (!guc_is_name_key(name))
 	{
-		guc_free(name);
-		guc_free(var);
-		return NULL;
+		name_key = guc_name_key(elevel, name);
+		if (name_key == NULL)
+		{
+			guc_free(name);
+			guc_free(var);
+			return NULL;
+		}
 	}
+	else
+		name_key = name;
 
 	gen->name = name;
 	gen->context = PGC_USERSET;
@@ -1237,7 +1279,8 @@ add_placeholder_variable(const char *constname, int elevel)
 
 	if (!add_guc_variable((struct config_generic *) var, elevel))
 	{
-		guc_free(name_key);
+		if (name_key != name)
+			guc_free(name_key);
 		guc_free(name);
 		guc_free(var);
 		return NULL;
@@ -4796,7 +4839,10 @@ init_custom_variable(const char *name,
 	memset(gen, 0, sz);
 
 	gen->name = guc_strdup(ERROR, name);
-	gen->name_key = guc_name_key(ERROR, name);
+	if (guc_is_name_key(name))
+		gen->name_key = name;
+	else
+		gen->name_key = guc_name_key(ERROR, name);
 	gen->context = context;
 	gen->group = CUSTOM_OPTIONS;
 	gen->short_desc = short_desc;

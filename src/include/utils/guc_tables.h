@@ -160,7 +160,8 @@ struct config_generic
 	int			flags;			/* flag bits, see guc.h */
 	/* variable fields, initialized at runtime: */
 	enum config_type vartype;	/* type of variable (set only at startup) */
-	const char *name_key;		/* name folded to lower case */
+	const char *name_key;		/* name folded to lower case; alias of name if
+								 * equal */
 	int			status;			/* status bits, see below */
 	GucSource	source;			/* source of the current actual value */
 	GucSource	reset_source;	/* source of the reset_value */
