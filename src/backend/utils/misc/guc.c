@@ -1310,17 +1310,24 @@ find_option(const char *name, bool create_placeholders, bool skip_errors,
 {
 	GUCHashEntry *hentry;
 	int			i;
-	char *name_key;
 
 	Assert(name);
 
-	/* Look it up using the hash table. */
-	name_key = guc_name_key(elevel, name);
-	if (name_key == NULL)
-		return NULL;
-	hentry = GUCHash_lookup(guc_hashtab, name_key);
-	guc_free(name_key);
-	name_key = NULL;
+	/*
+	 * Look it up using the hash table without case-folding first, as an
+	 * optimization.
+	 */
+	hentry = GUCHash_lookup(guc_hashtab, name);
+
+	/* Try again with case folding. */
+	if (!hentry)
+	{
+		char *name_key = guc_name_key(elevel, name);
+		if (name_key == NULL)
+			return NULL;
+		hentry = GUCHash_lookup(guc_hashtab, name_key);
+		guc_free(name_key);
+	}
 
 	if (hentry)
 		return hentry->gucvar;
