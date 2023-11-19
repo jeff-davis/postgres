@@ -171,11 +171,10 @@ typedef struct SearchPathCacheEntry
 	List	   *oidlist;		/* namespace OIDs that pass ACL checks */
 	List	   *finalPath;		/* cached final computed search path */
 	Oid			firstNS;		/* first explicitly-listed namespace */
+	uint32		hash;			/* needed for simplehash */
 	bool		temp_missing;
 	bool		forceRecompute; /* force recompute of finalPath */
-
-	/* needed for simplehash */
-	char		status;
+	char		status;			/* needed for simplehash */
 }			SearchPathCacheEntry;
 
 /*
@@ -270,6 +269,8 @@ spcachekey_equal(SearchPathCacheKey a, SearchPathCacheKey b)
 #define SH_EQUAL(tb, a, b)		spcachekey_equal(a, b)
 #define SH_SCOPE		static inline
 #define SH_DECLARE
+#define SH_GET_HASH(tb, a)		a->hash
+#define SH_STORE_HASH
 #define SH_DEFINE
 #include "lib/simplehash.h"
 
