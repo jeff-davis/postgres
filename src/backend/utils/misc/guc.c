@@ -205,6 +205,7 @@ typedef struct
 	struct config_generic *gucvar;	/* -> GUC's defining structure */
 
 	/* needed by simplehash */
+	uint32	hash;
 	char status;
 } GUCHashEntry;
 
@@ -276,6 +277,8 @@ static char * guc_name_key(int elevel, const char *name);
 #define SH_EQUAL(tb, a, b)		(strcmp(a, b) == 0)
 #define	SH_SCOPE		static inline
 #define SH_DECLARE
+#define SH_GET_HASH(tb, a)		a->hash
+#define SH_STORE_HASH
 #define SH_DEFINE
 #include "lib/simplehash.h"
 
