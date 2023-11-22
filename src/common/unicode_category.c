@@ -18,6 +18,9 @@
 #include "common/unicode_category.h"
 #include "common/unicode_category_table.h"
 
+static bool range_search(const pg_unicode_range *tbl, Size size,
+						 pg_wchar ucs);
+
 /*
  * Unicode general category for the given codepoint.
  */
@@ -42,6 +45,38 @@ unicode_category(pg_wchar ucs)
 	}
 
 	return PG_U_UNASSIGNED;
+}
+
+bool
+unicode_is_alphabetic(pg_wchar ucs)
+{
+	return range_search(unicode_alphabetic, lengthof(unicode_alphabetic),
+						ucs);
+}
+
+bool
+unicode_is_lowercase(pg_wchar ucs)
+{
+	return range_search(unicode_lowercase, lengthof(unicode_lowercase), ucs);
+}
+
+bool
+unicode_is_uppercase(pg_wchar ucs)
+{
+	return range_search(unicode_uppercase, lengthof(unicode_uppercase), ucs);
+}
+
+bool
+unicode_is_white_space(pg_wchar ucs)
+{
+	return range_search(unicode_white_space, lengthof(unicode_white_space),
+						ucs);
+}
+
+bool
+unicode_is_hex_digit(pg_wchar ucs)
+{
+	return range_search(unicode_hex_digit, lengthof(unicode_hex_digit), ucs);
 }
 
 /*
@@ -190,4 +225,31 @@ unicode_category_abbrev(pg_unicode_category category)
 
 	Assert(false);
 	return "??";				/* keep compiler quiet */
+}
+
+/*
+ * Binary search to test if given codepoint exists in one of the ranges in the
+ * given table.
+ */
+static bool
+range_search(const pg_unicode_range *tbl, Size size, pg_wchar ucs)
+{
+	int			min = 0;
+	int			mid;
+	int			max = size - 1;
+
+	Assert(ucs <= 0x10ffff);
+
+	while (max >= min)
+	{
+		mid = (min + max) / 2;
+		if (ucs > tbl[mid].last)
+			min = mid + 1;
+		else if (ucs < tbl[mid].first)
+			max = mid - 1;
+		else
+			return true;
+	}
+
+	return false;
 }

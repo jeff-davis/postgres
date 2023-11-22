@@ -62,6 +62,11 @@ typedef enum pg_unicode_category
 } pg_unicode_category;
 
 extern pg_unicode_category unicode_category(pg_wchar ucs);
+extern bool unicode_is_alphabetic(pg_wchar ucs);
+extern bool unicode_is_lowercase(pg_wchar ucs);
+extern bool unicode_is_uppercase(pg_wchar ucs);
+extern bool unicode_is_white_space(pg_wchar ucs);
+extern bool unicode_is_hex_digit(pg_wchar ucs);
 const char *unicode_category_string(pg_unicode_category category);
 const char *unicode_category_abbrev(pg_unicode_category category);
 

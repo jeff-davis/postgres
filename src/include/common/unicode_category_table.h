@@ -25,6 +25,12 @@ typedef struct
 	uint8		category;		/* General Category */
 }			pg_category_range;
 
+typedef struct
+{
+	uint32		first;			/* Unicode codepoint */
+	uint32		last;			/* Unicode codepoint */
+}			pg_unicode_range;
+
 /* table of Unicode codepoint ranges and their categories */
 static const pg_category_range unicode_categories[3302] =
 {
@@ -3330,4 +3336,34 @@ static const pg_category_range unicode_categories[3302] =
 	{0x0e0100, 0x0e01ef, PG_U_NONSPACING_MARK},
 	{0x0f0000, 0x0ffffd, PG_U_PRIVATE_USE},
 	{0x100000, 0x10fffd, PG_U_PRIVATE_USE}
+};
+
+/* table of Unicode codepoint ranges of Alphabetic characters */
+static const pg_unicode_range unicode_alphabetic[0] =
+{
+
+};
+
+/* table of Unicode codepoint ranges of Lowercase characters */
+static const pg_unicode_range unicode_lowercase[0] =
+{
+
+};
+
+/* table of Unicode codepoint ranges of Uppercase characters */
+static const pg_unicode_range unicode_uppercase[0] =
+{
+
+};
+
+/* table of Unicode codepoint ranges of White_Space characters */
+static const pg_unicode_range unicode_white_space[0] =
+{
+
+};
+
+/* table of Unicode codepoint ranges of Hex_Digit characters */
+static const pg_unicode_range unicode_hex_digit[0] =
+{
+
 };

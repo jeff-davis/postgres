@@ -120,8 +120,6 @@ if ($range_category ne $CATEGORY_UNASSIGNED) {
 							category => $range_category});
 }
 
-my $num_ranges = scalar @category_ranges;
-
 # See: https://www.unicode.org/reports/tr44/#General_Category_Values
 my $categories = {
 	Cn => 'PG_U_UNASSIGNED',
@@ -157,8 +155,8 @@ my $categories = {
 };
 
 # Find White_Space and Hex_Digit characters
-my %white_space = ();
-my %hex_digits = ();
+my @white_space = ();
+my @hex_digits = ();
 open($FH, '<', "$output_path/PropList.txt")
   or die "Could not open $output_path/PropList.txt: $!.";
 while (my $line = <$FH>)
@@ -167,9 +165,9 @@ while (my $line = <$FH>)
 }
 
 # Find Alphabetic, Lowercase, and Uppercase characters
-my %alphabetic = ();
-my %lowercase = ();
-my %uppercase = ();
+my @alphabetic = ();
+my @lowercase = ();
+my @uppercase = ();
 open($FH, '<', "$output_path/DerivedCoreProperties.txt")
   or die "Could not open $output_path/DerivedCoreProperties.txt: $!.";
 while (my $line = <$FH>)
@@ -177,11 +175,18 @@ while (my $line = <$FH>)
 
 }
 
-# Start writing out the output files
+my $num_category_ranges = scalar @category_ranges;
+my $num_alphabetic_ranges = scalar @alphabetic;
+my $num_lowercase_ranges = scalar @lowercase;
+my $num_uppercase_ranges = scalar @uppercase;
+my $num_white_space_ranges = scalar @white_space;
+my $num_hex_digit_ranges = scalar @hex_digits;
+
+# Start writing out the output file
 open my $OT, '>', $output_table_file
   or die "Could not open output file $output_table_file: $!\n";
 
-print $OT <<HEADER;
+print $OT <<"HEADER";
 /*-------------------------------------------------------------------------
  *
  * unicode_category_table.h
@@ -209,10 +214,19 @@ typedef struct
 	uint8		category;		/* General Category */
 }			pg_category_range;
 
-/* table of Unicode codepoint ranges and their categories */
-static const pg_category_range unicode_categories[$num_ranges] =
+typedef struct
 {
+	uint32		first;			/* Unicode codepoint */
+	uint32		last;			/* Unicode codepoint */
+}			pg_unicode_range;
+
 HEADER
+
+print $OT <<"CATEGORY_TABLE";
+/* table of Unicode codepoint ranges and their categories */
+static const pg_category_range unicode_categories[$num_category_ranges] =
+{
+CATEGORY_TABLE
 
 my $firsttime = 1;
 foreach my $range (@category_ranges) {
@@ -223,4 +237,85 @@ foreach my $range (@category_ranges) {
 	die "category missing: $range->{category}" unless $category;
 	printf $OT "\t{0x%06x, 0x%06x, %s}", $range->{start}, $range->{end}, $category;
 }
+
+print $OT "\n};\n\n";
+
+print $OT <<"ALPHABETIC_TABLE";
+/* table of Unicode codepoint ranges of Alphabetic characters */
+static const pg_unicode_range unicode_alphabetic[$num_alphabetic_ranges] =
+{
+ALPHABETIC_TABLE
+
+$firsttime = 1;
+foreach my $range (@alphabetic) {
+	printf $OT ",\n" unless $firsttime;
+	$firsttime = 0;
+
+	printf $OT "\t{0x%06x, 0x%06x}", $range->{start}, $range->{end};
+}
+
+print $OT "\n};\n\n";
+
+print $OT <<"LOWERCASE_TABLE";
+/* table of Unicode codepoint ranges of Lowercase characters */
+static const pg_unicode_range unicode_lowercase[$num_lowercase_ranges] =
+{
+LOWERCASE_TABLE
+
+$firsttime = 1;
+foreach my $range (@lowercase) {
+	printf $OT ",\n" unless $firsttime;
+	$firsttime = 0;
+
+	printf $OT "\t{0x%06x, 0x%06x}", $range->{start}, $range->{end};
+}
+
+print $OT "\n};\n\n";
+
+print $OT <<"UPPERCASE_TABLE";
+/* table of Unicode codepoint ranges of Uppercase characters */
+static const pg_unicode_range unicode_uppercase[$num_uppercase_ranges] =
+{
+UPPERCASE_TABLE
+
+$firsttime = 1;
+foreach my $range (@uppercase) {
+	printf $OT ",\n" unless $firsttime;
+	$firsttime = 0;
+
+	printf $OT "\t{0x%06x, 0x%06x}", $range->{start}, $range->{end};
+}
+
+print $OT "\n};\n\n";
+
+print $OT <<"WHITE_SPACE_TABLE";
+/* table of Unicode codepoint ranges of White_Space characters */
+static const pg_unicode_range unicode_white_space[$num_white_space_ranges] =
+{
+WHITE_SPACE_TABLE
+
+$firsttime = 1;
+foreach my $range (@white_space) {
+	printf $OT ",\n" unless $firsttime;
+	$firsttime = 0;
+
+	printf $OT "\t{0x%06x, 0x%06x}", $range->{start}, $range->{end};
+}
+
+print $OT "\n};\n\n";
+
+print $OT <<"HEX_DIGITS_TABLE";
+/* table of Unicode codepoint ranges of Hex_Digit characters */
+static const pg_unicode_range unicode_hex_digit[$num_hex_digit_ranges] =
+{
+HEX_DIGITS_TABLE
+
+$firsttime = 1;
+foreach my $range (@hex_digits) {
+	printf $OT ",\n" unless $firsttime;
+	$firsttime = 0;
+
+	printf $OT "\t{0x%06x, 0x%06x}", $range->{start}, $range->{end};
+}
+
 print $OT "\n};\n";
