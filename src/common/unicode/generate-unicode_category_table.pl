@@ -161,7 +161,31 @@ open($FH, '<', "$output_path/PropList.txt")
   or die "Could not open $output_path/PropList.txt: $!.";
 while (my $line = <$FH>)
 {
+	my $pattern = qr/([0-9A-F\.]+)\s*;\s*(\w+)\s*#.*/s;
+	next unless $line =~ $pattern;
 
+	my $code = $line =~ s/$pattern/$1/rg;
+	my $property = $line =~ s/$pattern/$2/rg;
+	my $start;
+	my $end;
+
+	if ($code =~ /\.\./) {
+		# code range
+	    my @sp = split /\.\./, $code;
+		$start = hex($sp[0]);
+		$end = hex($sp[1]);
+	} else {
+		# single code point
+		$start = hex($code);
+		$end = hex($code);
+	}
+
+	if ($property eq "White_Space") {
+		push @white_space, {start => $start, end => $end};
+	}
+	elsif ($property eq "Hex_Digit") {
+		push @hex_digits, {start => $start, end => $end};
+	}
 }
 
 # Find Alphabetic, Lowercase, and Uppercase characters
@@ -172,7 +196,37 @@ open($FH, '<', "$output_path/DerivedCoreProperties.txt")
   or die "Could not open $output_path/DerivedCoreProperties.txt: $!.";
 while (my $line = <$FH>)
 {
+	my $pattern = qr/^([0-9A-F\.]+)\s*;\s*(\w+)\s*#.*$/s;
+	next unless $line =~ $pattern;
 
+	my $code = $line =~ s/$pattern/$1/rg;
+	my $property = $line =~ s/$pattern/$2/rg;
+	my $start;
+	my $end;
+
+	if ($code =~ /\.\./) {
+		# code range
+	    my @sp = split /\.\./, $code;
+	    die "line: {$line} code: {$code} sp[0] {$sp[0]} sp[1] {$sp[1]}"
+		  unless $sp[0] =~ /^[0-9A-F]+$/ &&  $sp[1] =~ /^[0-9A-F]+$/;
+		$start = hex($sp[0]);
+		$end = hex($sp[1]);
+	} else {
+	    die "line: {$line} code: {$code}" unless $code =~ /^[0-9A-F]+$/;
+		# single code point
+		$start = hex($code);
+		$end = hex($code);
+	}
+
+	if ($property eq "Alphabetic") {
+		push @alphabetic, {start => $start, end => $end};
+	}
+	elsif ($property eq "Lowercase") {
+		push @lowercase, {start => $start, end => $end};
+	}
+	elsif ($property eq "Uppercase") {
+		push @uppercase, {start => $start, end => $end};
+	}
 }
 
 my $num_category_ranges = scalar @category_ranges;
