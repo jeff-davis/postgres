@@ -3357,6 +3357,52 @@ set_config_option_ext(const char *name, const char *value,
 					  bool is_reload)
 {
 	struct config_generic *record;
+
+	if (elevel == 0)
+	{
+		if (source == PGC_S_DEFAULT || source == PGC_S_FILE)
+		{
+			/*
+			 * To avoid cluttering the log, only the postmaster bleats loudly
+			 * about problems with the config file.
+			 */
+			elevel = IsUnderPostmaster ? DEBUG3 : LOG;
+		}
+		else if (source == PGC_S_GLOBAL ||
+				 source == PGC_S_DATABASE ||
+				 source == PGC_S_USER ||
+				 source == PGC_S_DATABASE_USER)
+			elevel = WARNING;
+		else
+			elevel = ERROR;
+	}
+
+	record = find_option(name, true, false, elevel);
+	if (record == NULL)
+		return 0;
+
+	return set_config_with_handle((config_handle *) record, value,
+								  context, source, srole,
+								  action, changeVal, elevel,
+								  is_reload);
+}
+
+
+/*
+ * set_config_option_ext: sets option with the given handle to the given
+ * value.
+ *
+ * This should be used by callers that repeatedly set the same config
+ * option(s), and want to avoid the overhead of a hash lookup each time.
+ */
+int
+set_config_with_handle(config_handle *handle, const char *value,
+					   GucContext context, GucSource source, Oid srole,
+					   GucAction action, bool changeVal, int elevel,
+					   bool is_reload)
+{
+	struct config_generic *record = (struct config_generic *)handle;
+	const char *name = record->name;
 	union config_var_val newval_union;
 	void	   *newextra = NULL;
 	bool		prohibitValueChange = false;
@@ -3394,10 +3440,6 @@ set_config_option_ext(const char *name, const char *value,
 		ereport(elevel,
 				(errcode(ERRCODE_INVALID_TRANSACTION_STATE),
 				 errmsg("cannot set parameters during a parallel operation")));
-
-	record = find_option(name, true, false, elevel);
-	if (record == NULL)
-		return 0;
 
 	/*
 	 * Check if the option can be set at this time. See guc.h for the precise
@@ -4163,6 +4205,23 @@ set_config_option_ext(const char *name, const char *value,
 	}
 
 	return changeVal ? 1 : -1;
+}
+
+
+/*
+ * Retrieve a config_handle for the given name, suitable for calling
+ * set_config_with_handle().
+ */
+config_handle *
+get_config_handle(const char *name)
+{
+	struct config_generic *record;
+
+	record = find_option(name, false, false, 0);
+	if (record == NULL)
+		return 0;
+
+	return (config_handle *)record;
 }
 
 
