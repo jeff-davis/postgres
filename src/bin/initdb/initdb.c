@@ -145,7 +145,8 @@ static char *lc_numeric = NULL;
 static char *lc_time = NULL;
 static char *lc_messages = NULL;
 static char locale_provider = COLLPROVIDER_LIBC;
-static char *icu_locale = NULL;
+static char *provider_locale = NULL;
+static bool icu_locale_specified = false;
 static char *icu_rules = NULL;
 static const char *default_text_search_config = NULL;
 static char *username = NULL;
@@ -1523,8 +1524,8 @@ bootstrap_template1(void)
 	bki_lines = replace_token(bki_lines, "LC_CTYPE",
 							  escape_quotes_bki(lc_ctype));
 
-	bki_lines = replace_token(bki_lines, "ICU_LOCALE",
-							  icu_locale ? escape_quotes_bki(icu_locale) : "_null_");
+	bki_lines = replace_token(bki_lines, "DATLOCALE",
+							  provider_locale ? escape_quotes_bki(provider_locale) : "_null_");
 
 	bki_lines = replace_token(bki_lines, "ICU_RULES",
 							  icu_rules ? escape_quotes_bki(icu_rules) : "_null_");
@@ -2371,8 +2372,8 @@ setlocales(void)
 			lc_monetary = locale;
 		if (!lc_messages)
 			lc_messages = locale;
-		if (!icu_locale && locale_provider == COLLPROVIDER_ICU)
-			icu_locale = locale;
+		if (!provider_locale && locale_provider != COLLPROVIDER_LIBC)
+			provider_locale = locale;
 	}
 
 	/*
@@ -2398,22 +2399,21 @@ setlocales(void)
 	lc_messages = canonname;
 #endif
 
+	if (locale_provider != COLLPROVIDER_LIBC && provider_locale == NULL)
+		pg_fatal("locale must be specified unless provider is libc");
+
 	if (locale_provider == COLLPROVIDER_ICU)
 	{
 		char	   *langtag;
 
-		/* acquire default locale from the environment, if not specified */
-		if (icu_locale == NULL)
-			pg_fatal("ICU locale must be specified");
-
 		/* canonicalize to a language tag */
-		langtag = icu_language_tag(icu_locale);
+		langtag = icu_language_tag(provider_locale);
 		printf(_("Using language tag \"%s\" for ICU locale \"%s\".\n"),
-			   langtag, icu_locale);
-		pg_free(icu_locale);
-		icu_locale = langtag;
+			   langtag, provider_locale);
+		pg_free(provider_locale);
+		provider_locale = langtag;
 
-		icu_validate_locale(icu_locale);
+		icu_validate_locale(provider_locale);
 
 		/*
 		 * In supported builds, the ICU locale ID will be opened during
@@ -2607,14 +2607,14 @@ setup_locale_encoding(void)
 		strcmp(lc_ctype, lc_numeric) == 0 &&
 		strcmp(lc_ctype, lc_monetary) == 0 &&
 		strcmp(lc_ctype, lc_messages) == 0 &&
-		(!icu_locale || strcmp(lc_ctype, icu_locale) == 0))
+		(!provider_locale || strcmp(lc_ctype, provider_locale) == 0))
 		printf(_("The database cluster will be initialized with locale \"%s\".\n"), lc_ctype);
 	else
 	{
 		printf(_("The database cluster will be initialized with this locale configuration:\n"));
-		printf(_("  provider:    %s\n"), collprovider_name(locale_provider));
-		if (icu_locale)
-			printf(_("  ICU locale:  %s\n"), icu_locale);
+		printf(_("  default collation provider:  %s\n"), collprovider_name(locale_provider));
+		if (locale_provider != COLLPROVIDER_LIBC)
+			printf(_("  default collation locale:    %s\n"), provider_locale);
 		printf(_("  LC_COLLATE:  %s\n"
 				 "  LC_CTYPE:    %s\n"
 				 "  LC_MESSAGES: %s\n"
@@ -3285,7 +3285,8 @@ main(int argc, char *argv[])
 					pg_fatal("unrecognized locale provider: %s", optarg);
 				break;
 			case 16:
-				icu_locale = pg_strdup(optarg);
+				provider_locale = pg_strdup(optarg);
+				icu_locale_specified = true;
 				break;
 			case 17:
 				icu_rules = pg_strdup(optarg);
@@ -3320,7 +3321,7 @@ main(int argc, char *argv[])
 		exit(1);
 	}
 
-	if (icu_locale && locale_provider != COLLPROVIDER_ICU)
+	if (icu_locale_specified && locale_provider != COLLPROVIDER_ICU)
 		pg_fatal("%s cannot be specified unless locale provider \"%s\" is chosen",
 				 "--icu-locale", "icu");
 

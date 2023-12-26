@@ -113,11 +113,18 @@ my $original_provider = "c";
 my $original_locale = "C";
 my $original_iculocale = "";
 my $provider_field = "'c' AS datlocprovider";
-my $iculocale_field = "NULL AS daticulocale";
-if ($oldnode->pg_version >= 15 && $ENV{with_icu} eq 'yes')
+my $iculocale_field = "NULL AS datlocale";
+if (int($oldnode->pg_version) >= 15 && $ENV{with_icu} eq 'yes')
 {
 	$provider_field = "datlocprovider";
-	$iculocale_field = "daticulocale";
+	if (int($oldnode->pg_version) >= 17)
+	{
+		$iculocale_field = "datlocale";
+	}
+	else
+	{
+		$iculocale_field = "daticulocale AS datlocale";
+	}
 	$original_provider = "i";
 	$original_iculocale = "fr-CA";
 }

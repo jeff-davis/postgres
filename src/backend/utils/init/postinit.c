@@ -427,7 +427,7 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
 	{
 		char	   *icurules;
 
-		datum = SysCacheGetAttrNotNull(DATABASEOID, tup, Anum_pg_database_daticulocale);
+		datum = SysCacheGetAttrNotNull(DATABASEOID, tup, Anum_pg_database_datlocale);
 		iculocale = TextDatumGetCString(datum);
 
 		datum = SysCacheGetAttr(DATABASEOID, tup, Anum_pg_database_daticurules, &isnull);
