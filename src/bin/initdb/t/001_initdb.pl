@@ -117,7 +117,7 @@ if ($ENV{with_icu} eq 'yes')
 {
 	command_fails_like(
 		[ 'initdb', '--no-sync', '--locale-provider=icu', "$tempdir/data2" ],
-		qr/initdb: error: ICU locale must be specified/,
+		qr/initdb: error: locale must be specified unless provider is libc/,
 		'locale provider ICU requires --icu-locale');
 
 	command_ok(
@@ -138,7 +138,7 @@ if ($ENV{with_icu} eq 'yes')
 			'--lc-monetary=C', '--lc-time=C',
 			"$tempdir/data4"
 		],
-		qr/^\s+ICU locale:\s+und\n/ms,
+		qr/^\s+default collation locale:\s+und\n/ms,
 		'options --locale-provider=icu --locale=und --lc-*=C');
 
 	command_fails_like(

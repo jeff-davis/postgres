@@ -104,6 +104,8 @@ if ($oldnode->pg_version >= 11)
 	push @custom_opts, '--allow-group-access';
 }
 
+my $oldversion = int($oldnode->pg_version =~ s/([0-9]*).*/$1/rg);
+
 # Set up the locale settings for the original cluster, so that we
 # can test that pg_upgrade copies the locale settings of template0
 # from the old to the new cluster.
@@ -113,11 +115,18 @@ my $original_provider = "c";
 my $original_locale = "C";
 my $original_iculocale = "";
 my $provider_field = "'c' AS datlocprovider";
-my $iculocale_field = "NULL AS daticulocale";
-if ($oldnode->pg_version >= 15 && $ENV{with_icu} eq 'yes')
+my $iculocale_field = "NULL AS datlocale";
+if ($oldversion >= 15 && $ENV{with_icu} eq 'yes')
 {
 	$provider_field = "datlocprovider";
-	$iculocale_field = "daticulocale";
+	if ($oldversion >= 17)
+	{
+		$iculocale_field = "datlocale";
+	}
+	else
+	{
+		$iculocale_field = "daticulocale AS datlocale";
+	}
 	$original_provider = "i";
 	$original_iculocale = "fr-CA";
 }
