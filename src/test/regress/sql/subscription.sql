@@ -88,6 +88,51 @@ CREATE SUBSCRIPTION regress_testsub5 CONNECTION 'port=-1' PUBLICATION testpub;
 -- fail - invalid connection string during ALTER
 ALTER SUBSCRIPTION regress_testsub CONNECTION 'foobar';
 
+RESET SESSION AUTHORIZATION;
+GRANT CREATE ON DATABASE REGRESSION TO regress_subscription_user3;
+SET SESSION AUTHORIZATION regress_subscription_user3;
+
+CREATE SUBSCRIPTION regress_testsub6 CONNECTION 'dbname=regress_doesnotexist password=regress_fakepassword' PUBLICATION testpub WITH (slot_name = NONE, connect = false);
+DROP SUBSCRIPTION regress_testsub6;
+
+-- test using a server object instead of connection string
+
+RESET SESSION AUTHORIZATION;
+CREATE SERVER regress_testserver FOREIGN DATA WRAPPER pg_connection_fdw;
+CREATE USER MAPPING FOR regress_subscription_user3 SERVER regress_testserver
+  OPTIONS (password 'secret');
+GRANT USAGE ON FOREIGN SERVER regress_testserver TO regress_subscription_user3;
+
+SET SESSION AUTHORIZATION regress_subscription_user3;
+CREATE SUBSCRIPTION regress_testsub6 SERVER regress_testserver PUBLICATION testpub
+  WITH (slot_name = NONE, connect = false);
+RESET SESSION AUTHORIZATION;
+
+-- test an FDW with no validator
+CREATE FOREIGN DATA WRAPPER regress_fdw;
+CREATE SERVER regress_testserver2 FOREIGN DATA WRAPPER regress_fdw
+  OPTIONS (abc 'xyz');
+CREATE USER MAPPING FOR regress_subscription_user3 SERVER regress_testserver2
+  OPTIONS (password 'secret');
+GRANT USAGE ON FOREIGN SERVER regress_testserver2 TO regress_subscription_user3;
+
+SET SESSION AUTHORIZATION regress_subscription_user3;
+ALTER SUBSCRIPTION regress_testsub6 SERVER regress_testserver2;
+ALTER SUBSCRIPTION regress_testsub6 SERVER regress_testserver;
+
+RESET SESSION AUTHORIZATION;
+DROP USER MAPPING FOR regress_subscription_user3 SERVER regress_testserver2;
+DROP SERVER regress_testserver2;
+DROP FOREIGN DATA WRAPPER regress_fdw;
+
+ALTER SUBSCRIPTION regress_testsub6 OWNER TO regress_subscription_user; -- fail, no user mapping
+DROP SUBSCRIPTION regress_testsub6;
+
+DROP USER MAPPING FOR regress_subscription_user3 SERVER regress_testserver;
+DROP SERVER regress_testserver;
+REVOKE CREATE ON DATABASE regression FROM regress_subscription_user3;
+SET SESSION AUTHORIZATION regress_subscription_user;
+
 \dRs+
 
 ALTER SUBSCRIPTION regress_testsub SET PUBLICATION testpub2, testpub3 WITH (refresh = false);

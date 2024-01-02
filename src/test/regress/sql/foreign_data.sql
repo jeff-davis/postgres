@@ -212,6 +212,23 @@ DROP USER MAPPING FOR regress_test_role SERVER connection_server;
 DROP USER MAPPING FOR PUBLIC SERVER connection_server;
 DROP SERVER connection_server;
 
+SET ROLE regress_test_role;
+CREATE SERVER t3 FOREIGN DATA WRAPPER pg_connection_fdw;   -- ERROR: no permissions on FDW
+RESET ROLE;
+GRANT USAGE ON FOREIGN DATA WRAPPER pg_connection_fdw TO regress_test_role;
+SET ROLE regress_test_role;
+
+CREATE SERVER t3 FOREIGN DATA WRAPPER pg_connection_fdw;
+
+IMPORT FOREIGN SCHEMA foo FROM SERVER t3 INTO bar; -- fails
+
+CREATE USER MAPPING FOR PUBLIC SERVER t3 OPTIONS (user 'x', password 'secret');
+DROP USER MAPPING FOR PUBLIC SERVER t3;
+DROP SERVER t3;
+
+RESET ROLE;
+REVOKE USAGE ON FOREIGN DATA WRAPPER pg_connection_fdw FROM regress_test_role;
+
 -- ALTER SERVER
 ALTER SERVER s0;                                            -- ERROR
 ALTER SERVER s0 OPTIONS (a '1');                            -- ERROR
