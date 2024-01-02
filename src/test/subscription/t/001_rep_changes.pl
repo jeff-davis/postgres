@@ -119,7 +119,7 @@ $node_subscriber->safe_psql('postgres',
 	"CREATE FOREIGN DATA WRAPPER test_connection_fdw VALIDATOR pg_connection_validator"
 );
 $node_subscriber->safe_psql('postgres',
-	"CREATE SERVER tap_sub2_server FOREIGN DATA WRAPPER test_connection_fdw OPTIONS (host '$publisher_host', port '$publisher_port', dbname 'postgres')"
+	"CREATE SERVER tap_sub2_server FOREIGN DATA WRAPPER test_connection_fdw FOR SUBSCRIPTION OPTIONS (host '$publisher_host', port '$publisher_port', dbname 'postgres')"
 );
 
 $node_subscriber->safe_psql('postgres',

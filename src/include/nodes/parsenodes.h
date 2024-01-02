@@ -2726,6 +2726,7 @@ typedef struct CreateForeignServerStmt
 	char	   *version;		/* optional server version */
 	char	   *fdwname;		/* FDW name */
 	bool		if_not_exists;	/* just do nothing if it already exists? */
+	bool		forsubscription;	/* usable for subscription */
 	List	   *options;		/* generic options to server */
 } CreateForeignServerStmt;
 
@@ -2734,8 +2735,10 @@ typedef struct AlterForeignServerStmt
 	NodeTag		type;
 	char	   *servername;		/* server name */
 	char	   *version;		/* optional server version */
+	bool		forsubscription;	/* usable for subscription */
 	List	   *options;		/* generic options to server */
 	bool		has_version;	/* version specified */
+	bool		has_forsubscription; /* [FOR|NO] SUBSCRIPTION specified */
 } AlterForeignServerStmt;
 
 /* ----------------------

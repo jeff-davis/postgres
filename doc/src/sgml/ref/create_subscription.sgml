@@ -81,7 +81,9 @@ CREATE SUBSCRIPTION <replaceable class="parameter">subscription_name</replaceabl
     <term><literal>SERVER <replaceable class="parameter">servername</replaceable></literal></term>
     <listitem>
      <para>
-      A foreign server to use for the connection.
+      A foreign server to use for the connection. The foreign server must have
+      been created with <literal>FOR SUBSCRIPTION</literal> (see <xref
+      linkend="sql-createserver"/>).
      </para>
     </listitem>
    </varlistentry>

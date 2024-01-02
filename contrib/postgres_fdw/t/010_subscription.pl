@@ -38,7 +38,7 @@ $node_publisher->safe_psql('postgres', "CREATE PUBLICATION tap_pub FOR TABLE tab
 my $publisher_host = $node_publisher->host;
 my $publisher_port = $node_publisher->port;
 $node_subscriber->safe_psql('postgres',
-	"CREATE SERVER tap_server FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host '$publisher_host', port '$publisher_port', dbname 'postgres')"
+	"CREATE SERVER tap_server FOREIGN DATA WRAPPER postgres_fdw FOR SUBSCRIPTION OPTIONS (host '$publisher_host', port '$publisher_port', dbname 'postgres')"
 );
 
 $node_subscriber->safe_psql('postgres',

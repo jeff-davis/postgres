@@ -608,9 +608,9 @@ CreateSubscription(ParseState *pstate, CreateSubscriptionStmt *stmt,
 		PreventInTransactionBlock(isTopLevel, "CREATE SUBSCRIPTION ... WITH (create_slot = true)");
 
 	/*
-	 * We don't want to allow unprivileged users to be able to trigger
-	 * attempts to access arbitrary network destinations, so require the user
-	 * to have been specifically authorized to create subscriptions.
+	 * We don't want to allow unprivileged users to utilize the resources that
+	 * a subscription requires (such as a background worker), so require the
+	 * user to have been specifically authorized to create subscriptions.
 	 */
 	if (!has_privs_of_role(owner, ROLE_PG_CREATE_SUBSCRIPTION))
 		ereport(ERROR,
@@ -685,6 +685,12 @@ CreateSubscription(ParseState *pstate, CreateSubscriptionStmt *stmt,
 		if (aclresult != ACLCHECK_OK)
 			aclcheck_error(aclresult, OBJECT_FOREIGN_SERVER, server->servername);
 
+		if (!server->forsubscription)
+			ereport(ERROR,
+					(errmsg("foreign server \"%s\" not usable for subscription",
+							server->servername),
+					 errhint("Specify FOR SUBSCRIPTION when creating the foreign server.")));
+
 		/* make sure a user mapping exists */
 		GetUserMapping(owner, server->serverid);
 
@@ -694,6 +700,19 @@ CreateSubscription(ParseState *pstate, CreateSubscriptionStmt *stmt,
 	else
 	{
 		Assert(stmt->conninfo);
+
+		/*
+		 * We don't want to allow unprivileged users to be able to trigger
+		 * attempts to access arbitrary network destinations, so require the user
+		 * to have been specifically authorized to create connections.
+		 */
+		if (!has_privs_of_role(owner, ROLE_PG_CREATE_CONNECTION))
+			ereport(ERROR,
+					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+					 errmsg("permission denied to create subscription with a connection string"),
+					 errdetail("Only roles with privileges of the \"%s\" role may create subscriptions with CONNECTION specified.",
+							   "pg_create_connection"),
+					 errhint("Create a subscription to a foreign server by specifying SERVER instead.")));
 
 		serverid = InvalidOid;
 		conninfo = stmt->conninfo;
@@ -1333,6 +1352,12 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 							 errmsg("subscription owner \"%s\" does not have permission on foreign server \"%s\"",
 									GetUserNameFromId(form->subowner, false),
 									ForeignServerName(new_server->serverid))));
+
+				if (!new_server->forsubscription)
+					ereport(ERROR,
+							(errmsg("foreign server \"%s\" not usable for subscription",
+									new_server->servername),
+							 errhint("Specify FOR SUBSCRIPTION when creating the foreign server.")));
 
 				/* make sure a user mapping exists */
 				GetUserMapping(form->subowner, new_server->serverid);

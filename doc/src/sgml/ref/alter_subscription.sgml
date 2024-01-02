@@ -101,7 +101,9 @@ ALTER SUBSCRIPTION <replaceable class="parameter">name</replaceable> RENAME TO <
      <para>
       This clause replaces the foreign server or connection string originally
       set by <xref linkend="sql-createsubscription"/> with the foreign server
-      <replaceable>servername</replaceable>.
+      <replaceable>servername</replaceable>. The foreign server must have been
+      created with <literal>FOR SUBSCRIPTION</literal> (see <xref
+      linkend="sql-createserver"/>).
      </para>
     </listitem>
    </varlistentry>
