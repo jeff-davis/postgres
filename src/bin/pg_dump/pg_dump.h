@@ -703,6 +703,7 @@ typedef struct _SubscriptionInfo
 	bool		subpasswordrequired;
 	bool		subrunasowner;
 	bool		subfailover;
+	char	   *subservername;
 	char	   *subconninfo;
 	char	   *subslotname;
 	char	   *subsynccommit;
