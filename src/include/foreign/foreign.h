@@ -36,6 +36,7 @@ typedef struct ForeignServer
 	Oid			serverid;		/* server Oid */
 	Oid			fdwid;			/* foreign-data wrapper */
 	Oid			owner;			/* server owner user Oid */
+	bool		forsubscription;	/* usable for a subscription */
 	char	   *servername;		/* name of the server */
 	char	   *servertype;		/* server type, optional */
 	char	   *serverversion;	/* server version, optional */

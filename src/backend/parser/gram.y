@@ -366,6 +366,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 
 %type <str>		opt_type
 %type <str>		foreign_server_version opt_foreign_server_version
+%type <boolean>	for_subscription opt_for_subscription
 %type <str>		opt_in_database
 
 %type <str>		parameter_name
@@ -5397,7 +5398,7 @@ generic_option_arg:
  *****************************************************************************/
 
 CreateForeignServerStmt: CREATE SERVER name opt_type opt_foreign_server_version
-						 FOREIGN DATA_P WRAPPER name create_generic_options
+						 FOREIGN DATA_P WRAPPER name opt_for_subscription create_generic_options
 				{
 					CreateForeignServerStmt *n = makeNode(CreateForeignServerStmt);
 
@@ -5405,12 +5406,13 @@ CreateForeignServerStmt: CREATE SERVER name opt_type opt_foreign_server_version
 					n->servertype = $4;
 					n->version = $5;
 					n->fdwname = $9;
-					n->options = $10;
+					n->forsubscription = $10;
+					n->options = $11;
 					n->if_not_exists = false;
 					$$ = (Node *) n;
 				}
 				| CREATE SERVER IF_P NOT EXISTS name opt_type opt_foreign_server_version
-						 FOREIGN DATA_P WRAPPER name create_generic_options
+						 FOREIGN DATA_P WRAPPER name opt_for_subscription create_generic_options
 				{
 					CreateForeignServerStmt *n = makeNode(CreateForeignServerStmt);
 
@@ -5418,7 +5420,8 @@ CreateForeignServerStmt: CREATE SERVER name opt_type opt_foreign_server_version
 					n->servertype = $7;
 					n->version = $8;
 					n->fdwname = $12;
-					n->options = $13;
+					n->forsubscription = $13;
+					n->options = $14;
 					n->if_not_exists = true;
 					$$ = (Node *) n;
 				}
@@ -5440,6 +5443,16 @@ opt_foreign_server_version:
 			| /*EMPTY*/				{ $$ = NULL; }
 		;
 
+for_subscription:
+			FOR SUBSCRIPTION		{ $$ = true; }
+			| NO SUBSCRIPTION		{ $$ = false; }
+		;
+
+opt_for_subscription:
+			for_subscription		{ $$ = $1; }
+			| /*EMPTY*/				{ $$ = false; }
+		;
+
 /*****************************************************************************
  *
  *		QUERY :
@@ -5455,6 +5468,15 @@ AlterForeignServerStmt: ALTER SERVER name foreign_server_version alter_generic_o
 					n->version = $4;
 					n->options = $5;
 					n->has_version = true;
+					$$ = (Node *) n;
+				}
+			| ALTER SERVER name for_subscription
+				{
+					AlterForeignServerStmt *n = makeNode(AlterForeignServerStmt);
+
+					n->servername = $3;
+					n->forsubscription = $4;
+					n->has_forsubscription = true;
 					$$ = (Node *) n;
 				}
 			| ALTER SERVER name foreign_server_version

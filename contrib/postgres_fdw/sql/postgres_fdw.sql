@@ -4,7 +4,7 @@
 
 CREATE EXTENSION postgres_fdw;
 
-CREATE SERVER testserver1 FOREIGN DATA WRAPPER postgres_fdw;
+CREATE SERVER testserver1 FOREIGN DATA WRAPPER postgres_fdw FOR SUBSCRIPTION;
 DO $d$
     BEGIN
         EXECUTE $$CREATE SERVER loopback FOREIGN DATA WRAPPER postgres_fdw

@@ -98,17 +98,41 @@ DROP SUBSCRIPTION regress_testsub6;
 -- test using a server object instead of connection string
 
 RESET SESSION AUTHORIZATION;
-CREATE SERVER regress_testserver1 FOREIGN DATA WRAPPER pg_connection_fdw;
+CREATE ROLE regress_connection_role;
+CREATE SERVER regress_testserver1 FOREIGN DATA WRAPPER pg_connection_fdw
+  FOR SUBSCRIPTION;
 CREATE SERVER regress_testserver2 FOREIGN DATA WRAPPER pg_connection_fdw;
+ALTER SERVER regress_testserver1 OWNER TO regress_connection_role;
+ALTER SERVER regress_testserver2 OWNER TO regress_connection_role;
 CREATE USER MAPPING FOR regress_subscription_user3 SERVER regress_testserver1
   OPTIONS (password 'secret');
 CREATE USER MAPPING FOR regress_subscription_user3 SERVER regress_testserver2
   OPTIONS (password 'secret');
 GRANT USAGE ON FOREIGN SERVER regress_testserver2 TO regress_subscription_user3;
 
+-- temporarily revoke pg_create_connection from pg_create_subscription
+-- to test that CREATE SUBSCRIPTION ... CONNECTION fails
+REVOKE pg_create_connection FROM pg_create_subscription;
+
 SET SESSION AUTHORIZATION regress_subscription_user3;
+
+-- fail - not a member of pg_create_connection, cannot use CONNECTION
+CREATE SUBSCRIPTION regress_testsub6 CONNECTION 'dbname=regress_doesnotexist password=regress_fakepassword' PUBLICATION testpub WITH (slot_name = NONE, connect = false);
+
 CREATE SUBSCRIPTION regress_testsub6 SERVER regress_testserver1 PUBLICATION testpub
-  WITH (slot_name = NONE, connect = false); -- fails
+  WITH (slot_name = NONE, connect = false); -- fail - no USAGE
+CREATE SUBSCRIPTION regress_testsub6 SERVER regress_testserver2 PUBLICATION testpub
+  WITH (slot_name = NONE, connect = false); -- fail - not FOR SUBSCRIPTION
+
+SET SESSION AUTHORIZATION regress_connection_role;
+ALTER SERVER regress_testserver2 FOR SUBSCRIPTION; -- fails - need pg_create_connection
+RESET SESSION AUTHORIZATION;
+GRANT pg_create_connection TO regress_connection_role;
+SET SESSION AUTHORIZATION regress_connection_role;
+ALTER SERVER regress_testserver2 FOR SUBSCRIPTION;
+
+SET SESSION AUTHORIZATION regress_subscription_user3;
+
 CREATE SUBSCRIPTION regress_testsub6 SERVER regress_testserver2 PUBLICATION testpub
   WITH (slot_name = NONE, connect = false);
 RESET SESSION AUTHORIZATION;
@@ -142,6 +166,10 @@ DROP SUBSCRIPTION regress_testsub6;
 DROP USER MAPPING FOR regress_subscription_user3 SERVER regress_testserver1;
 DROP SERVER regress_testserver1;
 REVOKE CREATE ON DATABASE regression FROM regress_subscription_user3;
+
+-- re-grant pg_create_connection to pg_create_subscription
+GRANT pg_create_connection TO pg_create_subscription;
+
 SET SESSION AUTHORIZATION regress_subscription_user;
 
 \dRs+

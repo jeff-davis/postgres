@@ -149,6 +149,7 @@ GetForeignServerExtended(Oid serverid, bits16 flags)
 	server->servername = pstrdup(NameStr(serverform->srvname));
 	server->owner = serverform->srvowner;
 	server->fdwid = serverform->srvfdw;
+	server->forsubscription = serverform->srvforsubscription;
 
 	/* Extract server type */
 	datum = SysCacheGetAttr(FOREIGNSERVEROID,

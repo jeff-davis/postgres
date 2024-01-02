@@ -116,7 +116,7 @@ $node_subscriber->safe_psql('postgres',
 my $publisher_host = $node_publisher->host;
 my $publisher_port = $node_publisher->port;
 $node_subscriber->safe_psql('postgres',
-	"CREATE SERVER tap_sub2_server FOREIGN DATA WRAPPER pg_connection_fdw OPTIONS (host '$publisher_host', port '$publisher_port', dbname 'postgres')"
+	"CREATE SERVER tap_sub2_server FOREIGN DATA WRAPPER pg_connection_fdw FOR SUBSCRIPTION OPTIONS (host '$publisher_host', port '$publisher_port', dbname 'postgres')"
 );
 
 $node_subscriber->safe_psql('postgres',

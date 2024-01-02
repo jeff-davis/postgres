@@ -21,6 +21,7 @@
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/objectaccess.h"
+#include "catalog/pg_authid_d.h"
 #include "catalog/pg_foreign_data_wrapper.h"
 #include "catalog/pg_foreign_server.h"
 #include "catalog/pg_foreign_table.h"
@@ -923,6 +924,18 @@ CreateForeignServer(CreateForeignServerStmt *stmt)
 	else
 		nulls[Anum_pg_foreign_server_srvversion - 1] = true;
 
+	if (stmt->forsubscription)
+	{
+		if (!has_privs_of_role(ownerId, ROLE_PG_CREATE_CONNECTION))
+			ereport(ERROR,
+					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+					 errmsg("permission denied to create server for subscription"),
+					 errdetail("Only roles with privileges of the \"%s\" role may create foreign servers with FOR SUBSCRIPTION specified.",
+							   "pg_create_subscription")));
+
+		values[Anum_pg_foreign_server_srvforsubscription - 1] = true;
+	}
+
 	/* Start with a blank acl */
 	nulls[Anum_pg_foreign_server_srvacl - 1] = true;
 
@@ -1018,6 +1031,20 @@ AlterForeignServer(AlterForeignServerStmt *stmt)
 			repl_null[Anum_pg_foreign_server_srvversion - 1] = true;
 
 		repl_repl[Anum_pg_foreign_server_srvversion - 1] = true;
+	}
+
+	if ((srvForm->srvforsubscription || stmt->forsubscription) &&
+		!has_privs_of_role(srvForm->srvowner, ROLE_PG_CREATE_CONNECTION))
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("permission denied to alter server for subscription"),
+				 errdetail("Only roles with privileges of the \"%s\" role may alter foreign servers with FOR SUBSCRIPTION specified.",
+						   "pg_create_connection")));
+
+	if (stmt->has_forsubscription)
+	{
+		repl_val[Anum_pg_foreign_server_srvforsubscription - 1] = stmt->forsubscription;
+		repl_repl[Anum_pg_foreign_server_srvforsubscription - 1] = true;
 	}
 
 	if (stmt->options)
