@@ -2068,6 +2068,27 @@ selectDumpableStatisticsObject(StatsExtInfo *sobj, Archive *fout)
 }
 
 /*
+ * selectDumpableFdw: policy-setting subroutine
+ *		Mark foreign data wrapper as to be dumped or not
+ *
+ * Froeign Data Wrappers do not belong to any particular namespace.  To
+ * identify built-in foreign data wrappers, we must resort to checking whether
+ * the method's OID is in the range reserved for initdb.
+ */
+static void
+selectDumpableFdw(FdwInfo *fdwinfo, Archive *fout)
+{
+	if (checkExtensionMembership(&fdwinfo->dobj, fout))
+		return;					/* extension membership overrides all else */
+
+	if (fdwinfo->dobj.catId.oid <= (Oid) g_last_builtin_oid)
+		fdwinfo->dobj.dump = DUMP_COMPONENT_NONE;
+	else
+		fdwinfo->dobj.dump = fout->dopt->include_everything ?
+			DUMP_COMPONENT_ALL : DUMP_COMPONENT_NONE;
+}
+
+/*
  * selectDumpableObject: policy-setting subroutine
  *		Mark a generic dumpable object as to be dumped or not
  *
@@ -9732,7 +9753,7 @@ getForeignDataWrappers(Archive *fout, int *numForeignDataWrappers)
 		fdwinfo[i].fdwoptions = pg_strdup(PQgetvalue(res, i, i_fdwoptions));
 
 		/* Decide whether we want to dump it */
-		selectDumpableObject(&(fdwinfo[i].dobj), fout);
+		selectDumpableFdw(&fdwinfo[i], fout);
 
 		/* Mark whether FDW has an ACL */
 		if (!PQgetisnull(res, i, i_fdwacl))
