@@ -2,6 +2,17 @@
 -- SUBSCRIPTION
 --
 
+-- directory paths and dlsuffix are passed to us in environment variables
+\getenv libdir PG_LIBDIR
+\getenv dlsuffix PG_DLSUFFIX
+
+\set regresslib :libdir '/regress' :dlsuffix
+
+CREATE FUNCTION test_fdw_connection(oid, oid, internal)
+    RETURNS text
+    AS :'regresslib', 'test_fdw_connection'
+    LANGUAGE C;
+
 CREATE ROLE regress_subscription_user LOGIN SUPERUSER;
 CREATE ROLE regress_subscription_user2;
 CREATE ROLE regress_subscription_user3 IN ROLE pg_create_subscription;
@@ -84,6 +95,21 @@ CREATE SUBSCRIPTION regress_testsub5 CONNECTION 'i_dont_exist=param' PUBLICATION
 -- fail, connection string parses, but doesn't work (and does so without
 -- connecting, so this is reliable and safe)
 CREATE SUBSCRIPTION regress_testsub5 CONNECTION 'port=-1' PUBLICATION testpub;
+
+CREATE FOREIGN DATA WRAPPER test_fdw;
+CREATE SERVER test_server FOREIGN DATA WRAPPER test_fdw;
+CREATE USER MAPPING FOR regress_subscription_user SERVER test_server;
+
+-- fail, need CONNECTION clause
+CREATE SUBSCRIPTION regress_testsub6 SERVER test_server PUBLICATION testpub WITH (slot_name = NONE, connect = false);
+
+ALTER FOREIGN DATA WRAPPER test_fdw CONNECTION test_fdw_connection;
+CREATE SUBSCRIPTION regress_testsub6 SERVER test_server PUBLICATION testpub WITH (slot_name = NONE, connect = false);
+DROP SUBSCRIPTION regress_testsub6;
+
+DROP USER MAPPING FOR regress_subscription_user SERVER test_server;
+DROP SERVER test_server;
+DROP FOREIGN DATA WRAPPER test_fdw;
 
 -- fail - invalid connection string during ALTER
 ALTER SUBSCRIPTION regress_testsub CONNECTION 'foobar';
