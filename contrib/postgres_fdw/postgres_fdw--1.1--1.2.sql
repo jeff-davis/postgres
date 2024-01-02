@@ -16,3 +16,11 @@ CREATE FUNCTION postgres_fdw_get_connections (
 RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'postgres_fdw_get_connections_1_2'
 LANGUAGE C STRICT PARALLEL RESTRICTED;
+
+-- takes internal parameter to prevent calling from SQL
+CREATE FUNCTION postgres_fdw_connection(oid, oid, internal)
+RETURNS text
+AS 'MODULE_PATHNAME'
+LANGUAGE C STRICT;
+
+ALTER FOREIGN DATA WRAPPER postgres_fdw CONNECTION postgres_fdw_connection;

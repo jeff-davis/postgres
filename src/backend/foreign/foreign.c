@@ -72,6 +72,7 @@ GetForeignDataWrapperExtended(Oid fdwid, bits16 flags)
 	fdw->fdwname = pstrdup(NameStr(fdwform->fdwname));
 	fdw->fdwhandler = fdwform->fdwhandler;
 	fdw->fdwvalidator = fdwform->fdwvalidator;
+	fdw->fdwconnection = fdwform->fdwconnection;
 
 	/* Extract the fdwoptions */
 	datum = SysCacheGetAttr(FOREIGNDATAWRAPPEROID,
@@ -177,6 +178,31 @@ GetForeignServerExtended(Oid serverid, bits16 flags)
 
 
 /*
+ * ForeignServerName - get name of foreign server.
+ */
+char *
+ForeignServerName(Oid serverid)
+{
+	Form_pg_foreign_server serverform;
+	char	   *servername;
+	HeapTuple	tp;
+
+	tp = SearchSysCache1(FOREIGNSERVEROID, ObjectIdGetDatum(serverid));
+
+	if (!HeapTupleIsValid(tp))
+		elog(ERROR, "cache lookup failed for foreign server %u", serverid);
+
+	serverform = (Form_pg_foreign_server) GETSTRUCT(tp);
+
+	servername = pstrdup(NameStr(serverform->srvname));
+
+	ReleaseSysCache(tp);
+
+	return servername;
+}
+
+
+/*
  * GetForeignServerByName - look up the foreign server definition by name.
  */
 ForeignServer *
@@ -188,6 +214,46 @@ GetForeignServerByName(const char *srvname, bool missing_ok)
 		return NULL;
 
 	return GetForeignServer(serverid);
+}
+
+
+/*
+ * Retrieve connection string from server's FDW.
+ */
+char *
+ForeignServerConnectionString(Oid userid, Oid serverid)
+{
+	static MemoryContext tempContext = NULL;
+	MemoryContext oldcxt;
+	ForeignServer *server;
+	ForeignDataWrapper *fdw;
+	Datum		connection_datum;
+	text	   *connection_text;
+	char	   *result;
+
+	if (tempContext == NULL)
+	{
+		tempContext = AllocSetContextCreate(CurrentMemoryContext,
+											"temp context",
+											ALLOCSET_DEFAULT_SIZES);
+	}
+
+	oldcxt = MemoryContextSwitchTo(tempContext);
+
+	server = GetForeignServer(serverid);
+	fdw = GetForeignDataWrapper(server->fdwid);
+	connection_datum = OidFunctionCall2(fdw->fdwconnection,
+										ObjectIdGetDatum(userid),
+										ObjectIdGetDatum(serverid));
+	connection_text = DatumGetTextPP(connection_datum);
+
+	MemoryContextSwitchTo(oldcxt);
+
+	result = text_to_cstring(connection_text);
+
+	MemoryContextReset(tempContext);
+
+	return result;
 }
 
 

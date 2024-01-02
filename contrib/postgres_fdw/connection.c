@@ -132,6 +132,7 @@ PG_FUNCTION_INFO_V1(postgres_fdw_get_connections);
 PG_FUNCTION_INFO_V1(postgres_fdw_get_connections_1_2);
 PG_FUNCTION_INFO_V1(postgres_fdw_disconnect);
 PG_FUNCTION_INFO_V1(postgres_fdw_disconnect_all);
+PG_FUNCTION_INFO_V1(postgres_fdw_connection);
 
 /* prototypes of private functions */
 static void make_new_connection(ConnCacheEntry *entry, UserMapping *user);
@@ -2306,6 +2307,78 @@ postgres_fdw_get_connections_internal(FunctionCallInfo fcinfo,
 
 		tuplestore_putvalues(rsinfo->setResult, rsinfo->setDesc, values, nulls);
 	}
+}
+
+/*
+ * Values in connection strings must be enclosed in single quotes. Single
+ * quotes and backslashes must be escaped with backslash. NB: these rules are
+ * different from the rules for escaping a SQL literal.
+ */
+static void
+appendEscapedValue(StringInfo str, const char *val)
+{
+	appendStringInfoChar(str, '\'');
+	for (int i = 0; val[i] != '\0'; i++)
+	{
+		if (val[i] == '\\' || val[i] == '\'')
+			appendStringInfoChar(str, '\\');
+		appendStringInfoChar(str, val[i]);
+	}
+	appendStringInfoChar(str, '\'');
+}
+
+Datum
+postgres_fdw_connection(PG_FUNCTION_ARGS)
+{
+	Oid			userid = PG_GETARG_OID(0);
+	Oid			serverid = PG_GETARG_OID(1);
+	ForeignServer *server = GetForeignServer(serverid);
+	UserMapping *user = GetUserMapping(userid, serverid);
+	StringInfoData str;
+	const char **keywords;
+	const char **values;
+	int			n;
+
+	/*
+	 * Construct connection params from generic options of ForeignServer and
+	 * UserMapping.  (Some of them might not be libpq options, in which case
+	 * we'll just waste a few array slots.)  Add 4 extra slots for
+	 * application_name, fallback_application_name, client_encoding, end
+	 * marker.
+	 */
+	n = list_length(server->options) + list_length(user->options) + 4;
+	keywords = (const char **) palloc(n * sizeof(char *));
+	values = (const char **) palloc(n * sizeof(char *));
+
+	n = 0;
+	n += ExtractConnectionOptions(server->options,
+								  keywords + n, values + n);
+	n += ExtractConnectionOptions(user->options,
+								  keywords + n, values + n);
+
+	/* Set client_encoding so that libpq can convert encoding properly. */
+	keywords[n] = "client_encoding";
+	values[n] = GetDatabaseEncodingName();
+	n++;
+
+	keywords[n] = values[n] = NULL;
+
+	/* verify the set of connection parameters */
+	check_conn_params(keywords, values, user);
+
+	initStringInfo(&str);
+	for (int i = 0; i < n; i++)
+	{
+		char	   *sep = "";
+
+		appendStringInfo(&str, "%s%s = ", sep, keywords[i]);
+		appendEscapedValue(&str, values[i]);
+		sep = " ";
+	}
+
+	pfree(keywords);
+	pfree(values);
+	PG_RETURN_TEXT_P(cstring_to_text(str.data));
 }
 
 /*

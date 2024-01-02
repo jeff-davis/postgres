@@ -50,6 +50,7 @@ tests += {
   'tap': {
     'tests': [
       't/001_auth_scram.pl',
+      't/010_subscription.pl',
     ],
   },
 }
