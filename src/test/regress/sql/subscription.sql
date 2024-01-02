@@ -103,9 +103,19 @@ CREATE USER MAPPING FOR regress_subscription_user3 SERVER regress_testserver
   OPTIONS (password 'secret');
 GRANT USAGE ON FOREIGN SERVER regress_testserver TO regress_subscription_user3;
 
+-- temporarily revoke pg_create_connection from pg_create_subscription
+-- to test that CREATE SUBSCRIPTION ... CONNECTION fails
+REVOKE pg_create_connection FROM pg_create_subscription;
+
 SET SESSION AUTHORIZATION regress_subscription_user3;
+
+-- fail - not a member of pg_create_connection, cannot use CONNECTION
+CREATE SUBSCRIPTION regress_testsub6 CONNECTION 'dbname=regress_doesnotexist password=regress_fakepassword' PUBLICATION testpub WITH (slot_name = NONE, connect = false);
+
+-- succeed - subscription to foreign server
 CREATE SUBSCRIPTION regress_testsub6 SERVER regress_testserver PUBLICATION testpub
   WITH (slot_name = NONE, connect = false);
+
 RESET SESSION AUTHORIZATION;
 
 -- test an FDW with no validator
@@ -131,6 +141,10 @@ DROP SUBSCRIPTION regress_testsub6;
 DROP USER MAPPING FOR regress_subscription_user3 SERVER regress_testserver;
 DROP SERVER regress_testserver;
 REVOKE CREATE ON DATABASE regression FROM regress_subscription_user3;
+
+-- re-grant pg_create_connection to pg_create_subscription
+GRANT pg_create_connection TO pg_create_subscription;
+
 SET SESSION AUTHORIZATION regress_subscription_user;
 
 \dRs+

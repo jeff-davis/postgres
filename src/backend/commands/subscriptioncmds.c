@@ -609,9 +609,9 @@ CreateSubscription(ParseState *pstate, CreateSubscriptionStmt *stmt,
 		PreventInTransactionBlock(isTopLevel, "CREATE SUBSCRIPTION ... WITH (create_slot = true)");
 
 	/*
-	 * We don't want to allow unprivileged users to be able to trigger
-	 * attempts to access arbitrary network destinations, so require the user
-	 * to have been specifically authorized to create subscriptions.
+	 * We don't want to allow unprivileged users to utilize the resources that
+	 * a subscription requires (such as a background worker), so require the
+	 * user to have been specifically authorized to create subscriptions.
 	 */
 	if (!has_privs_of_role(owner, ROLE_PG_CREATE_SUBSCRIPTION))
 		ereport(ERROR,
@@ -696,6 +696,19 @@ CreateSubscription(ParseState *pstate, CreateSubscriptionStmt *stmt,
 	else
 	{
 		Assert(stmt->conninfo);
+
+		/*
+		 * We don't want to allow unprivileged users to be able to trigger
+		 * attempts to access arbitrary network destinations, so require the user
+		 * to have been specifically authorized to create connections.
+		 */
+		if (!has_privs_of_role(owner, ROLE_PG_CREATE_CONNECTION))
+			ereport(ERROR,
+					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+					 errmsg("permission denied to create subscription with a connection string"),
+					 errdetail("Only roles with privileges of the \"%s\" role may create subscriptions with CONNECTION specified.",
+							   "pg_create_connection"),
+					 errhint("Create a subscription to a foreign server by specifying SERVER instead.")));
 
 		serverid = InvalidOid;
 		umid = InvalidOid;
