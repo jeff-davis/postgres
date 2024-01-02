@@ -136,6 +136,7 @@ POSTGRES_BKI_DATA = $(addprefix $(top_srcdir)/src/include/catalog/,\
 	pg_collation.dat \
 	pg_conversion.dat \
 	pg_database.dat \
+	pg_foreign_data_wrapper.dat \
 	pg_language.dat \
 	pg_namespace.dat \
 	pg_opclass.dat \

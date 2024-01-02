@@ -21,15 +21,15 @@ CREATE ROLE regress_test_role2;
 CREATE ROLE regress_test_role_super SUPERUSER;
 CREATE ROLE regress_test_indirect;
 CREATE ROLE regress_unprivileged_role;
-CREATE FOREIGN DATA WRAPPER dummy;
-COMMENT ON FOREIGN DATA WRAPPER dummy IS 'useless';
-CREATE FOREIGN DATA WRAPPER postgresql VALIDATOR postgresql_fdw_validator;
+CREATE FOREIGN DATA WRAPPER regress_dummy;
+COMMENT ON FOREIGN DATA WRAPPER regress_dummy IS 'useless';
+CREATE FOREIGN DATA WRAPPER regress_postgresql VALIDATOR postgresql_fdw_validator;
 -- At this point we should have 2 built-in wrappers and no servers.
-SELECT fdwname, fdwhandler::regproc, fdwvalidator::regproc, fdwoptions FROM pg_foreign_data_wrapper ORDER BY 1, 2, 3;
-  fdwname   | fdwhandler |       fdwvalidator       | fdwoptions 
-------------+------------+--------------------------+------------
- dummy      | -          | -                        | 
- postgresql | -          | postgresql_fdw_validator | 
+SELECT fdwname, fdwhandler::regproc, fdwvalidator::regproc, fdwoptions FROM pg_foreign_data_wrapper WHERE fdwname LIKE 'regress_%' ORDER BY 1, 2, 3;
+      fdwname       | fdwhandler |       fdwvalidator       | fdwoptions 
+--------------------+------------+--------------------------+------------
+ regress_dummy      | -          | -                        | 
+ regress_postgresql | -          | postgresql_fdw_validator | 
 (2 rows)
 
 SELECT srvname, srvoptions FROM pg_foreign_server;
@@ -43,180 +43,180 @@ SELECT * FROM pg_user_mapping;
 (0 rows)
 
 -- CREATE FOREIGN DATA WRAPPER
-CREATE FOREIGN DATA WRAPPER foo VALIDATOR bar;            -- ERROR
+CREATE FOREIGN DATA WRAPPER regress_foo VALIDATOR bar;            -- ERROR
 ERROR:  function bar(text[], oid) does not exist
-CREATE FOREIGN DATA WRAPPER foo;
-\dew
-                        List of foreign-data wrappers
-    Name    |           Owner           | Handler |        Validator         
-------------+---------------------------+---------+--------------------------
- dummy      | regress_foreign_data_user | -       | -
- foo        | regress_foreign_data_user | -       | -
- postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator
+CREATE FOREIGN DATA WRAPPER regress_foo;
+\dew regress_*
+                            List of foreign-data wrappers
+        Name        |           Owner           | Handler |        Validator         
+--------------------+---------------------------+---------+--------------------------
+ regress_dummy      | regress_foreign_data_user | -       | -
+ regress_foo        | regress_foreign_data_user | -       | -
+ regress_postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator
 (3 rows)
 
-CREATE FOREIGN DATA WRAPPER foo; -- duplicate
-ERROR:  foreign-data wrapper "foo" already exists
-DROP FOREIGN DATA WRAPPER foo;
-CREATE FOREIGN DATA WRAPPER foo OPTIONS (testing '1');
-\dew+
-                                                 List of foreign-data wrappers
-    Name    |           Owner           | Handler |        Validator         | Access privileges |  FDW options  | Description 
-------------+---------------------------+---------+--------------------------+-------------------+---------------+-------------
- dummy      | regress_foreign_data_user | -       | -                        |                   |               | useless
- foo        | regress_foreign_data_user | -       | -                        |                   | (testing '1') | 
- postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |               | 
+CREATE FOREIGN DATA WRAPPER regress_foo; -- duplicate
+ERROR:  foreign-data wrapper "regress_foo" already exists
+DROP FOREIGN DATA WRAPPER regress_foo;
+CREATE FOREIGN DATA WRAPPER regress_foo OPTIONS (testing '1');
+\dew+ regress_*
+                                                     List of foreign-data wrappers
+        Name        |           Owner           | Handler |        Validator         | Access privileges |  FDW options  | Description 
+--------------------+---------------------------+---------+--------------------------+-------------------+---------------+-------------
+ regress_dummy      | regress_foreign_data_user | -       | -                        |                   |               | useless
+ regress_foo        | regress_foreign_data_user | -       | -                        |                   | (testing '1') | 
+ regress_postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |               | 
 (3 rows)
 
-DROP FOREIGN DATA WRAPPER foo;
-CREATE FOREIGN DATA WRAPPER foo OPTIONS (testing '1', testing '2');   -- ERROR
+DROP FOREIGN DATA WRAPPER regress_foo;
+CREATE FOREIGN DATA WRAPPER regress_foo OPTIONS (testing '1', testing '2');   -- ERROR
 ERROR:  option "testing" provided more than once
-CREATE FOREIGN DATA WRAPPER foo OPTIONS (testing '1', another '2');
-\dew+
-                                                       List of foreign-data wrappers
-    Name    |           Owner           | Handler |        Validator         | Access privileges |        FDW options         | Description 
-------------+---------------------------+---------+--------------------------+-------------------+----------------------------+-------------
- dummy      | regress_foreign_data_user | -       | -                        |                   |                            | useless
- foo        | regress_foreign_data_user | -       | -                        |                   | (testing '1', another '2') | 
- postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |                            | 
+CREATE FOREIGN DATA WRAPPER regress_foo OPTIONS (testing '1', another '2');
+\dew+ regress_*
+                                                           List of foreign-data wrappers
+        Name        |           Owner           | Handler |        Validator         | Access privileges |        FDW options         | Description 
+--------------------+---------------------------+---------+--------------------------+-------------------+----------------------------+-------------
+ regress_dummy      | regress_foreign_data_user | -       | -                        |                   |                            | useless
+ regress_foo        | regress_foreign_data_user | -       | -                        |                   | (testing '1', another '2') | 
+ regress_postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |                            | 
 (3 rows)
 
-DROP FOREIGN DATA WRAPPER foo;
+DROP FOREIGN DATA WRAPPER regress_foo;
 SET ROLE regress_test_role;
-CREATE FOREIGN DATA WRAPPER foo; -- ERROR
-ERROR:  permission denied to create foreign-data wrapper "foo"
+CREATE FOREIGN DATA WRAPPER regress_foo; -- ERROR
+ERROR:  permission denied to create foreign-data wrapper "regress_foo"
 HINT:  Must be superuser to create a foreign-data wrapper.
 RESET ROLE;
-CREATE FOREIGN DATA WRAPPER foo VALIDATOR postgresql_fdw_validator;
-\dew+
-                                                List of foreign-data wrappers
-    Name    |           Owner           | Handler |        Validator         | Access privileges | FDW options | Description 
-------------+---------------------------+---------+--------------------------+-------------------+-------------+-------------
- dummy      | regress_foreign_data_user | -       | -                        |                   |             | useless
- foo        | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |             | 
- postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |             | 
+CREATE FOREIGN DATA WRAPPER regress_foo VALIDATOR postgresql_fdw_validator;
+\dew+ regress_*
+                                                    List of foreign-data wrappers
+        Name        |           Owner           | Handler |        Validator         | Access privileges | FDW options | Description 
+--------------------+---------------------------+---------+--------------------------+-------------------+-------------+-------------
+ regress_dummy      | regress_foreign_data_user | -       | -                        |                   |             | useless
+ regress_foo        | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |             | 
+ regress_postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |             | 
 (3 rows)
 
 -- HANDLER related checks
 CREATE FUNCTION invalid_fdw_handler() RETURNS int LANGUAGE SQL AS 'SELECT 1;';
-CREATE FOREIGN DATA WRAPPER test_fdw HANDLER invalid_fdw_handler;  -- ERROR
+CREATE FOREIGN DATA WRAPPER regress_test_fdw HANDLER invalid_fdw_handler;  -- ERROR
 ERROR:  function invalid_fdw_handler must return type fdw_handler
-CREATE FOREIGN DATA WRAPPER test_fdw HANDLER test_fdw_handler HANDLER invalid_fdw_handler;  -- ERROR
+CREATE FOREIGN DATA WRAPPER regress_test_fdw HANDLER test_fdw_handler HANDLER invalid_fdw_handler;  -- ERROR
 ERROR:  conflicting or redundant options
-LINE 1: ...GN DATA WRAPPER test_fdw HANDLER test_fdw_handler HANDLER in...
+LINE 1: ...WRAPPER regress_test_fdw HANDLER test_fdw_handler HANDLER in...
                                                              ^
-CREATE FOREIGN DATA WRAPPER test_fdw HANDLER test_fdw_handler;
-DROP FOREIGN DATA WRAPPER test_fdw;
+CREATE FOREIGN DATA WRAPPER regress_test_fdw HANDLER test_fdw_handler;
+DROP FOREIGN DATA WRAPPER regress_test_fdw;
 -- ALTER FOREIGN DATA WRAPPER
-ALTER FOREIGN DATA WRAPPER foo OPTIONS (nonexistent 'fdw');         -- ERROR
+ALTER FOREIGN DATA WRAPPER regress_foo OPTIONS (nonexistent 'fdw');         -- ERROR
 ERROR:  invalid option "nonexistent"
 HINT:  There are no valid options in this context.
-ALTER FOREIGN DATA WRAPPER foo;                             -- ERROR
+ALTER FOREIGN DATA WRAPPER regress_foo;                             -- ERROR
 ERROR:  syntax error at or near ";"
-LINE 1: ALTER FOREIGN DATA WRAPPER foo;
-                                      ^
-ALTER FOREIGN DATA WRAPPER foo VALIDATOR bar;               -- ERROR
+LINE 1: ALTER FOREIGN DATA WRAPPER regress_foo;
+                                              ^
+ALTER FOREIGN DATA WRAPPER regress_foo VALIDATOR bar;               -- ERROR
 ERROR:  function bar(text[], oid) does not exist
-ALTER FOREIGN DATA WRAPPER foo NO VALIDATOR;
-\dew+
-                                                List of foreign-data wrappers
-    Name    |           Owner           | Handler |        Validator         | Access privileges | FDW options | Description 
-------------+---------------------------+---------+--------------------------+-------------------+-------------+-------------
- dummy      | regress_foreign_data_user | -       | -                        |                   |             | useless
- foo        | regress_foreign_data_user | -       | -                        |                   |             | 
- postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |             | 
+ALTER FOREIGN DATA WRAPPER regress_foo NO VALIDATOR;
+\dew+ regress_*
+                                                    List of foreign-data wrappers
+        Name        |           Owner           | Handler |        Validator         | Access privileges | FDW options | Description 
+--------------------+---------------------------+---------+--------------------------+-------------------+-------------+-------------
+ regress_dummy      | regress_foreign_data_user | -       | -                        |                   |             | useless
+ regress_foo        | regress_foreign_data_user | -       | -                        |                   |             | 
+ regress_postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |             | 
 (3 rows)
 
-ALTER FOREIGN DATA WRAPPER foo OPTIONS (a '1', b '2');
-ALTER FOREIGN DATA WRAPPER foo OPTIONS (SET c '4');         -- ERROR
+ALTER FOREIGN DATA WRAPPER regress_foo OPTIONS (a '1', b '2');
+ALTER FOREIGN DATA WRAPPER regress_foo OPTIONS (SET c '4');         -- ERROR
 ERROR:  option "c" not found
-ALTER FOREIGN DATA WRAPPER foo OPTIONS (DROP c);            -- ERROR
+ALTER FOREIGN DATA WRAPPER regress_foo OPTIONS (DROP c);            -- ERROR
 ERROR:  option "c" not found
-ALTER FOREIGN DATA WRAPPER foo OPTIONS (ADD x '1', DROP x);
-\dew+
-                                                 List of foreign-data wrappers
-    Name    |           Owner           | Handler |        Validator         | Access privileges |  FDW options   | Description 
-------------+---------------------------+---------+--------------------------+-------------------+----------------+-------------
- dummy      | regress_foreign_data_user | -       | -                        |                   |                | useless
- foo        | regress_foreign_data_user | -       | -                        |                   | (a '1', b '2') | 
- postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |                | 
-(3 rows)
-
-ALTER FOREIGN DATA WRAPPER foo OPTIONS (DROP a, SET b '3', ADD c '4');
-\dew+
-                                                 List of foreign-data wrappers
-    Name    |           Owner           | Handler |        Validator         | Access privileges |  FDW options   | Description 
-------------+---------------------------+---------+--------------------------+-------------------+----------------+-------------
- dummy      | regress_foreign_data_user | -       | -                        |                   |                | useless
- foo        | regress_foreign_data_user | -       | -                        |                   | (b '3', c '4') | 
- postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |                | 
-(3 rows)
-
-ALTER FOREIGN DATA WRAPPER foo OPTIONS (a '2');
-ALTER FOREIGN DATA WRAPPER foo OPTIONS (b '4');             -- ERROR
-ERROR:  option "b" provided more than once
-\dew+
+ALTER FOREIGN DATA WRAPPER regress_foo OPTIONS (ADD x '1', DROP x);
+\dew+ regress_*
                                                      List of foreign-data wrappers
-    Name    |           Owner           | Handler |        Validator         | Access privileges |      FDW options      | Description 
-------------+---------------------------+---------+--------------------------+-------------------+-----------------------+-------------
- dummy      | regress_foreign_data_user | -       | -                        |                   |                       | useless
- foo        | regress_foreign_data_user | -       | -                        |                   | (b '3', c '4', a '2') | 
- postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |                       | 
+        Name        |           Owner           | Handler |        Validator         | Access privileges |  FDW options   | Description 
+--------------------+---------------------------+---------+--------------------------+-------------------+----------------+-------------
+ regress_dummy      | regress_foreign_data_user | -       | -                        |                   |                | useless
+ regress_foo        | regress_foreign_data_user | -       | -                        |                   | (a '1', b '2') | 
+ regress_postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |                | 
+(3 rows)
+
+ALTER FOREIGN DATA WRAPPER regress_foo OPTIONS (DROP a, SET b '3', ADD c '4');
+\dew+ regress_*
+                                                     List of foreign-data wrappers
+        Name        |           Owner           | Handler |        Validator         | Access privileges |  FDW options   | Description 
+--------------------+---------------------------+---------+--------------------------+-------------------+----------------+-------------
+ regress_dummy      | regress_foreign_data_user | -       | -                        |                   |                | useless
+ regress_foo        | regress_foreign_data_user | -       | -                        |                   | (b '3', c '4') | 
+ regress_postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |                | 
+(3 rows)
+
+ALTER FOREIGN DATA WRAPPER regress_foo OPTIONS (a '2');
+ALTER FOREIGN DATA WRAPPER regress_foo OPTIONS (b '4');             -- ERROR
+ERROR:  option "b" provided more than once
+\dew+ regress_*
+                                                         List of foreign-data wrappers
+        Name        |           Owner           | Handler |        Validator         | Access privileges |      FDW options      | Description 
+--------------------+---------------------------+---------+--------------------------+-------------------+-----------------------+-------------
+ regress_dummy      | regress_foreign_data_user | -       | -                        |                   |                       | useless
+ regress_foo        | regress_foreign_data_user | -       | -                        |                   | (b '3', c '4', a '2') | 
+ regress_postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |                       | 
 (3 rows)
 
 SET ROLE regress_test_role;
-ALTER FOREIGN DATA WRAPPER foo OPTIONS (ADD d '5');         -- ERROR
-ERROR:  permission denied to alter foreign-data wrapper "foo"
+ALTER FOREIGN DATA WRAPPER regress_foo OPTIONS (ADD d '5');         -- ERROR
+ERROR:  permission denied to alter foreign-data wrapper "regress_foo"
 HINT:  Must be superuser to alter a foreign-data wrapper.
 SET ROLE regress_test_role_super;
-ALTER FOREIGN DATA WRAPPER foo OPTIONS (ADD d '5');
-\dew+
-                                                        List of foreign-data wrappers
-    Name    |           Owner           | Handler |        Validator         | Access privileges |         FDW options          | Description 
-------------+---------------------------+---------+--------------------------+-------------------+------------------------------+-------------
- dummy      | regress_foreign_data_user | -       | -                        |                   |                              | useless
- foo        | regress_foreign_data_user | -       | -                        |                   | (b '3', c '4', a '2', d '5') | 
- postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |                              | 
+ALTER FOREIGN DATA WRAPPER regress_foo OPTIONS (ADD d '5');
+\dew+ regress_*
+                                                            List of foreign-data wrappers
+        Name        |           Owner           | Handler |        Validator         | Access privileges |         FDW options          | Description 
+--------------------+---------------------------+---------+--------------------------+-------------------+------------------------------+-------------
+ regress_dummy      | regress_foreign_data_user | -       | -                        |                   |                              | useless
+ regress_foo        | regress_foreign_data_user | -       | -                        |                   | (b '3', c '4', a '2', d '5') | 
+ regress_postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |                              | 
 (3 rows)
 
-ALTER FOREIGN DATA WRAPPER foo OWNER TO regress_test_role;  -- ERROR
-ERROR:  permission denied to change owner of foreign-data wrapper "foo"
+ALTER FOREIGN DATA WRAPPER regress_foo OWNER TO regress_test_role;  -- ERROR
+ERROR:  permission denied to change owner of foreign-data wrapper "regress_foo"
 HINT:  The owner of a foreign-data wrapper must be a superuser.
-ALTER FOREIGN DATA WRAPPER foo OWNER TO regress_test_role_super;
+ALTER FOREIGN DATA WRAPPER regress_foo OWNER TO regress_test_role_super;
 ALTER ROLE regress_test_role_super NOSUPERUSER;
 SET ROLE regress_test_role_super;
-ALTER FOREIGN DATA WRAPPER foo OPTIONS (ADD e '6');         -- ERROR
-ERROR:  permission denied to alter foreign-data wrapper "foo"
+ALTER FOREIGN DATA WRAPPER regress_foo OPTIONS (ADD e '6');         -- ERROR
+ERROR:  permission denied to alter foreign-data wrapper "regress_foo"
 HINT:  Must be superuser to alter a foreign-data wrapper.
 RESET ROLE;
-\dew+
-                                                        List of foreign-data wrappers
-    Name    |           Owner           | Handler |        Validator         | Access privileges |         FDW options          | Description 
-------------+---------------------------+---------+--------------------------+-------------------+------------------------------+-------------
- dummy      | regress_foreign_data_user | -       | -                        |                   |                              | useless
- foo        | regress_test_role_super   | -       | -                        |                   | (b '3', c '4', a '2', d '5') | 
- postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |                              | 
+\dew+ regress_*
+                                                            List of foreign-data wrappers
+        Name        |           Owner           | Handler |        Validator         | Access privileges |         FDW options          | Description 
+--------------------+---------------------------+---------+--------------------------+-------------------+------------------------------+-------------
+ regress_dummy      | regress_foreign_data_user | -       | -                        |                   |                              | useless
+ regress_foo        | regress_test_role_super   | -       | -                        |                   | (b '3', c '4', a '2', d '5') | 
+ regress_postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |                              | 
 (3 rows)
 
-ALTER FOREIGN DATA WRAPPER foo RENAME TO foo1;
-\dew+
-                                                        List of foreign-data wrappers
-    Name    |           Owner           | Handler |        Validator         | Access privileges |         FDW options          | Description 
-------------+---------------------------+---------+--------------------------+-------------------+------------------------------+-------------
- dummy      | regress_foreign_data_user | -       | -                        |                   |                              | useless
- foo1       | regress_test_role_super   | -       | -                        |                   | (b '3', c '4', a '2', d '5') | 
- postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |                              | 
+ALTER FOREIGN DATA WRAPPER regress_foo RENAME TO regress_foo1;
+\dew+ regress_*
+                                                            List of foreign-data wrappers
+        Name        |           Owner           | Handler |        Validator         | Access privileges |         FDW options          | Description 
+--------------------+---------------------------+---------+--------------------------+-------------------+------------------------------+-------------
+ regress_dummy      | regress_foreign_data_user | -       | -                        |                   |                              | useless
+ regress_foo1       | regress_test_role_super   | -       | -                        |                   | (b '3', c '4', a '2', d '5') | 
+ regress_postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |                              | 
 (3 rows)
 
-ALTER FOREIGN DATA WRAPPER foo1 RENAME TO foo;
+ALTER FOREIGN DATA WRAPPER regress_foo1 RENAME TO regress_foo;
 -- HANDLER related checks
-ALTER FOREIGN DATA WRAPPER foo HANDLER invalid_fdw_handler;  -- ERROR
+ALTER FOREIGN DATA WRAPPER regress_foo HANDLER invalid_fdw_handler;  -- ERROR
 ERROR:  function invalid_fdw_handler must return type fdw_handler
-ALTER FOREIGN DATA WRAPPER foo HANDLER test_fdw_handler HANDLER anything;  -- ERROR
+ALTER FOREIGN DATA WRAPPER regress_foo HANDLER test_fdw_handler HANDLER anything;  -- ERROR
 ERROR:  conflicting or redundant options
-LINE 1: ...FOREIGN DATA WRAPPER foo HANDLER test_fdw_handler HANDLER an...
+LINE 1: ...DATA WRAPPER regress_foo HANDLER test_fdw_handler HANDLER an...
                                                              ^
-ALTER FOREIGN DATA WRAPPER foo HANDLER test_fdw_handler;
+ALTER FOREIGN DATA WRAPPER regress_foo HANDLER test_fdw_handler;
 WARNING:  changing the foreign-data wrapper handler can change behavior of existing foreign tables
 DROP FUNCTION invalid_fdw_handler();
 -- DROP FOREIGN DATA WRAPPER
@@ -224,52 +224,52 @@ DROP FOREIGN DATA WRAPPER nonexistent;                      -- ERROR
 ERROR:  foreign-data wrapper "nonexistent" does not exist
 DROP FOREIGN DATA WRAPPER IF EXISTS nonexistent;
 NOTICE:  foreign-data wrapper "nonexistent" does not exist, skipping
-\dew+
-                                                             List of foreign-data wrappers
-    Name    |           Owner           |     Handler      |        Validator         | Access privileges |         FDW options          | Description 
-------------+---------------------------+------------------+--------------------------+-------------------+------------------------------+-------------
- dummy      | regress_foreign_data_user | -                | -                        |                   |                              | useless
- foo        | regress_test_role_super   | test_fdw_handler | -                        |                   | (b '3', c '4', a '2', d '5') | 
- postgresql | regress_foreign_data_user | -                | postgresql_fdw_validator |                   |                              | 
+\dew+ regress_*
+                                                                 List of foreign-data wrappers
+        Name        |           Owner           |     Handler      |        Validator         | Access privileges |         FDW options          | Description 
+--------------------+---------------------------+------------------+--------------------------+-------------------+------------------------------+-------------
+ regress_dummy      | regress_foreign_data_user | -                | -                        |                   |                              | useless
+ regress_foo        | regress_test_role_super   | test_fdw_handler | -                        |                   | (b '3', c '4', a '2', d '5') | 
+ regress_postgresql | regress_foreign_data_user | -                | postgresql_fdw_validator |                   |                              | 
 (3 rows)
 
 DROP ROLE regress_test_role_super;                          -- ERROR
 ERROR:  role "regress_test_role_super" cannot be dropped because some objects depend on it
-DETAIL:  owner of foreign-data wrapper foo
+DETAIL:  owner of foreign-data wrapper regress_foo
 SET ROLE regress_test_role_super;
-DROP FOREIGN DATA WRAPPER foo;
+DROP FOREIGN DATA WRAPPER regress_foo;
 RESET ROLE;
 DROP ROLE regress_test_role_super;
-\dew+
-                                                List of foreign-data wrappers
-    Name    |           Owner           | Handler |        Validator         | Access privileges | FDW options | Description 
-------------+---------------------------+---------+--------------------------+-------------------+-------------+-------------
- dummy      | regress_foreign_data_user | -       | -                        |                   |             | useless
- postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |             | 
+\dew+ regress_*
+                                                    List of foreign-data wrappers
+        Name        |           Owner           | Handler |        Validator         | Access privileges | FDW options | Description 
+--------------------+---------------------------+---------+--------------------------+-------------------+-------------+-------------
+ regress_dummy      | regress_foreign_data_user | -       | -                        |                   |             | useless
+ regress_postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |             | 
 (2 rows)
 
-CREATE FOREIGN DATA WRAPPER foo;
-CREATE SERVER s1 FOREIGN DATA WRAPPER foo;
+CREATE FOREIGN DATA WRAPPER regress_foo;
+CREATE SERVER s1 FOREIGN DATA WRAPPER regress_foo;
 COMMENT ON SERVER s1 IS 'foreign server';
 CREATE USER MAPPING FOR current_user SERVER s1;
 CREATE USER MAPPING FOR current_user SERVER s1;				-- ERROR
 ERROR:  user mapping for "regress_foreign_data_user" already exists for server "s1"
 CREATE USER MAPPING IF NOT EXISTS FOR current_user SERVER s1; -- NOTICE
 NOTICE:  user mapping for "regress_foreign_data_user" already exists for server "s1", skipping
-\dew+
-                                                List of foreign-data wrappers
-    Name    |           Owner           | Handler |        Validator         | Access privileges | FDW options | Description 
-------------+---------------------------+---------+--------------------------+-------------------+-------------+-------------
- dummy      | regress_foreign_data_user | -       | -                        |                   |             | useless
- foo        | regress_foreign_data_user | -       | -                        |                   |             | 
- postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |             | 
+\dew+ regress_*
+                                                    List of foreign-data wrappers
+        Name        |           Owner           | Handler |        Validator         | Access privileges | FDW options | Description 
+--------------------+---------------------------+---------+--------------------------+-------------------+-------------+-------------
+ regress_dummy      | regress_foreign_data_user | -       | -                        |                   |             | useless
+ regress_foo        | regress_foreign_data_user | -       | -                        |                   |             | 
+ regress_postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |             | 
 (3 rows)
 
 \des+
                                                    List of foreign servers
  Name |           Owner           | Foreign-data wrapper | Access privileges | Type | Version | FDW options |  Description   
 ------+---------------------------+----------------------+-------------------+------+---------+-------------+----------------
- s1   | regress_foreign_data_user | foo                  |                   |      |         |             | foreign server
+ s1   | regress_foreign_data_user | regress_foo          |                   |      |         |             | foreign server
 (1 row)
 
 \deu+
@@ -279,25 +279,25 @@ NOTICE:  user mapping for "regress_foreign_data_user" already exists for server 
  s1     | regress_foreign_data_user | 
 (1 row)
 
-DROP FOREIGN DATA WRAPPER foo;                              -- ERROR
-ERROR:  cannot drop foreign-data wrapper foo because other objects depend on it
-DETAIL:  server s1 depends on foreign-data wrapper foo
+DROP FOREIGN DATA WRAPPER regress_foo;                              -- ERROR
+ERROR:  cannot drop foreign-data wrapper regress_foo because other objects depend on it
+DETAIL:  server s1 depends on foreign-data wrapper regress_foo
 user mapping for regress_foreign_data_user on server s1 depends on server s1
 HINT:  Use DROP ... CASCADE to drop the dependent objects too.
 SET ROLE regress_test_role;
-DROP FOREIGN DATA WRAPPER foo CASCADE;                      -- ERROR
-ERROR:  must be owner of foreign-data wrapper foo
+DROP FOREIGN DATA WRAPPER regress_foo CASCADE;                      -- ERROR
+ERROR:  must be owner of foreign-data wrapper regress_foo
 RESET ROLE;
-DROP FOREIGN DATA WRAPPER foo CASCADE;
+DROP FOREIGN DATA WRAPPER regress_foo CASCADE;
 NOTICE:  drop cascades to 2 other objects
 DETAIL:  drop cascades to server s1
 drop cascades to user mapping for regress_foreign_data_user on server s1
-\dew+
-                                                List of foreign-data wrappers
-    Name    |           Owner           | Handler |        Validator         | Access privileges | FDW options | Description 
-------------+---------------------------+---------+--------------------------+-------------------+-------------+-------------
- dummy      | regress_foreign_data_user | -       | -                        |                   |             | useless
- postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |             | 
+\dew+ regress_*
+                                                    List of foreign-data wrappers
+        Name        |           Owner           | Handler |        Validator         | Access privileges | FDW options | Description 
+--------------------+---------------------------+---------+--------------------------+-------------------+-------------+-------------
+ regress_dummy      | regress_foreign_data_user | -       | -                        |                   |             | useless
+ regress_postgresql | regress_foreign_data_user | -       | postgresql_fdw_validator |                   |             | 
 (2 rows)
 
 \des+
@@ -313,87 +313,125 @@ drop cascades to user mapping for regress_foreign_data_user on server s1
 (0 rows)
 
 -- exercise CREATE SERVER
-CREATE SERVER s1 FOREIGN DATA WRAPPER foo;                  -- ERROR
-ERROR:  foreign-data wrapper "foo" does not exist
-CREATE FOREIGN DATA WRAPPER foo OPTIONS ("test wrapper" 'true');
-CREATE SERVER s1 FOREIGN DATA WRAPPER foo;
-CREATE SERVER s1 FOREIGN DATA WRAPPER foo;                  -- ERROR
+CREATE SERVER s1 FOREIGN DATA WRAPPER regress_foo;                  -- ERROR
+ERROR:  foreign-data wrapper "regress_foo" does not exist
+CREATE FOREIGN DATA WRAPPER regress_foo OPTIONS ("test wrapper" 'true');
+CREATE SERVER s1 FOREIGN DATA WRAPPER regress_foo;
+CREATE SERVER s1 FOREIGN DATA WRAPPER regress_foo;                  -- ERROR
 ERROR:  server "s1" already exists
-CREATE SERVER IF NOT EXISTS s1 FOREIGN DATA WRAPPER foo;	-- No ERROR, just NOTICE
+CREATE SERVER IF NOT EXISTS s1 FOREIGN DATA WRAPPER regress_foo;	-- No ERROR, just NOTICE
 NOTICE:  server "s1" already exists, skipping
-CREATE SERVER s2 FOREIGN DATA WRAPPER foo OPTIONS (host 'a', dbname 'b');
-CREATE SERVER s3 TYPE 'oracle' FOREIGN DATA WRAPPER foo;
-CREATE SERVER s4 TYPE 'oracle' FOREIGN DATA WRAPPER foo OPTIONS (host 'a', dbname 'b');
-CREATE SERVER s5 VERSION '15.0' FOREIGN DATA WRAPPER foo;
-CREATE SERVER s6 VERSION '16.0' FOREIGN DATA WRAPPER foo OPTIONS (host 'a', dbname 'b');
-CREATE SERVER s7 TYPE 'oracle' VERSION '17.0' FOREIGN DATA WRAPPER foo OPTIONS (host 'a', dbname 'b');
-CREATE SERVER s8 FOREIGN DATA WRAPPER postgresql OPTIONS (foo '1'); -- ERROR
+CREATE SERVER s2 FOREIGN DATA WRAPPER regress_foo OPTIONS (host 'a', dbname 'b');
+CREATE SERVER s3 TYPE 'oracle' FOREIGN DATA WRAPPER regress_foo;
+CREATE SERVER s4 TYPE 'oracle' FOREIGN DATA WRAPPER regress_foo OPTIONS (host 'a', dbname 'b');
+CREATE SERVER s5 VERSION '15.0' FOREIGN DATA WRAPPER regress_foo;
+CREATE SERVER s6 VERSION '16.0' FOREIGN DATA WRAPPER regress_foo OPTIONS (host 'a', dbname 'b');
+CREATE SERVER s7 TYPE 'oracle' VERSION '17.0' FOREIGN DATA WRAPPER regress_foo OPTIONS (host 'a', dbname 'b');
+CREATE SERVER s8 FOREIGN DATA WRAPPER regress_postgresql OPTIONS (foo '1'); -- ERROR
 ERROR:  invalid option "foo"
-CREATE SERVER s8 FOREIGN DATA WRAPPER postgresql OPTIONS (host 'localhost', dbname 's8db');
+CREATE SERVER s8 FOREIGN DATA WRAPPER regress_postgresql OPTIONS (host 'localhost', dbname 's8db');
 \des+
                                                              List of foreign servers
  Name |           Owner           | Foreign-data wrapper | Access privileges |  Type  | Version |            FDW options            | Description 
 ------+---------------------------+----------------------+-------------------+--------+---------+-----------------------------------+-------------
- s1   | regress_foreign_data_user | foo                  |                   |        |         |                                   | 
- s2   | regress_foreign_data_user | foo                  |                   |        |         | (host 'a', dbname 'b')            | 
- s3   | regress_foreign_data_user | foo                  |                   | oracle |         |                                   | 
- s4   | regress_foreign_data_user | foo                  |                   | oracle |         | (host 'a', dbname 'b')            | 
- s5   | regress_foreign_data_user | foo                  |                   |        | 15.0    |                                   | 
- s6   | regress_foreign_data_user | foo                  |                   |        | 16.0    | (host 'a', dbname 'b')            | 
- s7   | regress_foreign_data_user | foo                  |                   | oracle | 17.0    | (host 'a', dbname 'b')            | 
- s8   | regress_foreign_data_user | postgresql           |                   |        |         | (host 'localhost', dbname 's8db') | 
+ s1   | regress_foreign_data_user | regress_foo          |                   |        |         |                                   | 
+ s2   | regress_foreign_data_user | regress_foo          |                   |        |         | (host 'a', dbname 'b')            | 
+ s3   | regress_foreign_data_user | regress_foo          |                   | oracle |         |                                   | 
+ s4   | regress_foreign_data_user | regress_foo          |                   | oracle |         | (host 'a', dbname 'b')            | 
+ s5   | regress_foreign_data_user | regress_foo          |                   |        | 15.0    |                                   | 
+ s6   | regress_foreign_data_user | regress_foo          |                   |        | 16.0    | (host 'a', dbname 'b')            | 
+ s7   | regress_foreign_data_user | regress_foo          |                   | oracle | 17.0    | (host 'a', dbname 'b')            | 
+ s8   | regress_foreign_data_user | regress_postgresql   |                   |        |         | (host 'localhost', dbname 's8db') | 
 (8 rows)
 
 SET ROLE regress_test_role;
-CREATE SERVER t1 FOREIGN DATA WRAPPER foo;                 -- ERROR: no usage on FDW
-ERROR:  permission denied for foreign-data wrapper foo
+CREATE SERVER t1 FOREIGN DATA WRAPPER regress_foo;                 -- ERROR: no usage on FDW
+ERROR:  permission denied for foreign-data wrapper regress_foo
 RESET ROLE;
-GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_role;
+GRANT USAGE ON FOREIGN DATA WRAPPER regress_foo TO regress_test_role;
 SET ROLE regress_test_role;
-CREATE SERVER t1 FOREIGN DATA WRAPPER foo;
+CREATE SERVER t1 FOREIGN DATA WRAPPER regress_foo;
 RESET ROLE;
 \des+
                                                              List of foreign servers
  Name |           Owner           | Foreign-data wrapper | Access privileges |  Type  | Version |            FDW options            | Description 
 ------+---------------------------+----------------------+-------------------+--------+---------+-----------------------------------+-------------
- s1   | regress_foreign_data_user | foo                  |                   |        |         |                                   | 
- s2   | regress_foreign_data_user | foo                  |                   |        |         | (host 'a', dbname 'b')            | 
- s3   | regress_foreign_data_user | foo                  |                   | oracle |         |                                   | 
- s4   | regress_foreign_data_user | foo                  |                   | oracle |         | (host 'a', dbname 'b')            | 
- s5   | regress_foreign_data_user | foo                  |                   |        | 15.0    |                                   | 
- s6   | regress_foreign_data_user | foo                  |                   |        | 16.0    | (host 'a', dbname 'b')            | 
- s7   | regress_foreign_data_user | foo                  |                   | oracle | 17.0    | (host 'a', dbname 'b')            | 
- s8   | regress_foreign_data_user | postgresql           |                   |        |         | (host 'localhost', dbname 's8db') | 
- t1   | regress_test_role         | foo                  |                   |        |         |                                   | 
+ s1   | regress_foreign_data_user | regress_foo          |                   |        |         |                                   | 
+ s2   | regress_foreign_data_user | regress_foo          |                   |        |         | (host 'a', dbname 'b')            | 
+ s3   | regress_foreign_data_user | regress_foo          |                   | oracle |         |                                   | 
+ s4   | regress_foreign_data_user | regress_foo          |                   | oracle |         | (host 'a', dbname 'b')            | 
+ s5   | regress_foreign_data_user | regress_foo          |                   |        | 15.0    |                                   | 
+ s6   | regress_foreign_data_user | regress_foo          |                   |        | 16.0    | (host 'a', dbname 'b')            | 
+ s7   | regress_foreign_data_user | regress_foo          |                   | oracle | 17.0    | (host 'a', dbname 'b')            | 
+ s8   | regress_foreign_data_user | regress_postgresql   |                   |        |         | (host 'localhost', dbname 's8db') | 
+ t1   | regress_test_role         | regress_foo          |                   |        |         |                                   | 
 (9 rows)
 
-REVOKE USAGE ON FOREIGN DATA WRAPPER foo FROM regress_test_role;
-GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_indirect;
+REVOKE USAGE ON FOREIGN DATA WRAPPER regress_foo FROM regress_test_role;
+GRANT USAGE ON FOREIGN DATA WRAPPER regress_foo TO regress_test_indirect;
 SET ROLE regress_test_role;
-CREATE SERVER t2 FOREIGN DATA WRAPPER foo;                 -- ERROR
-ERROR:  permission denied for foreign-data wrapper foo
+CREATE SERVER t2 FOREIGN DATA WRAPPER regress_foo;                 -- ERROR
+ERROR:  permission denied for foreign-data wrapper regress_foo
 RESET ROLE;
 GRANT regress_test_indirect TO regress_test_role;
 SET ROLE regress_test_role;
-CREATE SERVER t2 FOREIGN DATA WRAPPER foo;
+CREATE SERVER t2 FOREIGN DATA WRAPPER regress_foo;
 \des+
                                                              List of foreign servers
  Name |           Owner           | Foreign-data wrapper | Access privileges |  Type  | Version |            FDW options            | Description 
 ------+---------------------------+----------------------+-------------------+--------+---------+-----------------------------------+-------------
- s1   | regress_foreign_data_user | foo                  |                   |        |         |                                   | 
- s2   | regress_foreign_data_user | foo                  |                   |        |         | (host 'a', dbname 'b')            | 
- s3   | regress_foreign_data_user | foo                  |                   | oracle |         |                                   | 
- s4   | regress_foreign_data_user | foo                  |                   | oracle |         | (host 'a', dbname 'b')            | 
- s5   | regress_foreign_data_user | foo                  |                   |        | 15.0    |                                   | 
- s6   | regress_foreign_data_user | foo                  |                   |        | 16.0    | (host 'a', dbname 'b')            | 
- s7   | regress_foreign_data_user | foo                  |                   | oracle | 17.0    | (host 'a', dbname 'b')            | 
- s8   | regress_foreign_data_user | postgresql           |                   |        |         | (host 'localhost', dbname 's8db') | 
- t1   | regress_test_role         | foo                  |                   |        |         |                                   | 
- t2   | regress_test_role         | foo                  |                   |        |         |                                   | 
+ s1   | regress_foreign_data_user | regress_foo          |                   |        |         |                                   | 
+ s2   | regress_foreign_data_user | regress_foo          |                   |        |         | (host 'a', dbname 'b')            | 
+ s3   | regress_foreign_data_user | regress_foo          |                   | oracle |         |                                   | 
+ s4   | regress_foreign_data_user | regress_foo          |                   | oracle |         | (host 'a', dbname 'b')            | 
+ s5   | regress_foreign_data_user | regress_foo          |                   |        | 15.0    |                                   | 
+ s6   | regress_foreign_data_user | regress_foo          |                   |        | 16.0    | (host 'a', dbname 'b')            | 
+ s7   | regress_foreign_data_user | regress_foo          |                   | oracle | 17.0    | (host 'a', dbname 'b')            | 
+ s8   | regress_foreign_data_user | regress_postgresql   |                   |        |         | (host 'localhost', dbname 's8db') | 
+ t1   | regress_test_role         | regress_foo          |                   |        |         |                                   | 
+ t2   | regress_test_role         | regress_foo          |                   |        |         |                                   | 
 (10 rows)
 
 RESET ROLE;
 REVOKE regress_test_indirect FROM regress_test_role;
+--
+-- test pg_connection_fdw
+--
+\set VERBOSITY terse
+CREATE SERVER connection_server FOREIGN DATA WRAPPER pg_connection_fdw
+  OPTIONS (host 'thehost', client_encoding 'LATIN1'); -- fail
+ERROR:  invalid option "client_encoding"
+CREATE SERVER connection_server FOREIGN DATA WRAPPER pg_connection_fdw
+  OPTIONS (host 'thehost', nonsense 'asdf'); -- fail
+ERROR:  invalid option "nonsense"
+CREATE SERVER connection_server FOREIGN DATA WRAPPER pg_connection_fdw
+  OPTIONS (host 'thehost', password 'secret'); -- fail
+ERROR:  invalid option "password"
+\set VERBOSITY default
+CREATE SERVER connection_server FOREIGN DATA WRAPPER pg_connection_fdw
+  OPTIONS (host 'thehost', port '5432');
+CREATE USER MAPPING FOR regress_test_role SERVER connection_server
+  OPTIONS (user 'role', password 'secret', host 'otherhost'); -- fail
+ERROR:  invalid option "host"
+CREATE USER MAPPING FOR regress_test_role SERVER connection_server
+  OPTIONS (user 'role', password 'secret');
+CREATE USER MAPPING FOR PUBLIC SERVER connection_server
+  OPTIONS (user 'publicuser', password $pwd$'\"$# secret'$pwd$);
+SELECT pg_conninfo_from_server('connection_server', 'regress_test_role', false);
+                     pg_conninfo_from_server                      
+------------------------------------------------------------------
+ host = 'thehost' port = '5432' user = 'role' password = 'secret'
+(1 row)
+
+SELECT pg_conninfo_from_server('connection_server', 'regress_test_role2', false);
+                             pg_conninfo_from_server                              
+----------------------------------------------------------------------------------
+ host = 'thehost' port = '5432' user = 'publicuser' password = '\'\\"$# secret\''
+(1 row)
+
+DROP USER MAPPING FOR regress_test_role SERVER connection_server;
+DROP USER MAPPING FOR PUBLIC SERVER connection_server;
+DROP SERVER connection_server;
 -- ALTER SERVER
 ALTER SERVER s0;                                            -- ERROR
 ERROR:  syntax error at or near ";"
@@ -410,18 +448,18 @@ GRANT USAGE ON FOREIGN SERVER s6 TO regress_test_role2 WITH GRANT OPTION;
                                                                                List of foreign servers
  Name |           Owner           | Foreign-data wrapper |                   Access privileges                   |  Type  | Version |            FDW options            | Description 
 ------+---------------------------+----------------------+-------------------------------------------------------+--------+---------+-----------------------------------+-------------
- s1   | regress_foreign_data_user | foo                  | regress_foreign_data_user=U/regress_foreign_data_user+|        | 1.0     | (servername 's1')                 | 
+ s1   | regress_foreign_data_user | regress_foo          | regress_foreign_data_user=U/regress_foreign_data_user+|        | 1.0     | (servername 's1')                 | 
       |                           |                      | regress_test_role=U/regress_foreign_data_user         |        |         |                                   | 
- s2   | regress_foreign_data_user | foo                  |                                                       |        | 1.1     | (host 'a', dbname 'b')            | 
- s3   | regress_foreign_data_user | foo                  |                                                       | oracle |         | ("tns name" 'orcl', port '1521')  | 
- s4   | regress_foreign_data_user | foo                  |                                                       | oracle |         | (host 'a', dbname 'b')            | 
- s5   | regress_foreign_data_user | foo                  |                                                       |        | 15.0    |                                   | 
- s6   | regress_foreign_data_user | foo                  | regress_foreign_data_user=U/regress_foreign_data_user+|        | 16.0    | (host 'a', dbname 'b')            | 
+ s2   | regress_foreign_data_user | regress_foo          |                                                       |        | 1.1     | (host 'a', dbname 'b')            | 
+ s3   | regress_foreign_data_user | regress_foo          |                                                       | oracle |         | ("tns name" 'orcl', port '1521')  | 
+ s4   | regress_foreign_data_user | regress_foo          |                                                       | oracle |         | (host 'a', dbname 'b')            | 
+ s5   | regress_foreign_data_user | regress_foo          |                                                       |        | 15.0    |                                   | 
+ s6   | regress_foreign_data_user | regress_foo          | regress_foreign_data_user=U/regress_foreign_data_user+|        | 16.0    | (host 'a', dbname 'b')            | 
       |                           |                      | regress_test_role2=U*/regress_foreign_data_user       |        |         |                                   | 
- s7   | regress_foreign_data_user | foo                  |                                                       | oracle | 17.0    | (host 'a', dbname 'b')            | 
- s8   | regress_foreign_data_user | postgresql           |                                                       |        |         | (host 'localhost', dbname 's8db') | 
- t1   | regress_test_role         | foo                  |                                                       |        |         |                                   | 
- t2   | regress_test_role         | foo                  |                                                       |        |         |                                   | 
+ s7   | regress_foreign_data_user | regress_foo          |                                                       | oracle | 17.0    | (host 'a', dbname 'b')            | 
+ s8   | regress_foreign_data_user | regress_postgresql   |                                                       |        |         | (host 'localhost', dbname 's8db') | 
+ t1   | regress_test_role         | regress_foo          |                                                       |        |         |                                   | 
+ t2   | regress_test_role         | regress_foo          |                                                       |        |         |                                   | 
 (10 rows)
 
 SET ROLE regress_test_role;
@@ -435,7 +473,7 @@ GRANT regress_test_role2 TO regress_test_role;
 SET ROLE regress_test_role;
 ALTER SERVER s1 VERSION '1.1';
 ALTER SERVER s1 OWNER TO regress_test_role2;                -- ERROR
-ERROR:  permission denied for foreign-data wrapper foo
+ERROR:  permission denied for foreign-data wrapper regress_foo
 RESET ROLE;
 ALTER SERVER s8 OPTIONS (foo '1');                          -- ERROR option validation
 ERROR:  invalid option "foo"
@@ -448,29 +486,29 @@ GRANT regress_test_indirect TO regress_test_role;
 SET ROLE regress_test_role;
 ALTER SERVER s1 OWNER TO regress_test_indirect;
 RESET ROLE;
-GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_indirect;
+GRANT USAGE ON FOREIGN DATA WRAPPER regress_foo TO regress_test_indirect;
 SET ROLE regress_test_role;
 ALTER SERVER s1 OWNER TO regress_test_indirect;
 RESET ROLE;
 DROP ROLE regress_test_indirect;                            -- ERROR
 ERROR:  role "regress_test_indirect" cannot be dropped because some objects depend on it
-DETAIL:  privileges for foreign-data wrapper foo
+DETAIL:  privileges for foreign-data wrapper regress_foo
 owner of server s1
 \des+
                                                                                  List of foreign servers
  Name |           Owner           | Foreign-data wrapper |                   Access privileges                   |  Type  | Version |             FDW options              | Description 
 ------+---------------------------+----------------------+-------------------------------------------------------+--------+---------+--------------------------------------+-------------
- s1   | regress_test_indirect     | foo                  | regress_test_indirect=U/regress_test_indirect         |        | 1.1     | (servername 's1')                    | 
- s2   | regress_foreign_data_user | foo                  |                                                       |        | 1.1     | (host 'a', dbname 'b')               | 
- s3   | regress_foreign_data_user | foo                  |                                                       | oracle |         | ("tns name" 'orcl', port '1521')     | 
- s4   | regress_foreign_data_user | foo                  |                                                       | oracle |         | (host 'a', dbname 'b')               | 
- s5   | regress_foreign_data_user | foo                  |                                                       |        | 15.0    |                                      | 
- s6   | regress_foreign_data_user | foo                  | regress_foreign_data_user=U/regress_foreign_data_user+|        | 16.0    | (host 'a', dbname 'b')               | 
+ s1   | regress_test_indirect     | regress_foo          | regress_test_indirect=U/regress_test_indirect         |        | 1.1     | (servername 's1')                    | 
+ s2   | regress_foreign_data_user | regress_foo          |                                                       |        | 1.1     | (host 'a', dbname 'b')               | 
+ s3   | regress_foreign_data_user | regress_foo          |                                                       | oracle |         | ("tns name" 'orcl', port '1521')     | 
+ s4   | regress_foreign_data_user | regress_foo          |                                                       | oracle |         | (host 'a', dbname 'b')               | 
+ s5   | regress_foreign_data_user | regress_foo          |                                                       |        | 15.0    |                                      | 
+ s6   | regress_foreign_data_user | regress_foo          | regress_foreign_data_user=U/regress_foreign_data_user+|        | 16.0    | (host 'a', dbname 'b')               | 
       |                           |                      | regress_test_role2=U*/regress_foreign_data_user       |        |         |                                      | 
- s7   | regress_foreign_data_user | foo                  |                                                       | oracle | 17.0    | (host 'a', dbname 'b')               | 
- s8   | regress_foreign_data_user | postgresql           |                                                       |        |         | (dbname 'db1', connect_timeout '30') | 
- t1   | regress_test_role         | foo                  |                                                       |        |         |                                      | 
- t2   | regress_test_role         | foo                  |                                                       |        |         |                                      | 
+ s7   | regress_foreign_data_user | regress_foo          |                                                       | oracle | 17.0    | (host 'a', dbname 'b')               | 
+ s8   | regress_foreign_data_user | regress_postgresql   |                                                       |        |         | (dbname 'db1', connect_timeout '30') | 
+ t1   | regress_test_role         | regress_foo          |                                                       |        |         |                                      | 
+ t2   | regress_test_role         | regress_foo          |                                                       |        |         |                                      | 
 (10 rows)
 
 ALTER SERVER s8 RENAME to s8new;
@@ -478,17 +516,17 @@ ALTER SERVER s8 RENAME to s8new;
                                                                                  List of foreign servers
  Name  |           Owner           | Foreign-data wrapper |                   Access privileges                   |  Type  | Version |             FDW options              | Description 
 -------+---------------------------+----------------------+-------------------------------------------------------+--------+---------+--------------------------------------+-------------
- s1    | regress_test_indirect     | foo                  | regress_test_indirect=U/regress_test_indirect         |        | 1.1     | (servername 's1')                    | 
- s2    | regress_foreign_data_user | foo                  |                                                       |        | 1.1     | (host 'a', dbname 'b')               | 
- s3    | regress_foreign_data_user | foo                  |                                                       | oracle |         | ("tns name" 'orcl', port '1521')     | 
- s4    | regress_foreign_data_user | foo                  |                                                       | oracle |         | (host 'a', dbname 'b')               | 
- s5    | regress_foreign_data_user | foo                  |                                                       |        | 15.0    |                                      | 
- s6    | regress_foreign_data_user | foo                  | regress_foreign_data_user=U/regress_foreign_data_user+|        | 16.0    | (host 'a', dbname 'b')               | 
+ s1    | regress_test_indirect     | regress_foo          | regress_test_indirect=U/regress_test_indirect         |        | 1.1     | (servername 's1')                    | 
+ s2    | regress_foreign_data_user | regress_foo          |                                                       |        | 1.1     | (host 'a', dbname 'b')               | 
+ s3    | regress_foreign_data_user | regress_foo          |                                                       | oracle |         | ("tns name" 'orcl', port '1521')     | 
+ s4    | regress_foreign_data_user | regress_foo          |                                                       | oracle |         | (host 'a', dbname 'b')               | 
+ s5    | regress_foreign_data_user | regress_foo          |                                                       |        | 15.0    |                                      | 
+ s6    | regress_foreign_data_user | regress_foo          | regress_foreign_data_user=U/regress_foreign_data_user+|        | 16.0    | (host 'a', dbname 'b')               | 
        |                           |                      | regress_test_role2=U*/regress_foreign_data_user       |        |         |                                      | 
- s7    | regress_foreign_data_user | foo                  |                                                       | oracle | 17.0    | (host 'a', dbname 'b')               | 
- s8new | regress_foreign_data_user | postgresql           |                                                       |        |         | (dbname 'db1', connect_timeout '30') | 
- t1    | regress_test_role         | foo                  |                                                       |        |         |                                      | 
- t2    | regress_test_role         | foo                  |                                                       |        |         |                                      | 
+ s7    | regress_foreign_data_user | regress_foo          |                                                       | oracle | 17.0    | (host 'a', dbname 'b')               | 
+ s8new | regress_foreign_data_user | regress_postgresql   |                                                       |        |         | (dbname 'db1', connect_timeout '30') | 
+ t1    | regress_test_role         | regress_foo          |                                                       |        |         |                                      | 
+ t2    | regress_test_role         | regress_foo          |                                                       |        |         |                                      | 
 (10 rows)
 
 ALTER SERVER s8new RENAME to s8;
@@ -501,16 +539,16 @@ NOTICE:  server "nonexistent" does not exist, skipping
                  List of foreign servers
  Name |           Owner           | Foreign-data wrapper 
 ------+---------------------------+----------------------
- s1   | regress_test_indirect     | foo
- s2   | regress_foreign_data_user | foo
- s3   | regress_foreign_data_user | foo
- s4   | regress_foreign_data_user | foo
- s5   | regress_foreign_data_user | foo
- s6   | regress_foreign_data_user | foo
- s7   | regress_foreign_data_user | foo
- s8   | regress_foreign_data_user | postgresql
- t1   | regress_test_role         | foo
- t2   | regress_test_role         | foo
+ s1   | regress_test_indirect     | regress_foo
+ s2   | regress_foreign_data_user | regress_foo
+ s3   | regress_foreign_data_user | regress_foo
+ s4   | regress_foreign_data_user | regress_foo
+ s5   | regress_foreign_data_user | regress_foo
+ s6   | regress_foreign_data_user | regress_foo
+ s7   | regress_foreign_data_user | regress_foo
+ s8   | regress_foreign_data_user | regress_postgresql
+ t1   | regress_test_role         | regress_foo
+ t2   | regress_test_role         | regress_foo
 (10 rows)
 
 SET ROLE regress_test_role;
@@ -522,15 +560,15 @@ RESET ROLE;
                  List of foreign servers
  Name |           Owner           | Foreign-data wrapper 
 ------+---------------------------+----------------------
- s2   | regress_foreign_data_user | foo
- s3   | regress_foreign_data_user | foo
- s4   | regress_foreign_data_user | foo
- s5   | regress_foreign_data_user | foo
- s6   | regress_foreign_data_user | foo
- s7   | regress_foreign_data_user | foo
- s8   | regress_foreign_data_user | postgresql
- t1   | regress_test_role         | foo
- t2   | regress_test_role         | foo
+ s2   | regress_foreign_data_user | regress_foo
+ s3   | regress_foreign_data_user | regress_foo
+ s4   | regress_foreign_data_user | regress_foo
+ s5   | regress_foreign_data_user | regress_foo
+ s6   | regress_foreign_data_user | regress_foo
+ s7   | regress_foreign_data_user | regress_foo
+ s8   | regress_foreign_data_user | regress_postgresql
+ t1   | regress_test_role         | regress_foo
+ t2   | regress_test_role         | regress_foo
 (9 rows)
 
 ALTER SERVER s2 OWNER TO regress_test_role;
@@ -541,14 +579,14 @@ RESET ROLE;
                  List of foreign servers
  Name |           Owner           | Foreign-data wrapper 
 ------+---------------------------+----------------------
- s3   | regress_foreign_data_user | foo
- s4   | regress_foreign_data_user | foo
- s5   | regress_foreign_data_user | foo
- s6   | regress_foreign_data_user | foo
- s7   | regress_foreign_data_user | foo
- s8   | regress_foreign_data_user | postgresql
- t1   | regress_test_role         | foo
- t2   | regress_test_role         | foo
+ s3   | regress_foreign_data_user | regress_foo
+ s4   | regress_foreign_data_user | regress_foo
+ s5   | regress_foreign_data_user | regress_foo
+ s6   | regress_foreign_data_user | regress_foo
+ s7   | regress_foreign_data_user | regress_foo
+ s8   | regress_foreign_data_user | regress_postgresql
+ t1   | regress_test_role         | regress_foo
+ t2   | regress_test_role         | regress_foo
 (8 rows)
 
 CREATE USER MAPPING FOR current_user SERVER s3;
@@ -569,13 +607,13 @@ NOTICE:  drop cascades to user mapping for regress_foreign_data_user on server s
                  List of foreign servers
  Name |           Owner           | Foreign-data wrapper 
 ------+---------------------------+----------------------
- s4   | regress_foreign_data_user | foo
- s5   | regress_foreign_data_user | foo
- s6   | regress_foreign_data_user | foo
- s7   | regress_foreign_data_user | foo
- s8   | regress_foreign_data_user | postgresql
- t1   | regress_test_role         | foo
- t2   | regress_test_role         | foo
+ s4   | regress_foreign_data_user | regress_foo
+ s5   | regress_foreign_data_user | regress_foo
+ s6   | regress_foreign_data_user | regress_foo
+ s7   | regress_foreign_data_user | regress_foo
+ s8   | regress_foreign_data_user | regress_postgresql
+ t1   | regress_test_role         | regress_foo
+ t2   | regress_test_role         | regress_foo
 (7 rows)
 
 \deu
@@ -690,7 +728,7 @@ DROP SERVER s7;
 
 -- CREATE FOREIGN TABLE
 CREATE SCHEMA foreign_schema;
-CREATE SERVER s0 FOREIGN DATA WRAPPER dummy;
+CREATE SERVER s0 FOREIGN DATA WRAPPER regress_dummy;
 CREATE FOREIGN TABLE ft1 ();                                    -- ERROR
 ERROR:  syntax error at or near ";"
 LINE 1: CREATE FOREIGN TABLE ft1 ();
@@ -758,9 +796,9 @@ CREATE INDEX id_ft1_c2 ON ft1 (c2);                             -- ERROR
 ERROR:  cannot create index on relation "ft1"
 DETAIL:  This operation is not supported for foreign tables.
 SELECT * FROM ft1;                                              -- ERROR
-ERROR:  foreign-data wrapper "dummy" has no handler
+ERROR:  foreign-data wrapper "regress_dummy" has no handler
 EXPLAIN SELECT * FROM ft1;                                      -- ERROR
-ERROR:  foreign-data wrapper "dummy" has no handler
+ERROR:  foreign-data wrapper "regress_dummy" has no handler
 CREATE TABLE lt1 (a INT) PARTITION BY RANGE (a);
 CREATE FOREIGN TABLE ft_part1
   PARTITION OF lt1 FOR VALUES FROM (0) TO (1000) SERVER s0;
@@ -966,30 +1004,30 @@ NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
 ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 RENAME TO foreign_table_1;
 NOTICE:  relation "doesnt_exist_ft1" does not exist, skipping
 -- Information schema
-SELECT * FROM information_schema.foreign_data_wrappers ORDER BY 1, 2;
+SELECT * FROM information_schema.foreign_data_wrappers WHERE authorization_identifier = 'regress_foreign_data_user' ORDER BY 1, 2;
  foreign_data_wrapper_catalog | foreign_data_wrapper_name | authorization_identifier  | library_name | foreign_data_wrapper_language 
 ------------------------------+---------------------------+---------------------------+--------------+-------------------------------
- regression                   | dummy                     | regress_foreign_data_user |              | c
- regression                   | foo                       | regress_foreign_data_user |              | c
- regression                   | postgresql                | regress_foreign_data_user |              | c
+ regression                   | regress_dummy             | regress_foreign_data_user |              | c
+ regression                   | regress_foo               | regress_foreign_data_user |              | c
+ regression                   | regress_postgresql        | regress_foreign_data_user |              | c
 (3 rows)
 
 SELECT * FROM information_schema.foreign_data_wrapper_options ORDER BY 1, 2, 3;
  foreign_data_wrapper_catalog | foreign_data_wrapper_name | option_name  | option_value 
 ------------------------------+---------------------------+--------------+--------------
- regression                   | foo                       | test wrapper | true
+ regression                   | regress_foo               | test wrapper | true
 (1 row)
 
 SELECT * FROM information_schema.foreign_servers ORDER BY 1, 2;
  foreign_server_catalog | foreign_server_name | foreign_data_wrapper_catalog | foreign_data_wrapper_name | foreign_server_type | foreign_server_version | authorization_identifier  
 ------------------------+---------------------+------------------------------+---------------------------+---------------------+------------------------+---------------------------
- regression             | s0                  | regression                   | dummy                     |                     |                        | regress_foreign_data_user
- regression             | s4                  | regression                   | foo                       | oracle              |                        | regress_foreign_data_user
- regression             | s5                  | regression                   | foo                       |                     | 15.0                   | regress_test_role
- regression             | s6                  | regression                   | foo                       |                     | 16.0                   | regress_test_indirect
- regression             | s8                  | regression                   | postgresql                |                     |                        | regress_foreign_data_user
- regression             | t1                  | regression                   | foo                       |                     |                        | regress_test_indirect
- regression             | t2                  | regression                   | foo                       |                     |                        | regress_test_role
+ regression             | s0                  | regression                   | regress_dummy             |                     |                        | regress_foreign_data_user
+ regression             | s4                  | regression                   | regress_foo               | oracle              |                        | regress_foreign_data_user
+ regression             | s5                  | regression                   | regress_foo               |                     | 15.0                   | regress_test_role
+ regression             | s6                  | regression                   | regress_foo               |                     | 16.0                   | regress_test_indirect
+ regression             | s8                  | regression                   | regress_postgresql        |                     |                        | regress_foreign_data_user
+ regression             | t1                  | regression                   | regress_foo               |                     |                        | regress_test_indirect
+ regression             | t2                  | regression                   | regress_foo               |                     |                        | regress_test_role
 (7 rows)
 
 SELECT * FROM information_schema.foreign_server_options ORDER BY 1, 2, 3;
@@ -1028,20 +1066,20 @@ SELECT * FROM information_schema.user_mapping_options ORDER BY lower(authorizati
  regress_test_role         | regression             | t1                  | username     | bob
 (7 rows)
 
-SELECT * FROM information_schema.usage_privileges WHERE object_type LIKE 'FOREIGN%' AND object_name IN ('s6', 'foo') ORDER BY 1, 2, 3, 4, 5;
+SELECT * FROM information_schema.usage_privileges WHERE object_type LIKE 'FOREIGN%' AND object_name IN ('s6', 'regress_foo') ORDER BY 1, 2, 3, 4, 5;
           grantor          |          grantee          | object_catalog | object_schema | object_name |     object_type      | privilege_type | is_grantable 
 ---------------------------+---------------------------+----------------+---------------+-------------+----------------------+----------------+--------------
- regress_foreign_data_user | regress_foreign_data_user | regression     |               | foo         | FOREIGN DATA WRAPPER | USAGE          | YES
- regress_foreign_data_user | regress_test_indirect     | regression     |               | foo         | FOREIGN DATA WRAPPER | USAGE          | NO
+ regress_foreign_data_user | regress_foreign_data_user | regression     |               | regress_foo | FOREIGN DATA WRAPPER | USAGE          | YES
+ regress_foreign_data_user | regress_test_indirect     | regression     |               | regress_foo | FOREIGN DATA WRAPPER | USAGE          | NO
  regress_test_indirect     | regress_test_indirect     | regression     |               | s6          | FOREIGN SERVER       | USAGE          | YES
  regress_test_indirect     | regress_test_role2        | regression     |               | s6          | FOREIGN SERVER       | USAGE          | YES
 (4 rows)
 
-SELECT * FROM information_schema.role_usage_grants WHERE object_type LIKE 'FOREIGN%' AND object_name IN ('s6', 'foo') ORDER BY 1, 2, 3, 4, 5;
+SELECT * FROM information_schema.role_usage_grants WHERE object_type LIKE 'FOREIGN%' AND object_name IN ('s6', 'regress_foo') ORDER BY 1, 2, 3, 4, 5;
           grantor          |          grantee          | object_catalog | object_schema | object_name |     object_type      | privilege_type | is_grantable 
 ---------------------------+---------------------------+----------------+---------------+-------------+----------------------+----------------+--------------
- regress_foreign_data_user | regress_foreign_data_user | regression     |               | foo         | FOREIGN DATA WRAPPER | USAGE          | YES
- regress_foreign_data_user | regress_test_indirect     | regression     |               | foo         | FOREIGN DATA WRAPPER | USAGE          | NO
+ regress_foreign_data_user | regress_foreign_data_user | regression     |               | regress_foo | FOREIGN DATA WRAPPER | USAGE          | YES
+ regress_foreign_data_user | regress_test_indirect     | regression     |               | regress_foo | FOREIGN DATA WRAPPER | USAGE          | NO
  regress_test_indirect     | regress_test_indirect     | regression     |               | s6          | FOREIGN SERVER       | USAGE          | YES
  regress_test_indirect     | regress_test_role2        | regression     |               | s6          | FOREIGN SERVER       | USAGE          | YES
 (4 rows)
@@ -1071,18 +1109,18 @@ SELECT * FROM information_schema.user_mapping_options ORDER BY 1, 2, 3, 4;
  regress_test_role        | regression             | t1                  | username    | bob
 (5 rows)
 
-SELECT * FROM information_schema.usage_privileges WHERE object_type LIKE 'FOREIGN%' AND object_name IN ('s6', 'foo') ORDER BY 1, 2, 3, 4, 5;
+SELECT * FROM information_schema.usage_privileges WHERE object_type LIKE 'FOREIGN%' AND object_name IN ('s6', 'regress_foo') ORDER BY 1, 2, 3, 4, 5;
           grantor          |        grantee        | object_catalog | object_schema | object_name |     object_type      | privilege_type | is_grantable 
 ---------------------------+-----------------------+----------------+---------------+-------------+----------------------+----------------+--------------
- regress_foreign_data_user | regress_test_indirect | regression     |               | foo         | FOREIGN DATA WRAPPER | USAGE          | NO
+ regress_foreign_data_user | regress_test_indirect | regression     |               | regress_foo | FOREIGN DATA WRAPPER | USAGE          | NO
  regress_test_indirect     | regress_test_indirect | regression     |               | s6          | FOREIGN SERVER       | USAGE          | YES
  regress_test_indirect     | regress_test_role2    | regression     |               | s6          | FOREIGN SERVER       | USAGE          | YES
 (3 rows)
 
-SELECT * FROM information_schema.role_usage_grants WHERE object_type LIKE 'FOREIGN%' AND object_name IN ('s6', 'foo') ORDER BY 1, 2, 3, 4, 5;
+SELECT * FROM information_schema.role_usage_grants WHERE object_type LIKE 'FOREIGN%' AND object_name IN ('s6', 'regress_foo') ORDER BY 1, 2, 3, 4, 5;
           grantor          |        grantee        | object_catalog | object_schema | object_name |     object_type      | privilege_type | is_grantable 
 ---------------------------+-----------------------+----------------+---------------+-------------+----------------------+----------------+--------------
- regress_foreign_data_user | regress_test_indirect | regression     |               | foo         | FOREIGN DATA WRAPPER | USAGE          | NO
+ regress_foreign_data_user | regress_test_indirect | regression     |               | regress_foo | FOREIGN DATA WRAPPER | USAGE          | NO
  regress_test_indirect     | regress_test_indirect | regression     |               | s6          | FOREIGN SERVER       | USAGE          | YES
  regress_test_indirect     | regress_test_role2    | regression     |               | s6          | FOREIGN SERVER       | USAGE          | YES
 (3 rows)
@@ -1098,13 +1136,13 @@ SELECT * FROM information_schema.user_mapping_options ORDER BY 1, 2, 3, 4;
 RESET ROLE;
 -- has_foreign_data_wrapper_privilege
 SELECT has_foreign_data_wrapper_privilege('regress_test_role',
-    (SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname='foo'), 'USAGE');
+    (SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname='regress_foo'), 'USAGE');
  has_foreign_data_wrapper_privilege 
 ------------------------------------
  t
 (1 row)
 
-SELECT has_foreign_data_wrapper_privilege('regress_test_role', 'foo', 'USAGE');
+SELECT has_foreign_data_wrapper_privilege('regress_test_role', 'regress_foo', 'USAGE');
  has_foreign_data_wrapper_privilege 
 ------------------------------------
  t
@@ -1112,34 +1150,34 @@ SELECT has_foreign_data_wrapper_privilege('regress_test_role', 'foo', 'USAGE');
 
 SELECT has_foreign_data_wrapper_privilege(
     (SELECT oid FROM pg_roles WHERE rolname='regress_test_role'),
-    (SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname='foo'), 'USAGE');
+    (SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname='regress_foo'), 'USAGE');
  has_foreign_data_wrapper_privilege 
 ------------------------------------
  t
 (1 row)
 
 SELECT has_foreign_data_wrapper_privilege(
-    (SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname='foo'), 'USAGE');
+    (SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname='regress_foo'), 'USAGE');
  has_foreign_data_wrapper_privilege 
 ------------------------------------
  t
 (1 row)
 
 SELECT has_foreign_data_wrapper_privilege(
-    (SELECT oid FROM pg_roles WHERE rolname='regress_test_role'), 'foo', 'USAGE');
+    (SELECT oid FROM pg_roles WHERE rolname='regress_test_role'), 'regress_foo', 'USAGE');
  has_foreign_data_wrapper_privilege 
 ------------------------------------
  t
 (1 row)
 
-SELECT has_foreign_data_wrapper_privilege('foo', 'USAGE');
+SELECT has_foreign_data_wrapper_privilege('regress_foo', 'USAGE');
  has_foreign_data_wrapper_privilege 
 ------------------------------------
  t
 (1 row)
 
-GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_role;
-SELECT has_foreign_data_wrapper_privilege('regress_test_role', 'foo', 'USAGE');
+GRANT USAGE ON FOREIGN DATA WRAPPER regress_foo TO regress_test_role;
+SELECT has_foreign_data_wrapper_privilege('regress_test_role', 'regress_foo', 'USAGE');
  has_foreign_data_wrapper_privilege 
 ------------------------------------
  t
@@ -1199,25 +1237,25 @@ GRANT USAGE ON FOREIGN SERVER s4 TO regress_test_role;
 DROP USER MAPPING FOR public SERVER s4;
 ALTER SERVER s6 OPTIONS (DROP host, DROP dbname);
 ALTER USER MAPPING FOR regress_test_role SERVER s6 OPTIONS (DROP username);
-ALTER FOREIGN DATA WRAPPER foo VALIDATOR postgresql_fdw_validator;
+ALTER FOREIGN DATA WRAPPER regress_foo VALIDATOR postgresql_fdw_validator;
 WARNING:  changing the foreign-data wrapper validator can cause the options for dependent objects to become invalid
 -- Privileges
 SET ROLE regress_unprivileged_role;
-CREATE FOREIGN DATA WRAPPER foobar;                             -- ERROR
-ERROR:  permission denied to create foreign-data wrapper "foobar"
+CREATE FOREIGN DATA WRAPPER regress_foobar;                             -- ERROR
+ERROR:  permission denied to create foreign-data wrapper "regress_foobar"
 HINT:  Must be superuser to create a foreign-data wrapper.
-ALTER FOREIGN DATA WRAPPER foo OPTIONS (gotcha 'true');         -- ERROR
-ERROR:  permission denied to alter foreign-data wrapper "foo"
+ALTER FOREIGN DATA WRAPPER regress_foo OPTIONS (gotcha 'true');         -- ERROR
+ERROR:  permission denied to alter foreign-data wrapper "regress_foo"
 HINT:  Must be superuser to alter a foreign-data wrapper.
-ALTER FOREIGN DATA WRAPPER foo OWNER TO regress_unprivileged_role; -- ERROR
-ERROR:  permission denied to change owner of foreign-data wrapper "foo"
+ALTER FOREIGN DATA WRAPPER regress_foo OWNER TO regress_unprivileged_role; -- ERROR
+ERROR:  permission denied to change owner of foreign-data wrapper "regress_foo"
 HINT:  Must be superuser to change owner of a foreign-data wrapper.
-DROP FOREIGN DATA WRAPPER foo;                                  -- ERROR
-ERROR:  must be owner of foreign-data wrapper foo
-GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_role;   -- ERROR
-ERROR:  permission denied for foreign-data wrapper foo
-CREATE SERVER s9 FOREIGN DATA WRAPPER foo;                      -- ERROR
-ERROR:  permission denied for foreign-data wrapper foo
+DROP FOREIGN DATA WRAPPER regress_foo;                                  -- ERROR
+ERROR:  must be owner of foreign-data wrapper regress_foo
+GRANT USAGE ON FOREIGN DATA WRAPPER regress_foo TO regress_test_role;   -- ERROR
+ERROR:  permission denied for foreign-data wrapper regress_foo
+CREATE SERVER s9 FOREIGN DATA WRAPPER regress_foo;                      -- ERROR
+ERROR:  permission denied for foreign-data wrapper regress_foo
 ALTER SERVER s4 VERSION '0.5';                                  -- ERROR
 ERROR:  must be owner of foreign server s4
 ALTER SERVER s4 OWNER TO regress_unprivileged_role;             -- ERROR
@@ -1233,21 +1271,21 @@ ERROR:  must be owner of foreign server s6
 DROP USER MAPPING FOR regress_test_role SERVER s6;              -- ERROR
 ERROR:  must be owner of foreign server s6
 RESET ROLE;
-GRANT USAGE ON FOREIGN DATA WRAPPER postgresql TO regress_unprivileged_role;
-GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_unprivileged_role WITH GRANT OPTION;
+GRANT USAGE ON FOREIGN DATA WRAPPER regress_postgresql TO regress_unprivileged_role;
+GRANT USAGE ON FOREIGN DATA WRAPPER regress_foo TO regress_unprivileged_role WITH GRANT OPTION;
 SET ROLE regress_unprivileged_role;
-CREATE FOREIGN DATA WRAPPER foobar;                             -- ERROR
-ERROR:  permission denied to create foreign-data wrapper "foobar"
+CREATE FOREIGN DATA WRAPPER regress_foobar;                             -- ERROR
+ERROR:  permission denied to create foreign-data wrapper "regress_foobar"
 HINT:  Must be superuser to create a foreign-data wrapper.
-ALTER FOREIGN DATA WRAPPER foo OPTIONS (gotcha 'true');         -- ERROR
-ERROR:  permission denied to alter foreign-data wrapper "foo"
+ALTER FOREIGN DATA WRAPPER regress_foo OPTIONS (gotcha 'true');         -- ERROR
+ERROR:  permission denied to alter foreign-data wrapper "regress_foo"
 HINT:  Must be superuser to alter a foreign-data wrapper.
-DROP FOREIGN DATA WRAPPER foo;                                  -- ERROR
-ERROR:  must be owner of foreign-data wrapper foo
-GRANT USAGE ON FOREIGN DATA WRAPPER postgresql TO regress_test_role; -- WARNING
-WARNING:  no privileges were granted for "postgresql"
-GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_role;
-CREATE SERVER s9 FOREIGN DATA WRAPPER postgresql;
+DROP FOREIGN DATA WRAPPER regress_foo;                                  -- ERROR
+ERROR:  must be owner of foreign-data wrapper regress_foo
+GRANT USAGE ON FOREIGN DATA WRAPPER regress_postgresql TO regress_test_role; -- WARNING
+WARNING:  no privileges were granted for "regress_postgresql"
+GRANT USAGE ON FOREIGN DATA WRAPPER regress_foo TO regress_test_role;
+CREATE SERVER s9 FOREIGN DATA WRAPPER regress_postgresql;
 ALTER SERVER s6 VERSION '0.5';                                  -- ERROR
 ERROR:  must be owner of foreign server s6
 DROP SERVER s6;                                                 -- ERROR
@@ -1263,15 +1301,15 @@ ERROR:  must be owner of foreign server s6
 DROP USER MAPPING FOR regress_test_role SERVER s6;              -- ERROR
 ERROR:  must be owner of foreign server s6
 RESET ROLE;
-REVOKE USAGE ON FOREIGN DATA WRAPPER foo FROM regress_unprivileged_role; -- ERROR
+REVOKE USAGE ON FOREIGN DATA WRAPPER regress_foo FROM regress_unprivileged_role; -- ERROR
 ERROR:  dependent privileges exist
 HINT:  Use CASCADE to revoke them too.
-REVOKE USAGE ON FOREIGN DATA WRAPPER foo FROM regress_unprivileged_role CASCADE;
+REVOKE USAGE ON FOREIGN DATA WRAPPER regress_foo FROM regress_unprivileged_role CASCADE;
 SET ROLE regress_unprivileged_role;
-GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_role;   -- ERROR
-ERROR:  permission denied for foreign-data wrapper foo
-CREATE SERVER s10 FOREIGN DATA WRAPPER foo;                     -- ERROR
-ERROR:  permission denied for foreign-data wrapper foo
+GRANT USAGE ON FOREIGN DATA WRAPPER regress_foo TO regress_test_role;   -- ERROR
+ERROR:  permission denied for foreign-data wrapper regress_foo
+CREATE SERVER s10 FOREIGN DATA WRAPPER regress_foo;                     -- ERROR
+ERROR:  permission denied for foreign-data wrapper regress_foo
 ALTER SERVER s9 VERSION '1.1';
 GRANT USAGE ON FOREIGN SERVER s9 TO regress_test_role;
 CREATE USER MAPPING FOR current_user SERVER s9;
@@ -1280,7 +1318,7 @@ NOTICE:  drop cascades to 2 other objects
 DETAIL:  drop cascades to user mapping for public on server s9
 drop cascades to user mapping for regress_unprivileged_role on server s9
 RESET ROLE;
-CREATE SERVER s9 FOREIGN DATA WRAPPER foo;
+CREATE SERVER s9 FOREIGN DATA WRAPPER regress_foo;
 GRANT USAGE ON FOREIGN SERVER s9 TO regress_unprivileged_role;
 SET ROLE regress_unprivileged_role;
 ALTER SERVER s9 VERSION '1.2';                                  -- ERROR
@@ -1292,7 +1330,7 @@ DROP SERVER s9 CASCADE;                                         -- ERROR
 ERROR:  must be owner of foreign server s9
 -- Check visibility of user mapping data
 SET ROLE regress_test_role;
-CREATE SERVER s10 FOREIGN DATA WRAPPER foo;
+CREATE SERVER s10 FOREIGN DATA WRAPPER regress_foo;
 CREATE USER MAPPING FOR public SERVER s10 OPTIONS (user 'secret');
 CREATE USER MAPPING FOR regress_unprivileged_role SERVER s10 OPTIONS (user 'secret');
 -- owner of server can see some option fields
@@ -1890,14 +1928,14 @@ DROP TABLE fd_pt1 CASCADE;
 NOTICE:  drop cascades to foreign table ft2
 -- IMPORT FOREIGN SCHEMA
 IMPORT FOREIGN SCHEMA s1 FROM SERVER s9 INTO public; -- ERROR
-ERROR:  foreign-data wrapper "foo" has no handler
+ERROR:  foreign-data wrapper "regress_foo" has no handler
 IMPORT FOREIGN SCHEMA s1 LIMIT TO (t1) FROM SERVER s9 INTO public; --ERROR
-ERROR:  foreign-data wrapper "foo" has no handler
+ERROR:  foreign-data wrapper "regress_foo" has no handler
 IMPORT FOREIGN SCHEMA s1 EXCEPT (t1) FROM SERVER s9 INTO public; -- ERROR
-ERROR:  foreign-data wrapper "foo" has no handler
+ERROR:  foreign-data wrapper "regress_foo" has no handler
 IMPORT FOREIGN SCHEMA s1 EXCEPT (t1, t2) FROM SERVER s9 INTO public
 OPTIONS (option1 'value1', option2 'value2'); -- ERROR
-ERROR:  foreign-data wrapper "foo" has no handler
+ERROR:  foreign-data wrapper "regress_foo" has no handler
 -- DROP FOREIGN TABLE
 DROP FOREIGN TABLE no_table;                                    -- ERROR
 ERROR:  foreign table "no_table" does not exist
@@ -2155,13 +2193,13 @@ DROP TABLE temp_parted;
 DROP SCHEMA foreign_schema CASCADE;
 DROP ROLE regress_test_role;                                -- ERROR
 ERROR:  role "regress_test_role" cannot be dropped because some objects depend on it
-DETAIL:  privileges for foreign-data wrapper foo
+DETAIL:  privileges for foreign-data wrapper regress_foo
 privileges for server s4
 owner of user mapping for regress_test_role on server s6
 DROP SERVER t1 CASCADE;
 NOTICE:  drop cascades to user mapping for public on server t1
 DROP USER MAPPING FOR regress_test_role SERVER s6;
-DROP FOREIGN DATA WRAPPER foo CASCADE;
+DROP FOREIGN DATA WRAPPER regress_foo CASCADE;
 NOTICE:  drop cascades to 5 other objects
 DETAIL:  drop cascades to server s4
 drop cascades to user mapping for regress_foreign_data_user on server s4
@@ -2176,17 +2214,17 @@ DROP ROLE regress_test_indirect;
 DROP ROLE regress_test_role;
 DROP ROLE regress_unprivileged_role;                        -- ERROR
 ERROR:  role "regress_unprivileged_role" cannot be dropped because some objects depend on it
-DETAIL:  privileges for foreign-data wrapper postgresql
-REVOKE ALL ON FOREIGN DATA WRAPPER postgresql FROM regress_unprivileged_role;
+DETAIL:  privileges for foreign-data wrapper regress_postgresql
+REVOKE ALL ON FOREIGN DATA WRAPPER regress_postgresql FROM regress_unprivileged_role;
 DROP ROLE regress_unprivileged_role;
 DROP ROLE regress_test_role2;
-DROP FOREIGN DATA WRAPPER postgresql CASCADE;
-DROP FOREIGN DATA WRAPPER dummy CASCADE;
+DROP FOREIGN DATA WRAPPER regress_postgresql CASCADE;
+DROP FOREIGN DATA WRAPPER regress_dummy CASCADE;
 NOTICE:  drop cascades to server s0
 \c
 DROP ROLE regress_foreign_data_user;
 -- At this point we should have no wrappers, no servers, and no mappings.
-SELECT fdwname, fdwhandler, fdwvalidator, fdwoptions FROM pg_foreign_data_wrapper;
+SELECT fdwname, fdwhandler, fdwvalidator, fdwoptions FROM pg_foreign_data_wrapper WHERE fdwname LIKE 'regress_%';
  fdwname | fdwhandler | fdwvalidator | fdwoptions 
 ---------+------------+--------------+------------
 (0 rows)

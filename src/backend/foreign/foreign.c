@@ -18,18 +18,22 @@
 #include "catalog/pg_foreign_server.h"
 #include "catalog/pg_foreign_table.h"
 #include "catalog/pg_user_mapping.h"
+#include "commands/defrem.h"
 #include "foreign/fdwapi.h"
 #include "foreign/foreign.h"
 #include "funcapi.h"
 #include "lib/stringinfo.h"
+#include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "replication/walreceiver.h"
+#include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
 #include "utils/varlena.h"
 
+static bool is_conninfo_option(const char *option, Oid context);
 
 /*
  * GetForeignDataWrapper -	look up the foreign-data wrapper by OID.
@@ -188,6 +192,115 @@ GetForeignServerByName(const char *srvname, bool missing_ok)
 		return NULL;
 
 	return GetForeignServer(serverid);
+}
+
+
+/*
+ * Values in connection strings must be enclosed in single quotes. Single
+ * quotes and backslashes must be escaped with backslash. NB: these rules are
+ * different from the rules for escaping a SQL literal.
+ */
+static void
+appendEscapedValue(StringInfo str, const char *val)
+{
+	appendStringInfoChar(str, '\'');
+	for (int i = 0; val[i] != '\0'; i++)
+	{
+		if (val[i] == '\\' || val[i] == '\'')
+			appendStringInfoChar(str, '\\');
+		appendStringInfoChar(str, val[i]);
+	}
+	appendStringInfoChar(str, '\'');
+}
+
+
+/*
+ * Helper for ForeignServerConnectionString() and pg_connection_validator().
+ *
+ * Transform a List of DefElem into a connection string.
+ */
+static char *
+options_to_conninfo(List *options, bool append_overrides)
+{
+	StringInfoData	 str;
+	ListCell		*lc;
+	char			*sep = "";
+
+	initStringInfo(&str);
+	foreach(lc, options)
+	{
+		DefElem *d = (DefElem *) lfirst(lc);
+		char *name = d->defname;
+		char *value;
+
+		/* ignore unknown options */
+		if (!is_conninfo_option(name, ForeignServerRelationId) &&
+			!is_conninfo_option(name, UserMappingRelationId))
+			continue;
+
+		value = defGetString(d);
+
+		appendStringInfo(&str, "%s%s = ", sep, name);
+		appendEscapedValue(&str, value);
+		sep = " ";
+	}
+
+	/* override client_encoding */
+	if (append_overrides)
+	{
+		appendStringInfo(&str, "%sclient_encoding = ", sep);
+		appendEscapedValue(&str, GetDatabaseEncodingName());
+		sep = " ";
+	}
+
+	return str.data;
+}
+
+
+/*
+ * Given a user ID and server ID, return a postgres connection string suitable
+ * to pass to libpq.
+ */
+char *
+ForeignServerConnectionString(Oid userid, Oid serverid, bool append_overrides)
+{
+	static MemoryContext	 tmpcontext = NULL;
+	ForeignServer			*server;
+	UserMapping				*um;
+	List					*options;
+	char					*conninfo;
+	MemoryContext			 oldcontext;
+
+	/* Load the library providing us libpq calls. */
+	load_file("libpqwalreceiver", false);
+
+	/*
+	 * Use a temporary context rather than trying to track individual
+	 * allocations in GetForeignServer() and GetUserMapping().
+	 */
+	if (tmpcontext == NULL)
+		tmpcontext = AllocSetContextCreate(TopMemoryContext,
+										   "temp context for building connection string",
+										   ALLOCSET_DEFAULT_SIZES);
+
+	oldcontext = MemoryContextSwitchTo(tmpcontext);
+
+	server = GetForeignServer(serverid);
+	um = GetUserMapping(userid, serverid);
+
+	/* user mapping options override server options */
+	options = list_concat(server->options, um->options);
+
+	conninfo = options_to_conninfo(options, append_overrides);
+
+	MemoryContextSwitchTo(oldcontext);
+
+	/* copy only conninfo into the current context */
+	conninfo = pstrdup(conninfo);
+
+	MemoryContextReset(tmpcontext);
+
+	return conninfo;
 }
 
 
@@ -578,6 +691,38 @@ is_conninfo_option(const char *option, Oid context)
 		}
 	}
 	return false;
+}
+
+/*
+ * pg_conninfo_from_server
+ *
+ * Extract connection string from the given foreign server.
+ */
+Datum
+pg_conninfo_from_server(PG_FUNCTION_ARGS)
+{
+	char *server_name = text_to_cstring(PG_GETARG_TEXT_P(0));
+	char *user_name = text_to_cstring(PG_GETARG_TEXT_P(1));
+	bool  append_overrides = PG_GETARG_BOOL(2);
+	Oid serverid = get_foreign_server_oid(server_name, false);
+	Oid userid = get_role_oid_or_public(user_name);
+	AclResult aclresult;
+	char *conninfo;
+
+	/* if the specified userid is not PUBLIC, check SET ROLE privileges */
+	if (userid != ACL_ID_PUBLIC)
+		check_can_set_role(GetUserId(), userid);
+
+	/* ACL check on foreign server */
+	aclresult = object_aclcheck(ForeignServerRelationId, serverid,
+								GetUserId(), ACL_USAGE);
+	if (aclresult != ACLCHECK_OK)
+		aclcheck_error(aclresult, OBJECT_FOREIGN_SERVER, server_name);
+
+	conninfo = ForeignServerConnectionString(userid, serverid,
+											 append_overrides);
+
+	PG_RETURN_TEXT_P(cstring_to_text(conninfo));
 }
 
 
