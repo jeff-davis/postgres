@@ -733,6 +733,20 @@ SELECT pg_conninfo_from_server('connection_server', 'regress_test_role2', false)
 DROP USER MAPPING FOR regress_test_role SERVER connection_server;
 DROP USER MAPPING FOR PUBLIC SERVER connection_server;
 DROP SERVER connection_server;
+SET ROLE regress_test_role;
+CREATE SERVER t3 FOREIGN DATA WRAPPER regress_connection_fdw;   -- ERROR: no permissions on FDW
+ERROR:  permission denied for foreign-data wrapper regress_connection_fdw
+RESET ROLE;
+GRANT USAGE ON FOREIGN DATA WRAPPER regress_connection_fdw TO regress_test_role;
+SET ROLE regress_test_role;
+CREATE SERVER t3 FOREIGN DATA WRAPPER regress_connection_fdw;
+IMPORT FOREIGN SCHEMA foo FROM SERVER t3 INTO bar; -- fails
+ERROR:  schema "bar" does not exist
+CREATE USER MAPPING FOR PUBLIC SERVER t3 OPTIONS (user 'x', password 'secret');
+DROP USER MAPPING FOR PUBLIC SERVER t3;
+DROP SERVER t3;
+RESET ROLE;
+REVOKE USAGE ON FOREIGN DATA WRAPPER regress_connection_fdw FROM regress_test_role;
 DROP FOREIGN DATA WRAPPER regress_connection_fdw;
 -- CREATE FOREIGN TABLE
 CREATE SCHEMA foreign_schema;
