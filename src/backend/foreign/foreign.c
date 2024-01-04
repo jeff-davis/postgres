@@ -23,6 +23,7 @@
 #include "funcapi.h"
 #include "lib/stringinfo.h"
 #include "miscadmin.h"
+#include "replication/walreceiver.h"
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
@@ -550,40 +551,6 @@ pg_options_to_table(PG_FUNCTION_ARGS)
 
 
 /*
- * Describes the valid options for postgresql FDW, server, and user mapping.
- */
-struct ConnectionOption
-{
-	const char *optname;
-	Oid			optcontext;		/* Oid of catalog in which option may appear */
-};
-
-/*
- * Copied from fe-connect.c PQconninfoOptions.
- *
- * The list is small - don't bother with bsearch if it stays so.
- */
-static const struct ConnectionOption libpq_conninfo_options[] = {
-	{"authtype", ForeignServerRelationId},
-	{"service", ForeignServerRelationId},
-	{"user", UserMappingRelationId},
-	{"password", UserMappingRelationId},
-	{"connect_timeout", ForeignServerRelationId},
-	{"dbname", ForeignServerRelationId},
-	{"host", ForeignServerRelationId},
-	{"hostaddr", ForeignServerRelationId},
-	{"port", ForeignServerRelationId},
-	{"tty", ForeignServerRelationId},
-	{"options", ForeignServerRelationId},
-	{"requiressl", ForeignServerRelationId},
-	{"sslmode", ForeignServerRelationId},
-	{"gsslib", ForeignServerRelationId},
-	{"gssdelegation", ForeignServerRelationId},
-	{NULL, InvalidOid}
-};
-
-
-/*
  * Check if the provided option is one of libpq conninfo options.
  * context is the Oid of the catalog the option came from, or 0 if we
  * don't care.
@@ -593,9 +560,23 @@ is_conninfo_option(const char *option, Oid context)
 {
 	const struct ConnectionOption *opt;
 
-	for (opt = libpq_conninfo_options; opt->optname; opt++)
-		if (context == opt->optcontext && strcmp(opt->optname, option) == 0)
-			return true;
+	/* skip options that must be overridden */
+	if (strcmp(option, "client_encoding") == 0)
+		return false;
+
+	for (opt = walrcv_conninfo_options(); opt->optname; opt++)
+	{
+		if (strcmp(opt->optname, option) == 0)
+		{
+			if (opt->isdebug)
+				return false;
+
+			if (opt->issecret || strcmp(opt->optname, "user") == 0)
+				return (context == UserMappingRelationId);
+
+			return (context == ForeignServerRelationId);
+		}
+	}
 	return false;
 }
 
@@ -606,11 +587,6 @@ is_conninfo_option(const char *option, Oid context)
  *
  * Valid server options are all libpq conninfo options except
  * user and password -- these may only appear in USER MAPPING options.
- *
- * Caution: this function is deprecated, and is now meant only for testing
- * purposes, because the list of options it knows about doesn't necessarily
- * square with those known to whichever libpq instance you might be using.
- * Inquire of libpq itself, instead.
  */
 Datum
 postgresql_fdw_validator(PG_FUNCTION_ARGS)
@@ -619,6 +595,9 @@ postgresql_fdw_validator(PG_FUNCTION_ARGS)
 	Oid			catalog = PG_GETARG_OID(1);
 
 	ListCell   *cell;
+
+	/* Load the library providing us libpq calls. */
+	load_file("libpqwalreceiver", false);
 
 	foreach(cell, options_list)
 	{
@@ -636,9 +615,9 @@ postgresql_fdw_validator(PG_FUNCTION_ARGS)
 			 * with a valid option that looks similar, if there is one.
 			 */
 			initClosestMatch(&match_state, def->defname, 4);
-			for (opt = libpq_conninfo_options; opt->optname; opt++)
+			for (opt = walrcv_conninfo_options(); opt->optname; opt++)
 			{
-				if (catalog == opt->optcontext)
+				if (is_conninfo_option(opt->optname, catalog))
 				{
 					has_valid_options = true;
 					updateClosestMatch(&match_state, opt->optname);
