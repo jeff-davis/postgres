@@ -28,6 +28,9 @@ CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
 CREATE USER MAPPING FOR CURRENT_USER SERVER loopback2;
 CREATE USER MAPPING FOR public SERVER loopback3;
 
+-- test pg_conninfo_from_server()
+SELECT pg_conninfo_from_server('testserver1', CURRENT_USER, false);
+
 -- ===================================================================
 -- create objects used through FDW loopback server
 -- ===================================================================
@@ -212,6 +215,9 @@ ALTER USER MAPPING FOR public SERVER testserver1
 -- permitted to check validation.
 ALTER USER MAPPING FOR public SERVER testserver1
 	OPTIONS (ADD sslkey 'value', ADD sslcert 'value');
+
+-- check pg_conninfo_from_server() after ALTERs
+SELECT pg_conninfo_from_server('testserver1', CURRENT_USER, false);
 
 ALTER FOREIGN TABLE ft1 OPTIONS (schema_name 'S 1', table_name 'T 1');
 ALTER FOREIGN TABLE ft2 OPTIONS (schema_name 'S 1', table_name 'T 1');
