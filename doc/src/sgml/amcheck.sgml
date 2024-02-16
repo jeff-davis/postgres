@@ -26,12 +26,13 @@
   queries.  If the structure appears to be valid, no error is raised.
  </para>
  <para>
-  Verification is performed using the same procedures as those used by
-  index scans themselves, which may be user-defined operator class
-  code.  For example, B-Tree index verification relies on comparisons
-  made with one or more B-Tree support function 1 routines.  See <xref
-  linkend="xindex-support"/> for details of operator class support
-  functions.
+  Verification is performed using the same procedures as those used by index
+  scans themselves, which may be user-defined operator class code.  For
+  example, B-Tree index verification relies on comparisons made with one or
+  more B-Tree support function 1 routines.  See <xref
+  linkend="xindex-support"/> for details of operator class support functions.
+  While these procedures are run, the <xref linkend="guc-search-path"/> is
+  temporarily changed to <literal>pg_catalog, pg_temp</literal>.
  </para>
  <para>
   Unlike the B-Tree checking functions which report corruption by raising
