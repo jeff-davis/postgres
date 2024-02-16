@@ -4717,6 +4717,11 @@ assign_search_path(const char *newval, void *extra)
 void
 InitializeSearchPath(void)
 {
+	/* Make the context we'll keep search path cache hashtable in */
+	SearchPathCacheContext = AllocSetContextCreate(TopMemoryContext,
+												   "search_path processing cache",
+												   ALLOCSET_DEFAULT_SIZES);
+
 	if (IsBootstrapProcessingMode())
 	{
 		/*
@@ -4739,11 +4744,6 @@ InitializeSearchPath(void)
 	}
 	else
 	{
-		/* Make the context we'll keep search path cache hashtable in */
-		SearchPathCacheContext = AllocSetContextCreate(TopMemoryContext,
-													   "search_path processing cache",
-													   ALLOCSET_DEFAULT_SIZES);
-
 		/*
 		 * In normal mode, arrange for a callback on any syscache invalidation
 		 * of pg_namespace or pg_authid rows. (Changing a role name may affect
