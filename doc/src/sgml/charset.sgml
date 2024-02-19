@@ -865,11 +865,31 @@ SELECT * FROM test1 ORDER BY a || b COLLATE "fr_FR";
       <listitem>
        <para>
         This SQL standard collation sorts by Unicode code point.  Behavior is
-        efficient and stable across all versions.  Case mapping and pattern
-        matching behavior is based on simple ASCII semantics.  It is only
-        available for encoding <literal>UTF8</literal>.  (This collation has
-        the same behavior as the libc locale specification
-        <literal>C</literal> in <literal>UTF8</literal> encoding.)
+        efficient and stable within a <productname>Postgres</productname>
+        major version.  For the functions <function>lower</function>,
+        <function>initcap</function>, and <function>upper</function> it uses
+        Unicode full case mapping. For pattern matching (including regular
+        expressions), it uses the Standard variant of Unicode <ulink
+        url="https://www.unicode.org/reports/tr18/#Compatibility_Properties">Compatibility
+        Properties</ulink>.  It is only available for encoding
+        <literal>UTF8</literal>.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><literal>PG_C_UTF8</literal></term>
+      <listitem>
+       <para>
+        This collation sorts by Unicode code point.  Behavior is efficient and
+        stable within a <productname>Postgres</productname> major version.
+        For the functions <function>lower</function>,
+        <function>initcap</function>, and <function>upper</function> it uses
+        Unicode simple case mapping.  For pattern matching (including regular
+        expressions), it uses the POSIX Compatible variant of Unicode <ulink
+        url="https://www.unicode.org/reports/tr18/#Compatibility_Properties">Compatibility
+        Properties</ulink>.  This collation is only available for encoding
+        <literal>UTF8</literal>.
        </para>
       </listitem>
      </varlistentry>

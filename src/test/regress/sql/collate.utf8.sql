@@ -15,10 +15,8 @@ SET client_encoding TO UTF8;
 -- Test builtin UCS_BASIC locale.
 --
 
-CREATE COLLATION BUILTIN_UCS_BASIC ( provider = builtin, locale = 'UCS_BASIC' );
-
 CREATE TABLE builtin_test1 (
-  t TEXT COLLATE BUILTIN_UCS_BASIC
+  t TEXT COLLATE UCS_BASIC
 );
 INSERT INTO builtin_test1 VALUES
   ('abc DEF'),
@@ -39,36 +37,34 @@ SELECT
 DROP TABLE builtin_test1;
 
 -- test Final_Sigma
-SELECT lower('ΑΣ' COLLATE BUILTIN_UCS_BASIC); -- 0391 03A3
-SELECT lower('ΑΣ0' COLLATE BUILTIN_UCS_BASIC); -- 0391 03A3 0030
-SELECT lower('ἈΣ̓' COLLATE BUILTIN_UCS_BASIC); -- 0391 0343 03A3 0343
-SELECT lower('ᾼΣͅ' COLLATE BUILTIN_UCS_BASIC); -- 0391 0345 03A3 0345
+SELECT lower('ΑΣ' COLLATE UCS_BASIC); -- 0391 03A3
+SELECT lower('ΑΣ0' COLLATE UCS_BASIC); -- 0391 03A3 0030
+SELECT lower('ἈΣ̓' COLLATE UCS_BASIC); -- 0391 0343 03A3 0343
+SELECT lower('ᾼΣͅ' COLLATE UCS_BASIC); -- 0391 0345 03A3 0345
 
 -- test !Final_Sigma
-SELECT lower('Σ' COLLATE BUILTIN_UCS_BASIC); -- 03A3
-SELECT lower('0Σ' COLLATE BUILTIN_UCS_BASIC); -- 0030 03A3
-SELECT lower('ΑΣΑ' COLLATE BUILTIN_UCS_BASIC); -- 0391 03A3 0391
-SELECT lower('ἈΣ̓Α' COLLATE BUILTIN_UCS_BASIC); -- 0391 0343 03A3 0343 0391
-SELECT lower('ᾼΣͅΑ' COLLATE BUILTIN_UCS_BASIC); -- 0391 0345 03A3 0345 0391
+SELECT lower('Σ' COLLATE UCS_BASIC); -- 03A3
+SELECT lower('0Σ' COLLATE UCS_BASIC); -- 0030 03A3
+SELECT lower('ΑΣΑ' COLLATE UCS_BASIC); -- 0391 03A3 0391
+SELECT lower('ἈΣ̓Α' COLLATE UCS_BASIC); -- 0391 0343 03A3 0343 0391
+SELECT lower('ᾼΣͅΑ' COLLATE UCS_BASIC); -- 0391 0345 03A3 0345 0391
 
 -- properties
 
-SELECT 'xyz' ~ '[[:alnum:]]' COLLATE BUILTIN_UCS_BASIC;
-SELECT 'xyz' !~ '[[:upper:]]' COLLATE BUILTIN_UCS_BASIC;
-SELECT '@' !~ '[[:alnum:]]' COLLATE BUILTIN_UCS_BASIC;
-SELECT '=' !~ '[[:punct:]]' COLLATE BUILTIN_UCS_BASIC; -- symbols are not punctuation
-SELECT 'a8a' ~ '[[:digit:]]' COLLATE BUILTIN_UCS_BASIC;
-SELECT '൧' ~ '\d' COLLATE BUILTIN_UCS_BASIC;
+SELECT 'xyz' ~ '[[:alnum:]]' COLLATE UCS_BASIC;
+SELECT 'xyz' !~ '[[:upper:]]' COLLATE UCS_BASIC;
+SELECT '@' !~ '[[:alnum:]]' COLLATE UCS_BASIC;
+SELECT '=' !~ '[[:punct:]]' COLLATE UCS_BASIC; -- symbols are not punctuation
+SELECT 'a8a' ~ '[[:digit:]]' COLLATE UCS_BASIC;
+SELECT '൧' ~ '\d' COLLATE UCS_BASIC;
 
 -- case mapping
 
-SELECT 'xYz' ~* 'XyZ' COLLATE BUILTIN_UCS_BASIC;
-SELECT 'xAb' ~* '[W-Y]' COLLATE BUILTIN_UCS_BASIC;
-SELECT 'xAb' !~* '[c-d]' COLLATE BUILTIN_UCS_BASIC;
-SELECT 'Δ' ~* '[α-λ]' COLLATE BUILTIN_UCS_BASIC;
-SELECT 'δ' ~* '[Γ-Λ]' COLLATE BUILTIN_UCS_BASIC; -- same as above with cases reversed
-
-DROP COLLATION BUILTIN_UCS_BASIC;
+SELECT 'xYz' ~* 'XyZ' COLLATE UCS_BASIC;
+SELECT 'xAb' ~* '[W-Y]' COLLATE UCS_BASIC;
+SELECT 'xAb' !~* '[c-d]' COLLATE UCS_BASIC;
+SELECT 'Δ' ~* '[α-λ]' COLLATE UCS_BASIC;
+SELECT 'δ' ~* '[Γ-Λ]' COLLATE UCS_BASIC; -- same as above with cases reversed
 
 --
 -- Test builtin C.UTF-8 locale.
