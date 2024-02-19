@@ -875,6 +875,40 @@ SELECT * FROM test1 ORDER BY a || b COLLATE "fr_FR";
      </varlistentry>
 
      <varlistentry>
+      <term><literal>PG_C_UTF8</literal></term>
+      <listitem>
+       <para>
+        This collation sorts by Unicode code point.  Behavior is efficient and
+        stable within a <productname>Postgres</productname> major version.
+        For the functions <function>lower</function>,
+        <function>initcap</function>, and <function>upper</function> it uses
+        Unicode simple case mapping.  For pattern matching (including regular
+        expressions), it uses the POSIX Compatible variant of Unicode <ulink
+        url="https://www.unicode.org/reports/tr18/#Compatibility_Properties">Compatibility
+        Properties</ulink>.  This collation is only available for encoding
+        <literal>UTF8</literal>.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><literal>PG_UNICODE_FAST</literal></term>
+      <listitem>
+       <para>
+        This collation sorts by Unicode code point.  Behavior is efficient and
+        stable within a <productname>Postgres</productname> major version.
+        For the functions <function>lower</function>,
+        <function>initcap</function>, and <function>upper</function> it uses
+        Unicode full case mapping. For pattern matching (including regular
+        expressions), it uses the Standard variant of Unicode <ulink
+        url="https://www.unicode.org/reports/tr18/#Compatibility_Properties">Compatibility
+        Properties</ulink>.  It is only available for encoding
+        <literal>UTF8</literal>.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
       <term><literal>C</literal> (equivalent to <literal>POSIX</literal>)</term>
       <listitem>
        <para>
