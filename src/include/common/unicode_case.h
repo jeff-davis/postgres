@@ -16,12 +16,18 @@
 
 #include "mb/pg_wchar.h"
 
+typedef size_t (*WordBoundaryNext) (void *wbstate);
+
 pg_wchar	unicode_lowercase_simple(pg_wchar ucs);
 pg_wchar	unicode_titlecase_simple(pg_wchar ucs);
 pg_wchar	unicode_uppercase_simple(pg_wchar ucs);
 size_t		unicode_strlower(char *dst, size_t dstsize, const char *src,
-							 size_t srclen);
+							 size_t srclen, bool full);
+size_t		unicode_strtitle(char *dst, size_t dstsize, const char *src,
+							 size_t srclen, bool real_titlecase,
+							 bool adjust_to_cased, bool full,
+							 WordBoundaryNext wbnext, void *wbstate);
 size_t		unicode_strupper(char *dst, size_t dstsize, const char *src,
-							 size_t srclen);
+							 size_t srclen, bool full);
 
 #endif							/* UNICODE_CASE_H */
