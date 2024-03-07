@@ -1695,13 +1695,15 @@ str_tolower(const char *buff, size_t nbytes, Oid collid)
 			dstsize = srclen + 1;
 			result = palloc(dstsize);
 
-			needed = unicode_strlower(dst, dstsize, src, srclen, false);
+			needed = unicode_strlower(dst, dstsize, src, srclen,
+									  mylocale->info.builtin.casemap_full);
 			if (needed + 1 > dstsize)
 			{
 				/* grow buffer if needed and retry */
 				dstsize = needed + 1;
 				dst = repalloc(dst, dstsize);
-				needed = unicode_strlower(dst, dstsize, src, srclen, false);
+				needed = unicode_strlower(dst, dstsize, src, srclen,
+										  mylocale->info.builtin.casemap_full);
 				Assert(needed + 1 == dstsize);
 			}
 
@@ -1842,13 +1844,15 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 			dstsize = srclen + 1;
 			result = palloc(dstsize);
 
-			needed = unicode_strupper(dst, dstsize, src, srclen, false);
+			needed = unicode_strupper(dst, dstsize, src, srclen,
+									  mylocale->info.builtin.casemap_full);
 			if (needed + 1 > dstsize)
 			{
 				/* grow buffer if needed and retry */
 				dstsize = needed + 1;
 				dst = repalloc(dst, dstsize);
-				needed = unicode_strupper(dst, dstsize, src, srclen, false);
+				needed = unicode_strupper(dst, dstsize, src, srclen,
+										  mylocale->info.builtin.casemap_full);
 				Assert(needed + 1 == dstsize);
 			}
 
@@ -1927,6 +1931,7 @@ struct WordBoundaryState
 	size_t		offset;
 	bool		init;
 	bool		prev_alnum;
+	bool		posix;
 };
 
 /*
@@ -1943,7 +1948,7 @@ initcap_wbnext(void *state)
 	{
 		pg_wchar	u = utf8_to_unicode((unsigned char *) wbstate->str +
 										wbstate->offset);
-		bool		curr_alnum = pg_u_isalnum(u, true);
+		bool		curr_alnum = pg_u_isalnum(u, wbstate->posix);
 
 		if (!wbstate->init || curr_alnum != wbstate->prev_alnum)
 		{
@@ -2030,6 +2035,7 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 				.offset = 0,
 				.init = false,
 				.prev_alnum = false,
+				.posix = !mylocale->info.builtin.casemap_full,
 			};
 
 			Assert(GetDatabaseEncoding() == PG_UTF8);
@@ -2038,7 +2044,8 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 			dstsize = srclen + 1;
 			result = palloc(dstsize);
 
-			needed = unicode_strtitle(dst, dstsize, src, srclen, false,
+			needed = unicode_strtitle(dst, dstsize, src, srclen,
+									  mylocale->info.builtin.casemap_full,
 									  initcap_wbnext, &wbstate);
 			if (needed + 1 > dstsize)
 			{
@@ -2049,7 +2056,8 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 				/* grow buffer if needed and retry */
 				dstsize = needed + 1;
 				dst = repalloc(dst, dstsize);
-				needed = unicode_strtitle(dst, dstsize, src, srclen, false,
+				needed = unicode_strtitle(dst, dstsize, src, srclen,
+										  mylocale->info.builtin.casemap_full,
 										  initcap_wbnext, &wbstate);
 				Assert(needed + 1 == dstsize);
 			}
