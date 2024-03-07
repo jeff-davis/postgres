@@ -289,7 +289,7 @@ PostgreSQL documentation
        <para>
         If <option>--locale-provider</option> is <literal>builtin</literal>,
         <option>--locale</option> must be specified and set to
-        <literal>C</literal>.
+        <literal>C</literal> or <literal>C.UTF-8</literal>.
        </para>
       </listitem>
      </varlistentry>

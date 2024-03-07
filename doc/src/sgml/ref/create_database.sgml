@@ -166,7 +166,8 @@ CREATE DATABASE <replaceable class="parameter">name</replaceable>
        <para>
         If <xref linkend="create-database-locale-provider"/> is
         <literal>builtin</literal>, then <replaceable>locale</replaceable>
-        must be specified and set to <literal>C</literal>.
+        must be specified and set to either <literal>C</literal> or
+        <literal>C.UTF-8</literal>.
        </para>
        <tip>
         <para>
