@@ -1593,7 +1593,16 @@ pg_newlocale_from_collation(Oid collid)
 			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colllocale);
 			locstr = TextDatumGetCString(datum);
 
-			if (strcmp(locstr, "C.UTF-8") != 0 && strcmp(locstr, "C") != 0)
+			if (strcmp(locstr, "PG_UNICODE_FAST") == 0)
+			{
+				result.info.builtin.casemap_full = true;
+			}
+			else if (strcmp(locstr, "C") == 0 ||
+					 strcmp(locstr, "C.UTF-8") == 0)
+			{
+				result.info.builtin.casemap_full = false;
+			}
+			else
 				elog(ERROR, "unexpected builtin locale: %s", locstr);
 
 			result.info.builtin.locale = MemoryContextStrdup(TopMemoryContext,

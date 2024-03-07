@@ -428,7 +428,16 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
 		datum = SysCacheGetAttrNotNull(DATABASEOID, tup, Anum_pg_database_datlocale);
 		datlocale = TextDatumGetCString(datum);
 
-		if (strcmp(datlocale, "C.UTF-8") != 0 && strcmp(datlocale, "C") != 0)
+		if (strcmp(datlocale, "PG_UNICODE_FAST") == 0)
+		{
+			default_locale.info.builtin.casemap_full = true;
+		}
+		else if (strcmp(datlocale, "C") == 0 ||
+				 strcmp(datlocale, "C.UTF-8") == 0)
+		{
+			default_locale.info.builtin.casemap_full = false;
+		}
+		else
 			elog(ERROR, "unexpected builtin locale: %s", datlocale);
 
 		default_locale.info.builtin.locale = MemoryContextStrdup(
