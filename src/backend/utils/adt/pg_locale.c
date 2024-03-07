@@ -1596,6 +1596,7 @@ pg_newlocale_from_collation(Oid collid)
 
 			result.info.builtin.locale = MemoryContextStrdup(TopMemoryContext,
 															 locstr);
+			result.info.builtin.casemap_full = (strcmp(locstr, "PG_UNICODE_FAST") == 0);
 		}
 		else if (collform->collprovider == COLLPROVIDER_LIBC)
 		{
@@ -1742,6 +1743,8 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 		if (strcmp(collcollate, "C") == 0)
 			return "1";
 		else if (strcmp(collcollate, "C.UTF-8") == 0)
+			return "1";
+		else if (strcmp(collcollate, "PG_UNICODE_FAST") == 0)
 			return "1";
 		else
 			ereport(ERROR,
@@ -2528,8 +2531,11 @@ builtin_locale_encoding(const char *locale)
 {
 	if (strcmp(locale, "C") == 0)
 		return -1;
-	if (strcmp(locale, "C.UTF-8") == 0)
+	else if (strcmp(locale, "C.UTF-8") == 0)
 		return PG_UTF8;
+	else if (strcmp(locale, "PG_UNICODE_FAST") == 0)
+		return PG_UTF8;
+
 
 	ereport(ERROR,
 			(errcode(ERRCODE_WRONG_OBJECT_TYPE),
@@ -2557,6 +2563,8 @@ builtin_validate_locale(int encoding, const char *locale)
 		canonical_name = "C";
 	else if (strcmp(locale, "C.UTF-8") == 0 || strcmp(locale, "C.UTF8") == 0)
 		canonical_name = "C.UTF-8";
+	else if (strcmp(locale, "PG_UNICODE_FAST") == 0)
+		canonical_name = "PG_UNICODE_FAST";
 
 	if (!canonical_name)
 		ereport(ERROR,

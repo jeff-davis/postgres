@@ -79,6 +79,7 @@ struct pg_locale_struct
 		struct
 		{
 			const char *locale;
+			bool		casemap_full;
 		}			builtin;
 		locale_t	lt;
 #ifdef USE_ICU

@@ -432,6 +432,7 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
 
 		default_locale.info.builtin.locale = MemoryContextStrdup(
 																 TopMemoryContext, datlocale);
+		default_locale.info.builtin.casemap_full = (strcmp(datlocale, "PG_UNICODE_FAST") == 0);
 	}
 	else if (dbform->datlocprovider == COLLPROVIDER_ICU)
 	{
