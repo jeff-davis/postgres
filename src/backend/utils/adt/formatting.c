@@ -1920,6 +1920,47 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 	return result;
 }
 
+struct WordBoundaryState
+{
+	const char *str;
+	size_t		len;
+	size_t		offset;
+	bool		init;
+	bool		prev_alnum;
+};
+
+/*
+ * Simple word boundary iterator that draws boundaries each time the result of
+ * pg_u_isalnum() changes.
+ */
+static size_t
+initcap_wbnext(void *state)
+{
+	struct WordBoundaryState *wbstate = (struct WordBoundaryState *) state;
+
+	while (wbstate->offset < wbstate->len &&
+		   wbstate->str[wbstate->offset] != '\0')
+	{
+		pg_wchar	u = utf8_to_unicode((unsigned char *) wbstate->str +
+										wbstate->offset);
+		bool		curr_alnum = pg_u_isalnum(u, true);
+
+		if (!wbstate->init || curr_alnum != wbstate->prev_alnum)
+		{
+			size_t		prev_offset = wbstate->offset;
+
+			wbstate->init = true;
+			wbstate->offset += unicode_utf8len(u);
+			wbstate->prev_alnum = curr_alnum;
+			return prev_offset;
+		}
+
+		wbstate->offset += unicode_utf8len(u);
+	}
+
+	return wbstate->len;
+}
+
 /*
  * collation-aware, wide-character-aware initcap function
  *
@@ -1978,69 +2019,42 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 #endif
 		if (mylocale && mylocale->provider == COLLPROVIDER_BUILTIN)
 		{
-			const unsigned char *src = (unsigned char *) buff;
-			unsigned char *dst;
-			size_t		dstsize = nbytes + 1;
-			int			srcoff = 0;
-			int			dstoff = 0;
+			const char *src = buff;
+			size_t		srclen = nbytes;
+			size_t		dstsize = srclen + 1;
+			char	   *dst = palloc(dstsize);
+			size_t		needed;
+			struct WordBoundaryState wbstate = {
+				.str = src,
+				.len = srclen,
+				.offset = 0,
+				.init = false,
+				.prev_alnum = false,
+			};
 
 			Assert(GetDatabaseEncoding() == PG_UTF8);
 
-			/* Output workspace cannot have more codes than input bytes */
-			dst = (unsigned char *) palloc(dstsize);
+			/* first try buffer of equal size */
+			dstsize = srclen + 1;
+			result = palloc(dstsize);
 
-			while (srcoff < nbytes)
+			needed = unicode_strtitle(dst, dstsize, src, srclen,
+									  initcap_wbnext, &wbstate);
+			if (needed + 1 > dstsize)
 			{
-				pg_wchar	u1 = utf8_to_unicode(src + srcoff);
-				pg_wchar	u2;
-				int			u1len = unicode_utf8len(u1);
-				int			u2len;
+				/* reset iterator */
+				wbstate.offset = 0;
+				wbstate.prev_alnum = false;
 
-				if (wasalnum)
-					u2 = unicode_lowercase_simple(u1);
-				else
-					u2 = unicode_uppercase_simple(u1);
-
-				u2len = unicode_utf8len(u2);
-
-				wasalnum = pg_u_isalnum(u2, true);
-
-				/*
-				 * If we can't fit the necessary bytes and a terminating NUL,
-				 * reallocate buffer to the maximum size we might need, and
-				 * shrink it later.
-				 */
-				if (dstoff + u2len + 1 > dstsize)
-				{
-					/* Overflow paranoia */
-					if ((nbytes + 1) > (INT_MAX / sizeof(pg_wchar)))
-						ereport(ERROR,
-								(errcode(ERRCODE_OUT_OF_MEMORY),
-								 errmsg("out of memory")));
-
-					dstsize = (nbytes + 1) * sizeof(pg_wchar);
-					dst = repalloc(dst, dstsize);
-				}
-
-				unicode_to_utf8(u2, dst + dstoff);
-				srcoff += u1len;
-				dstoff += u2len;
+				/* grow buffer if needed and retry */
+				dstsize = needed + 1;
+				dst = repalloc(dst, dstsize);
+				needed = unicode_strtitle(dst, dstsize, src, srclen,
+										  initcap_wbnext, &wbstate);
+				Assert(needed + 1 == dstsize);
 			}
 
-			*(dst + dstoff) = '\0';
-			dstoff++;
-
-			if (dstsize == dstoff)
-			{
-				result = (char *) dst;
-			}
-			else
-			{
-				/* shrink buffer and store result */
-				result = palloc(dstoff);
-				memcpy(result, dst, dstoff);
-				pfree(dst);
-			}
+			result = dst;
 		}
 		else
 		{
