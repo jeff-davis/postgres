@@ -1592,7 +1592,7 @@ pg_newlocale_from_collation(Oid collid)
 			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colllocale);
 			locstr = TextDatumGetCString(datum);
 
-			if (strcmp(locstr, "C") != 0)
+			if (strcmp(locstr, "C.UTF-8") != 0 && strcmp(locstr, "C") != 0)
 				elog(ERROR, "unexpected builtin locale: %s", locstr);
 
 			result.info.builtin.locale = MemoryContextStrdup(TopMemoryContext,
@@ -1729,7 +1729,11 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 {
 	char	   *collversion = NULL;
 
-	/* the builtin collation provider is not versioned */
+	/*
+	 * The only two supported locales (C and C.UTF-8) are both based on memcmp
+	 * and do not change. (The ctype behavior can change, but the versioning
+	 * does not track that.)
+	 */
 	if (collprovider == COLLPROVIDER_BUILTIN)
 		return NULL;
 
@@ -2506,7 +2510,14 @@ builtin_validate_locale(int encoding, const char *locale)
 	int			required_encoding = -1;
 
 	if (strcmp(locale, "C") == 0)
+	{
 		canonical_name = "C";
+	}
+	else if (strcmp(locale, "C.UTF-8") == 0 || strcmp(locale, "C.UTF8") == 0)
+	{
+		required_encoding = PG_UTF8;
+		canonical_name = "C.UTF-8";
+	}
 
 	if (!canonical_name)
 		ereport(ERROR,
