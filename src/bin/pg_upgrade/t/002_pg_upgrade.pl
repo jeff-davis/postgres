@@ -141,7 +141,7 @@ if ($oldversion >= 17)
 {
 	$original_encoding = "UTF-8";
 	$original_provider = "b";
-	$original_datlocale = "C";
+	$original_datlocale = "C.UTF-8";
 }
 elsif ($oldversion >= 15 && $ENV{with_icu} eq 'yes')
 {

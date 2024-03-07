@@ -428,7 +428,7 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
 		datum = SysCacheGetAttrNotNull(DATABASEOID, tup, Anum_pg_database_datlocale);
 		datlocale = TextDatumGetCString(datum);
 
-		if (strcmp(datlocale, "C") != 0)
+		if (strcmp(datlocale, "C.UTF-8") != 0 && strcmp(datlocale, "C") != 0)
 			elog(ERROR, "unexpected builtin locale: %s", datlocale);
 
 		default_locale.info.builtin.locale = MemoryContextStrdup(
