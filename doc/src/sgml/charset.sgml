@@ -887,6 +887,23 @@ SELECT * FROM test1 ORDER BY a || b COLLATE "fr_FR";
      </varlistentry>
 
      <varlistentry>
+      <term><literal>pg_unicode_fast</literal></term>
+      <listitem>
+       <para>
+        This collation sorts by Unicode code point values rather than natural
+        language order.  For the functions <function>lower</function>,
+        <function>initcap</function>, and <function>upper</function> it uses
+        Unicode full case mapping. For pattern matching (including regular
+        expressions), it uses the Standard variant of Unicode <ulink
+        url="https://www.unicode.org/reports/tr18/#Compatibility_Properties">Compatibility
+        Properties</ulink>.  Behavior is efficient and stable within a
+        <productname>Postgres</productname> major version.  It is only
+        available for encoding <literal>UTF8</literal>.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
       <term><literal>pg_c_utf8</literal></term>
       <listitem>
        <para>
