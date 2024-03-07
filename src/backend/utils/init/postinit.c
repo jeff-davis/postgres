@@ -425,14 +425,44 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
 
 	if (dbform->datlocprovider == COLLPROVIDER_BUILTIN)
 	{
+		bool		casemap_full;
+		bool		adjust_to_cased;
+		bool		titlecase;
+		bool		properties_posix;
+
 		datum = SysCacheGetAttrNotNull(DATABASEOID, tup, Anum_pg_database_datlocale);
 		datlocale = TextDatumGetCString(datum);
 
-		if (strcmp(datlocale, "C.UTF-8") != 0 && strcmp(datlocale, "C") != 0)
+		if (strcmp(datlocale, "PG_UNICODE_FAST") == 0)
+		{
+			casemap_full = true;
+			adjust_to_cased = true;
+			titlecase = true;
+			properties_posix = false;
+		}
+		else if (strcmp(datlocale, "C.UTF-8") == 0)
+		{
+			casemap_full = false;
+			adjust_to_cased = false;
+			titlecase = false;
+			properties_posix = true;
+		}
+		else if (strcmp(datlocale, "C") == 0)
+		{
+			casemap_full = false;
+			adjust_to_cased = false;
+			titlecase = false;
+			properties_posix = true;
+		}
+		else
 			elog(ERROR, "unexpected builtin locale: %s", datlocale);
 
 		default_locale.info.builtin.locale = MemoryContextStrdup(
 																 TopMemoryContext, datlocale);
+		default_locale.info.builtin.casemap_full = casemap_full;
+		default_locale.info.builtin.adjust_to_cased = adjust_to_cased;
+		default_locale.info.builtin.titlecase = titlecase;
+		default_locale.info.builtin.properties_posix = properties_posix;
 	}
 	else if (dbform->datlocprovider == COLLPROVIDER_ICU)
 	{

@@ -79,6 +79,10 @@ struct pg_locale_struct
 		struct
 		{
 			const char *locale;
+			bool		casemap_full;
+			bool		adjust_to_cased;
+			bool		titlecase;
+			bool		properties_posix;
 		}			builtin;
 		locale_t	lt;
 #ifdef USE_ICU

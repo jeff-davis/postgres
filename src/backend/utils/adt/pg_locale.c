@@ -1588,16 +1588,46 @@ pg_newlocale_from_collation(Oid collid)
 
 		if (collform->collprovider == COLLPROVIDER_BUILTIN)
 		{
+			bool		casemap_full;
+			bool		adjust_to_cased;
+			bool		titlecase;
+			bool		properties_posix;
+
 			const char *locstr;
 
 			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colllocale);
 			locstr = TextDatumGetCString(datum);
 
-			if (strcmp(locstr, "C.UTF-8") != 0 && strcmp(locstr, "C") != 0)
+			if (strcmp(locstr, "PG_UNICODE_FAST") == 0)
+			{
+				casemap_full = true;
+				adjust_to_cased = true;
+				titlecase = true;
+				properties_posix = false;
+			}
+			else if (strcmp(locstr, "C.UTF-8") == 0)
+			{
+				casemap_full = false;
+				adjust_to_cased = false;
+				titlecase = false;
+				properties_posix = true;
+			}
+			else if (strcmp(locstr, "C") == 0)
+			{
+				casemap_full = false;
+				adjust_to_cased = false;
+				titlecase = false;
+				properties_posix = true;
+			}
+			else
 				elog(ERROR, "unexpected builtin locale: %s", locstr);
 
 			result.info.builtin.locale = MemoryContextStrdup(TopMemoryContext,
 															 locstr);
+			result.info.builtin.casemap_full = casemap_full;
+			result.info.builtin.adjust_to_cased = adjust_to_cased;
+			result.info.builtin.titlecase = titlecase;
+			result.info.builtin.properties_posix = properties_posix;
 		}
 		else if (collform->collprovider == COLLPROVIDER_LIBC)
 		{

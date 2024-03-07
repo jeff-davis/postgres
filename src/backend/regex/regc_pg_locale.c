@@ -78,6 +78,8 @@ static PG_Locale_Strategy pg_regex_strategy;
 static pg_locale_t pg_regex_locale;
 static Oid	pg_regex_collation;
 
+static bool regex_builtin_cclass_posix = false;
+
 /*
  * Hard-wired character properties for C locale
  */
@@ -271,7 +273,10 @@ pg_set_regex_collation(Oid collation)
 			if (pg_regex_locale)
 			{
 				if (pg_regex_locale->provider == COLLPROVIDER_BUILTIN)
+				{
 					pg_regex_strategy = PG_REGEX_BUILTIN;
+					regex_builtin_cclass_posix = pg_regex_locale->info.builtin.properties_posix;
+				}
 				else
 					pg_regex_strategy = PG_REGEX_LOCALE_WIDE_L;
 			}
@@ -299,7 +304,7 @@ pg_wc_isdigit(pg_wchar c)
 			return (c <= (pg_wchar) 127 &&
 					(pg_char_properties[c] & PG_ISDIGIT));
 		case PG_REGEX_BUILTIN:
-			return pg_u_isdigit(c, true);
+			return pg_u_isdigit(c, regex_builtin_cclass_posix);
 		case PG_REGEX_LOCALE_WIDE:
 			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
 				return iswdigit((wint_t) c);
@@ -367,7 +372,7 @@ pg_wc_isalnum(pg_wchar c)
 			return (c <= (pg_wchar) 127 &&
 					(pg_char_properties[c] & PG_ISALNUM));
 		case PG_REGEX_BUILTIN:
-			return pg_u_isalnum(c, true);
+			return pg_u_isalnum(c, regex_builtin_cclass_posix);
 		case PG_REGEX_LOCALE_WIDE:
 			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
 				return iswalnum((wint_t) c);
@@ -546,7 +551,7 @@ pg_wc_ispunct(pg_wchar c)
 			return (c <= (pg_wchar) 127 &&
 					(pg_char_properties[c] & PG_ISPUNCT));
 		case PG_REGEX_BUILTIN:
-			return pg_u_ispunct(c, true);
+			return pg_u_ispunct(c, regex_builtin_cclass_posix);
 		case PG_REGEX_LOCALE_WIDE:
 			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
 				return iswpunct((wint_t) c);
