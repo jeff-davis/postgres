@@ -5293,6 +5293,8 @@ fdw_option:
 			| NO HANDLER						{ $$ = makeDefElem("handler", NULL, @1); }
 			| VALIDATOR handler_name			{ $$ = makeDefElem("validator", (Node *) $2, @1); }
 			| NO VALIDATOR						{ $$ = makeDefElem("validator", NULL, @1); }
+			| CONNECTION handler_name			{ $$ = makeDefElem("connection", (Node *) $2, @1); }
+			| NO CONNECTION						{ $$ = makeDefElem("connection", NULL, @1); }
 		;
 
 fdw_options:

@@ -97,8 +97,7 @@ GetSubscription(Oid subid, bool missing_ok, bool aclcheck)
 		}
 
 		sub->conninfo = ForeignServerConnectionString(subform->subowner,
-													  subform->subserver,
-													  true);
+													  subform->subserver);
 	}
 	else
 	{

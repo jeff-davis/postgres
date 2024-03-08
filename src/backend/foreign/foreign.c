@@ -70,6 +70,7 @@ GetForeignDataWrapperExtended(Oid fdwid, bits16 flags)
 	fdw->fdwname = pstrdup(NameStr(fdwform->fdwname));
 	fdw->fdwhandler = fdwform->fdwhandler;
 	fdw->fdwvalidator = fdwform->fdwvalidator;
+	fdw->fdwconnection = fdwform->fdwconnection;
 
 	/* Extract the fdwoptions */
 	datum = SysCacheGetAttr(FOREIGNDATAWRAPPEROID,
@@ -211,6 +212,22 @@ GetForeignServerByName(const char *srvname, bool missing_ok)
 		return NULL;
 
 	return GetForeignServer(serverid);
+}
+
+
+/*
+ * Retrieve connection string from server's FDW.
+ */
+char *
+ForeignServerConnectionString(Oid userid, Oid serverid)
+{
+	/* TODO: clean up memory */
+	ForeignServer *server = GetForeignServer(serverid);
+	ForeignDataWrapper *fdw = GetForeignDataWrapper(server->fdwid);
+	Datum connection_text = OidFunctionCall2(fdw->fdwconnection,
+											 ObjectIdGetDatum(userid),
+											 ObjectIdGetDatum(serverid));
+	return text_to_cstring(DatumGetTextPP(connection_text));
 }
 
 

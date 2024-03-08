@@ -709,7 +709,7 @@ CreateSubscription(ParseState *pstate, CreateSubscriptionStmt *stmt,
 		GetUserMapping(owner, server->serverid);
 
 		serverid = server->serverid;
-		conninfo = ForeignServerConnectionString(owner, serverid, true);
+		conninfo = ForeignServerConnectionString(owner, serverid);
 	}
 	else
 	{
@@ -1400,8 +1400,7 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 				GetUserMapping(form->subowner, new_server->serverid);
 
 				conninfo = ForeignServerConnectionString(form->subowner,
-														 new_server->serverid,
-														 true);
+														 new_server->serverid);
 
 				/* Load the library providing us libpq calls. */
 				load_file("libpqwalreceiver", false);
@@ -1775,7 +1774,7 @@ DropSubscription(DropSubscriptionStmt *stmt, bool isTopLevel)
 							ForeignServerName(form->subserver))));
 
 		conninfo = ForeignServerConnectionString(form->subowner,
-												 form->subserver, true);
+												 form->subserver);
 	}
 	else
 	{
