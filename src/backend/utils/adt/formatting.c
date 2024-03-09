@@ -1695,13 +1695,13 @@ str_tolower(const char *buff, size_t nbytes, Oid collid)
 			dstsize = srclen + 1;
 			dst = palloc(dstsize);
 
-			needed = unicode_strlower(dst, dstsize, src, srclen);
+			needed = unicode_strlower(dst, dstsize, src, srclen, false);
 			if (needed + 1 > dstsize)
 			{
 				/* grow buffer if needed and retry */
 				dstsize = needed + 1;
 				dst = repalloc(dst, dstsize);
-				needed = unicode_strlower(dst, dstsize, src, srclen);
+				needed = unicode_strlower(dst, dstsize, src, srclen, false);
 				Assert(needed + 1 == dstsize);
 			}
 
@@ -1843,13 +1843,13 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 			dstsize = srclen + 1;
 			dst = palloc(dstsize);
 
-			needed = unicode_strupper(dst, dstsize, src, srclen);
+			needed = unicode_strupper(dst, dstsize, src, srclen, false);
 			if (needed + 1 > dstsize)
 			{
 				/* grow buffer if needed and retry */
 				dstsize = needed + 1;
 				dst = repalloc(dst, dstsize);
-				needed = unicode_strupper(dst, dstsize, src, srclen);
+				needed = unicode_strupper(dst, dstsize, src, srclen, false);
 				Assert(needed + 1 == dstsize);
 			}
 
@@ -2040,7 +2040,7 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 			dstsize = srclen + 1;
 			result = palloc(dstsize);
 
-			needed = unicode_strtitle(dst, dstsize, src, srclen,
+			needed = unicode_strtitle(dst, dstsize, src, srclen, false,
 									  initcap_wbnext, &wbstate);
 			if (needed + 1 > dstsize)
 			{
@@ -2051,7 +2051,7 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 				/* grow buffer if needed and retry */
 				dstsize = needed + 1;
 				dst = repalloc(dst, dstsize);
-				needed = unicode_strtitle(dst, dstsize, src, srclen,
+				needed = unicode_strtitle(dst, dstsize, src, srclen, false,
 										  initcap_wbnext, &wbstate);
 				Assert(needed + 1 == dstsize);
 			}
