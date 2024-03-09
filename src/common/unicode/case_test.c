@@ -24,6 +24,9 @@
 #include "common/unicode_category.h"
 #include "common/unicode_version.h"
 
+typedef size_t (*TestFunc) (char *dst, size_t dstsize, const char *src,
+							ssize_t srclen);
+
 #ifdef USE_ICU
 
 static void
@@ -86,7 +89,7 @@ test_icu(void)
 #endif
 
 static void
-test_strlower(const char *test_string, const char *expected)
+test_convert(TestFunc tfunc, const char *test_string, const char *expected)
 {
 	size_t		src1len = strlen(test_string);
 	size_t		src2len = -1;	/* NUL-terminated */
@@ -102,10 +105,11 @@ test_strlower(const char *test_string, const char *expected)
 
 	/* neither source nor destination are NUL-terminated */
 	memset(dst1, 0x7F, dst1len);
-	needed = unicode_strlower(dst1, dst1len, src1, src1len);
+	needed = tfunc(dst1, dst1len, src1, src1len);
 	if (needed != strlen(expected))
 	{
-		printf("case_test: convert_case test1 FAILURE: needed %zu\n", needed);
+		printf("case_test: convert_case test1 FAILURE: '%s' needed %zu expected %zu\n",
+			   test_string, needed, strlen(expected));
 		exit(1);
 	}
 	if (memcmp(dst1, expected, dst1len) != 0)
@@ -117,10 +121,11 @@ test_strlower(const char *test_string, const char *expected)
 
 	/* destination is NUL-terminated and source is not */
 	memset(dst2, 0x7F, dst2len);
-	needed = unicode_strlower(dst2, dst2len, src1, src1len);
+	needed = tfunc(dst2, dst2len, src1, src1len);
 	if (needed != strlen(expected))
 	{
-		printf("case_test: convert_case test2 FAILURE: needed %zu\n", needed);
+		printf("case_test: convert_case test2 FAILURE: '%s' needed %zu expected %zu\n",
+			   test_string, needed, strlen(expected));
 		exit(1);
 	}
 	if (strcmp(dst2, expected) != 0)
@@ -132,9 +137,11 @@ test_strlower(const char *test_string, const char *expected)
 
 	/* source is NUL-terminated and destination is not */
 	memset(dst1, 0x7F, dst1len);
-	needed = unicode_strlower(dst1, dst1len, src2, src2len);
+	needed = tfunc(dst1, dst1len, src2, src2len);
 	if (needed != strlen(expected))
 	{
+		printf("case_test: convert_case test3 FAILURE: '%s' needed %zu expected %zu\n",
+			   test_string, needed, strlen(expected));
 		printf("case_test: convert_case test3 FAILURE: needed %zu\n", needed);
 		exit(1);
 	}
@@ -147,10 +154,11 @@ test_strlower(const char *test_string, const char *expected)
 
 	/* both source and destination are NUL-terminated */
 	memset(dst2, 0x7F, dst2len);
-	needed = unicode_strlower(dst2, dst2len, src2, src2len);
+	needed = tfunc(dst2, dst2len, src2, src2len);
 	if (needed != strlen(expected))
 	{
-		printf("case_test: convert_case test4 FAILURE: needed %zu\n", needed);
+		printf("case_test: convert_case test4 FAILURE: '%s' needed %zu expected %zu\n",
+			   test_string, needed, strlen(expected));
 		exit(1);
 	}
 	if (strcmp(dst2, expected) != 0)
@@ -166,15 +174,32 @@ test_strlower(const char *test_string, const char *expected)
 	free(dst2);
 }
 
+static size_t
+tfunc_lower(char *dst, size_t dstsize, const char *src,
+			ssize_t srclen)
+{
+	return unicode_strlower(dst, dstsize, src, srclen, true);
+}
+
+static size_t
+tfunc_upper(char *dst, size_t dstsize, const char *src,
+			ssize_t srclen)
+{
+	return unicode_strupper(dst, dstsize, src, srclen, true);
+}
+
+
 static void
 test_convert_case()
 {
 	/* test string with no case changes */
-	test_strlower("√∞", "√∞");
+	test_convert(tfunc_lower, "√∞", "√∞");
 	/* test string with case changes */
-	test_strlower("ABC", "abc");
+	test_convert(tfunc_upper, "abc", "ABC");
 	/* test string with case changes and byte length changes */
-	test_strlower("ȺȺȺ", "ⱥⱥⱥ");
+	test_convert(tfunc_lower, "ȺȺȺ", "ⱥⱥⱥ");
+	/* test special case conversions */
+	test_convert(tfunc_upper, "ß", "SS");
 
 	printf("case_test: convert_case: success\n");
 }
