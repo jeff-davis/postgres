@@ -46,6 +46,12 @@
 #define TEXT_DUMP_HEADER "--\n-- PostgreSQL database dump\n--\n\n"
 #define TEXT_DUMPALL_HEADER "--\n-- PostgreSQL database cluster dump\n--\n\n"
 
+typedef enum TocEntryType
+{
+	DEFAULT_TOC_ENTRY,
+	DATA_TOC_ENTRY,
+	STATS_TOC_ENTRY
+}			TocEntryType;
 
 static ArchiveHandle *_allocAH(const char *FileSpec, const ArchiveFormat fmt,
 							   const pg_compress_specification compression_spec,
@@ -53,7 +59,7 @@ static ArchiveHandle *_allocAH(const char *FileSpec, const ArchiveFormat fmt,
 							   SetupWorkerPtrType setupWorkerPtr,
 							   DataDirSyncMethod sync_method);
 static void _getObjectDescription(PQExpBuffer buf, const TocEntry *te);
-static void _printTocEntry(ArchiveHandle *AH, TocEntry *te, bool isData);
+static void _printTocEntry(ArchiveHandle *AH, TocEntry *te, TocEntryType entry_type);
 static char *sanitize_line(const char *str, bool want_hyphen);
 static void _doSetFixedOutputState(ArchiveHandle *AH);
 static void _doSetSessionAuth(ArchiveHandle *AH, const char *user);
@@ -149,6 +155,7 @@ InitDumpOptions(DumpOptions *opts)
 	opts->dumpSections = DUMP_UNSECTIONED;
 	opts->dumpSchema = true;
 	opts->dumpData = true;
+	opts->dumpStatistics = true;
 }
 
 /*
@@ -169,9 +176,10 @@ dumpOptionsFromRestoreOptions(RestoreOptions *ropt)
 	dopt->outputClean = ropt->dropSchema;
 	dopt->dumpData = ropt->dumpData;
 	dopt->dumpSchema = ropt->dumpSchema;
+	dopt->dumpSections = ropt->dumpSections;
+	dopt->dumpStatistics = ropt->dumpStatistics;
 	dopt->if_exists = ropt->if_exists;
 	dopt->column_inserts = ropt->column_inserts;
-	dopt->dumpSections = ropt->dumpSections;
 	dopt->aclsSkip = ropt->aclsSkip;
 	dopt->outputSuperuser = ropt->superuser;
 	dopt->outputCreateDB = ropt->createDB;
@@ -186,6 +194,9 @@ dumpOptionsFromRestoreOptions(RestoreOptions *ropt)
 	dopt->no_publications = ropt->no_publications;
 	dopt->no_security_labels = ropt->no_security_labels;
 	dopt->no_subscriptions = ropt->no_subscriptions;
+	dopt->no_data = ropt->no_data;
+	dopt->no_schema = ropt->no_schema;
+	dopt->no_statistics = ropt->no_statistics;
 	dopt->lockWaitTimeout = ropt->lockWaitTimeout;
 	dopt->include_everything = ropt->include_everything;
 	dopt->enable_row_security = ropt->enable_row_security;
@@ -418,30 +429,30 @@ RestoreArchive(Archive *AHX)
 	}
 
 	/*
-	 * Work out if we have an implied data-only restore. This can happen if
-	 * the dump was data only or if the user has used a toc list to exclude
-	 * all of the schema data. All we do is look for schema entries - if none
-	 * are found then we unset the dumpSchema flag.
+	 * Work out if we have an schema-less restore. This can happen if the dump
+	 * was data-only or statistics-only or no-schema or if the user has used a
+	 * toc list to exclude all of the schema data. All we do is look for
+	 * schema entries - if none are found then we unset the dumpSchema flag.
 	 *
 	 * We could scan for wanted TABLE entries, but that is not the same as
 	 * data-only. At this stage, it seems unnecessary (6-Mar-2001).
 	 */
 	if (ropt->dumpSchema)
 	{
-		int			impliedDataOnly = 1;
+		bool		no_schema_found = true;
 
 		for (te = AH->toc->next; te != AH->toc; te = te->next)
 		{
 			if ((te->reqs & REQ_SCHEMA) != 0)
-			{					/* It's schema, and it's wanted */
-				impliedDataOnly = 0;
+			{
+				no_schema_found = false;
 				break;
 			}
 		}
-		if (impliedDataOnly)
+		if (no_schema_found)
 		{
 			ropt->dumpSchema = false;
-			pg_log_info("implied data-only restore");
+			pg_log_info("implied no-schema restore");
 		}
 	}
 
@@ -739,7 +750,7 @@ RestoreArchive(Archive *AHX)
 
 		for (te = AH->toc->next; te != AH->toc; te = te->next)
 		{
-			if ((te->reqs & (REQ_SCHEMA | REQ_DATA)) == 0)
+			if ((te->reqs & (REQ_SCHEMA | REQ_DATA | REQ_STATS)) == 0)
 				continue;		/* ignore if not to be dumped at all */
 
 			switch (_tocEntryRestorePass(te))
@@ -760,7 +771,7 @@ RestoreArchive(Archive *AHX)
 		{
 			for (te = AH->toc->next; te != AH->toc; te = te->next)
 			{
-				if ((te->reqs & (REQ_SCHEMA | REQ_DATA)) != 0 &&
+				if ((te->reqs & (REQ_SCHEMA | REQ_DATA | REQ_STATS)) != 0 &&
 					_tocEntryRestorePass(te) == RESTORE_PASS_ACL)
 					(void) restore_toc_entry(AH, te, false);
 			}
@@ -770,7 +781,7 @@ RestoreArchive(Archive *AHX)
 		{
 			for (te = AH->toc->next; te != AH->toc; te = te->next)
 			{
-				if ((te->reqs & (REQ_SCHEMA | REQ_DATA)) != 0 &&
+				if ((te->reqs & (REQ_SCHEMA | REQ_DATA | REQ_STATS)) != 0 &&
 					_tocEntryRestorePass(te) == RESTORE_PASS_POST_ACL)
 					(void) restore_toc_entry(AH, te, false);
 			}
@@ -869,7 +880,7 @@ restore_toc_entry(ArchiveHandle *AH, TocEntry *te, bool is_parallel)
 			pg_log_info("creating %s \"%s\"",
 						te->desc, te->tag);
 
-		_printTocEntry(AH, te, false);
+		_printTocEntry(AH, te, DEFAULT_TOC_ENTRY);
 		defnDumped = true;
 
 		if (strcmp(te->desc, "TABLE") == 0)
@@ -938,7 +949,7 @@ restore_toc_entry(ArchiveHandle *AH, TocEntry *te, bool is_parallel)
 			 */
 			if (AH->PrintTocDataPtr != NULL)
 			{
-				_printTocEntry(AH, te, true);
+				_printTocEntry(AH, te, DATA_TOC_ENTRY);
 
 				if (strcmp(te->desc, "BLOBS") == 0 ||
 					strcmp(te->desc, "BLOB COMMENTS") == 0)
@@ -1036,15 +1047,21 @@ restore_toc_entry(ArchiveHandle *AH, TocEntry *te, bool is_parallel)
 		{
 			/* If we haven't already dumped the defn part, do so now */
 			pg_log_info("executing %s %s", te->desc, te->tag);
-			_printTocEntry(AH, te, false);
+			_printTocEntry(AH, te, DEFAULT_TOC_ENTRY);
 		}
 	}
+
+	/*
+	 * If it has a statistics component that we want, then process that
+	 */
+	if ((reqs & REQ_STATS) != 0)
+		_printTocEntry(AH, te, STATS_TOC_ENTRY);
 
 	/*
 	 * If we emitted anything for this TOC entry, that counts as one action
 	 * against the transaction-size limit.  Commit if it's time to.
 	 */
-	if ((reqs & (REQ_SCHEMA | REQ_DATA)) != 0 && ropt->txn_size > 0)
+	if ((reqs & (REQ_SCHEMA | REQ_DATA | REQ_STATS)) != 0 && ropt->txn_size > 0)
 	{
 		if (++AH->txnCount >= ropt->txn_size)
 		{
@@ -1084,6 +1101,7 @@ NewRestoreOptions(void)
 	opts->compression_spec.level = 0;
 	opts->dumpSchema = true;
 	opts->dumpData = true;
+	opts->dumpStatistics = true;
 
 	return opts;
 }
@@ -1329,7 +1347,7 @@ PrintTOCSummary(Archive *AHX)
 		te->reqs = _tocEntryRequired(te, curSection, AH);
 		/* Now, should we print it? */
 		if (ropt->verbose ||
-			(te->reqs & (REQ_SCHEMA | REQ_DATA)) != 0)
+			(te->reqs & (REQ_SCHEMA | REQ_DATA | REQ_STATS)) != 0)
 		{
 			char	   *sanitized_name;
 			char	   *sanitized_schema;
@@ -2582,7 +2600,7 @@ WriteToc(ArchiveHandle *AH)
 	tocCount = 0;
 	for (te = AH->toc->next; te != AH->toc; te = te->next)
 	{
-		if ((te->reqs & (REQ_SCHEMA | REQ_DATA | REQ_SPECIAL)) != 0)
+		if ((te->reqs & (REQ_SCHEMA | REQ_DATA | REQ_STATS | REQ_SPECIAL)) != 0)
 			tocCount++;
 	}
 
@@ -2592,7 +2610,7 @@ WriteToc(ArchiveHandle *AH)
 
 	for (te = AH->toc->next; te != AH->toc; te = te->next)
 	{
-		if ((te->reqs & (REQ_SCHEMA | REQ_DATA | REQ_SPECIAL)) == 0)
+		if ((te->reqs & (REQ_SCHEMA | REQ_DATA | REQ_STATS | REQ_SPECIAL)) == 0)
 			continue;
 
 		WriteInt(AH, te->dumpId);
@@ -2919,6 +2937,14 @@ _tocEntryRequired(TocEntry *te, teSection curSection, ArchiveHandle *AH)
 		strcmp(te->desc, "SEARCHPATH") == 0)
 		return REQ_SPECIAL;
 
+	if (strcmp(te->desc, "STATISTICS DATA") == 0)
+	{
+		if (!ropt->dumpStatistics)
+			return 0;
+		else
+			res = REQ_STATS;
+	}
+
 	/*
 	 * DATABASE and DATABASE PROPERTIES also have a special rule: they are
 	 * restored in createDB mode, and not restored otherwise, independently of
@@ -2963,6 +2989,10 @@ _tocEntryRequired(TocEntry *te, teSection curSection, ArchiveHandle *AH)
 	if (ropt->no_subscriptions && strcmp(te->desc, "SUBSCRIPTION") == 0)
 		return 0;
 
+	/* If it's statistics and we don't want statistics, maybe ignore it */
+	if (!ropt->dumpStatistics && strcmp(te->desc, "STATISTICS DATA") == 0)
+		return 0;
+
 	/* Ignore it if section is not to be dumped/restored */
 	switch (curSection)
 	{
@@ -2992,6 +3022,7 @@ _tocEntryRequired(TocEntry *te, teSection curSection, ArchiveHandle *AH)
 	 */
 	if (strcmp(te->desc, "ACL") == 0 ||
 		strcmp(te->desc, "COMMENT") == 0 ||
+		strcmp(te->desc, "STATISTICS DATA") == 0 ||
 		strcmp(te->desc, "SECURITY LABEL") == 0)
 	{
 		/* Database properties react to createDB, not selectivity options. */
@@ -3108,6 +3139,7 @@ _tocEntryRequired(TocEntry *te, teSection curSection, ArchiveHandle *AH)
 		}
 	}
 
+
 	/*
 	 * Determine whether the TOC entry contains schema and/or data components,
 	 * and mask off inapplicable REQ bits.  If it had a dataDumper, assume
@@ -3173,12 +3205,12 @@ _tocEntryRequired(TocEntry *te, teSection curSection, ArchiveHandle *AH)
 				strncmp(te->tag, "LARGE OBJECT", 12) == 0) ||
 			   (strcmp(te->desc, "SECURITY LABEL") == 0 &&
 				strncmp(te->tag, "LARGE OBJECT", 12) == 0))))
-			res = res & REQ_SCHEMA;
+			res = res & (REQ_SCHEMA | REQ_STATS);
 	}
 
 	/* Mask it if we don't want schema */
 	if (!ropt->dumpSchema)
-		res = res & REQ_DATA;
+		res = res & (REQ_DATA | REQ_STATS);
 
 	return res;
 }
@@ -3730,7 +3762,7 @@ _getObjectDescription(PQExpBuffer buf, const TocEntry *te)
  * will remain at default, until the matching ACL TOC entry is restored.
  */
 static void
-_printTocEntry(ArchiveHandle *AH, TocEntry *te, bool isData)
+_printTocEntry(ArchiveHandle *AH, TocEntry *te, TocEntryType entry_type)
 {
 	RestoreOptions *ropt = AH->public.ropt;
 
@@ -3754,10 +3786,17 @@ _printTocEntry(ArchiveHandle *AH, TocEntry *te, bool isData)
 		char	   *sanitized_schema;
 		char	   *sanitized_owner;
 
-		if (isData)
-			pfx = "Data for ";
-		else
-			pfx = "";
+		switch (entry_type)
+		{
+			case DATA_TOC_ENTRY:
+				pfx = "Data for ";
+				break;
+			case STATS_TOC_ENTRY:
+				pfx = "Statistics for ";
+				break;
+			default:
+				pfx = "";
+		}
 
 		ahprintf(AH, "--\n");
 		if (AH->public.verbose)
@@ -4325,7 +4364,7 @@ restore_toc_entries_parallel(ArchiveHandle *AH, ParallelState *pstate,
 		if (next_work_item != NULL)
 		{
 			/* If not to be restored, don't waste time launching a worker */
-			if ((next_work_item->reqs & (REQ_SCHEMA | REQ_DATA)) == 0)
+			if ((next_work_item->reqs & (REQ_SCHEMA | REQ_DATA | REQ_STATS)) == 0)
 			{
 				pg_log_info("skipping item %d %s %s",
 							next_work_item->dumpId,

@@ -103,6 +103,9 @@ static int	use_setsessauth = 0;
 static int	no_comments = 0;
 static int	no_publications = 0;
 static int	no_security_labels = 0;
+static int	no_data = 0;
+static int	no_schema = 0;
+static int	no_statistics = 0;
 static int	no_subscriptions = 0;
 static int	no_toast_compression = 0;
 static int	no_unlogged_table_data = 0;
@@ -139,6 +142,7 @@ main(int argc, char *argv[])
 		{"port", required_argument, NULL, 'p'},
 		{"roles-only", no_argument, NULL, 'r'},
 		{"schema-only", no_argument, NULL, 's'},
+		{"statistics-only", no_argument, NULL, 'X'},
 		{"superuser", required_argument, NULL, 'S'},
 		{"tablespaces-only", no_argument, NULL, 't'},
 		{"username", required_argument, NULL, 'U'},
@@ -168,10 +172,13 @@ main(int argc, char *argv[])
 		{"role", required_argument, NULL, 3},
 		{"use-set-session-authorization", no_argument, &use_setsessauth, 1},
 		{"no-comments", no_argument, &no_comments, 1},
+		{"no-data", no_argument, &no_data, 1},
 		{"no-publications", no_argument, &no_publications, 1},
 		{"no-role-passwords", no_argument, &no_role_passwords, 1},
+		{"no-schema", no_argument, &no_schema, 1},
 		{"no-security-labels", no_argument, &no_security_labels, 1},
 		{"no-subscriptions", no_argument, &no_subscriptions, 1},
+		{"no-statistics", no_argument, &no_statistics, 1},
 		{"no-sync", no_argument, NULL, 4},
 		{"no-toast-compression", no_argument, &no_toast_compression, 1},
 		{"no-unlogged-table-data", no_argument, &no_unlogged_table_data, 1},
@@ -328,6 +335,10 @@ main(int argc, char *argv[])
 				appendPQExpBufferStr(pgdumpopts, " -x");
 				break;
 
+			case 'X':
+				appendPQExpBufferStr(pgdumpopts, " -X");
+				break;
+
 			case 0:
 				break;
 
@@ -447,10 +458,16 @@ main(int argc, char *argv[])
 		appendPQExpBufferStr(pgdumpopts, " --use-set-session-authorization");
 	if (no_comments)
 		appendPQExpBufferStr(pgdumpopts, " --no-comments");
+	if (no_data)
+		appendPQExpBufferStr(pgdumpopts, " --no-data");
 	if (no_publications)
 		appendPQExpBufferStr(pgdumpopts, " --no-publications");
 	if (no_security_labels)
 		appendPQExpBufferStr(pgdumpopts, " --no-security-labels");
+	if (no_schema)
+		appendPQExpBufferStr(pgdumpopts, " --no-schema");
+	if (no_statistics)
+		appendPQExpBufferStr(pgdumpopts, " --no-statistics");
 	if (no_subscriptions)
 		appendPQExpBufferStr(pgdumpopts, " --no-subscriptions");
 	if (no_toast_compression)
@@ -667,6 +684,7 @@ help(void)
 	printf(_("  --no-publications            do not dump publications\n"));
 	printf(_("  --no-role-passwords          do not dump passwords for roles\n"));
 	printf(_("  --no-security-labels         do not dump security label assignments\n"));
+	printf(_("  --no-statistics              do not dump statistics\n"));
 	printf(_("  --no-subscriptions           do not dump subscriptions\n"));
 	printf(_("  --no-sync                    do not wait for changes to be written safely to disk\n"));
 	printf(_("  --no-table-access-method     do not dump table access methods\n"));
