@@ -113,11 +113,13 @@ typedef struct _restoreOptions
 	int			no_publications;	/* Skip publication entries */
 	int			no_security_labels; /* Skip security label entries */
 	int			no_subscriptions;	/* Skip subscription entries */
+	int			no_statistics;		/* Skip statistics import */
 	int			strict_names;
 
 	const char *filename;
 	int			dataOnly;
 	int			schemaOnly;
+	int			statisticsOnly;
 	int			dumpSections;
 	int			verbose;
 	int			aclsSkip;
@@ -162,6 +164,7 @@ typedef struct _restoreOptions
 	/* flags derived entirely from the user-settable flags */
 	bool		dumpSchema;
 	bool		dumpData;
+	bool		dumpStatistics;
 } RestoreOptions;
 
 typedef struct _dumpOptions
@@ -173,6 +176,7 @@ typedef struct _dumpOptions
 	/* various user-settable parameters */
 	bool		schemaOnly;
 	bool		dataOnly;
+	bool		statisticsOnly;
 	int			dumpSections;	/* bitmask of chosen sections */
 	bool		aclsSkip;
 	const char *lockWaitTimeout;
@@ -186,6 +190,7 @@ typedef struct _dumpOptions
 	int			no_security_labels;
 	int			no_publications;
 	int			no_subscriptions;
+	int			no_statistics;
 	int			no_toast_compression;
 	int			no_unlogged_table_data;
 	int			serializable_deferrable;
@@ -212,6 +217,7 @@ typedef struct _dumpOptions
 	/* flags derived entirely from the user-settable flags */
 	bool		dumpSchema;
 	bool		dumpData;
+	bool		dumpStatistics;
 } DumpOptions;
 
 /*
