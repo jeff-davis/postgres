@@ -125,9 +125,6 @@ static bool CurrentLCTimeValid = false;
 typedef struct
 {
 	Oid			collid;			/* hash key: pg_collation OID */
-	bool		collate_is_c;	/* is collation's LC_COLLATE C? */
-	bool		ctype_is_c;		/* is collation's LC_CTYPE C? */
-	bool		flags_valid;	/* true if above flags are valid */
 	pg_locale_t locale;			/* locale_t struct, or 0 if not valid */
 } collation_cache_entry;
 
@@ -1227,7 +1224,7 @@ IsoLocaleName(const char *winlocname)
  */
 
 static collation_cache_entry *
-lookup_collation_cache(Oid collation, bool set_flags)
+lookup_collation_cache(Oid collation)
 {
 	collation_cache_entry *cache_entry;
 	bool		found;
@@ -1248,63 +1245,7 @@ lookup_collation_cache(Oid collation, bool set_flags)
 
 	cache_entry = hash_search(collation_cache, &collation, HASH_ENTER, &found);
 	if (!found)
-	{
-		/*
-		 * Make sure cache entry is marked invalid, in case we fail before
-		 * setting things.
-		 */
-		cache_entry->flags_valid = false;
 		cache_entry->locale = 0;
-	}
-
-	if (set_flags && !cache_entry->flags_valid)
-	{
-		/* Attempt to set the flags */
-		HeapTuple	tp;
-		Form_pg_collation collform;
-
-		tp = SearchSysCache1(COLLOID, ObjectIdGetDatum(collation));
-		if (!HeapTupleIsValid(tp))
-			elog(ERROR, "cache lookup failed for collation %u", collation);
-		collform = (Form_pg_collation) GETSTRUCT(tp);
-
-		if (collform->collprovider == COLLPROVIDER_BUILTIN)
-		{
-			Datum		datum;
-			const char *colllocale;
-
-			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colllocale);
-			colllocale = TextDatumGetCString(datum);
-
-			cache_entry->collate_is_c = true;
-			cache_entry->ctype_is_c = (strcmp(colllocale, "C") == 0);
-		}
-		else if (collform->collprovider == COLLPROVIDER_LIBC)
-		{
-			Datum		datum;
-			const char *collcollate;
-			const char *collctype;
-
-			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_collcollate);
-			collcollate = TextDatumGetCString(datum);
-			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_collctype);
-			collctype = TextDatumGetCString(datum);
-
-			cache_entry->collate_is_c = ((strcmp(collcollate, "C") == 0) ||
-										 (strcmp(collcollate, "POSIX") == 0));
-			cache_entry->ctype_is_c = ((strcmp(collctype, "C") == 0) ||
-									   (strcmp(collctype, "POSIX") == 0));
-		}
-		else
-		{
-			cache_entry->collate_is_c = false;
-			cache_entry->ctype_is_c = false;
-		}
-
-		cache_entry->flags_valid = true;
-
-		ReleaseSysCache(tp);
-	}
 
 	return cache_entry;
 }
@@ -1374,7 +1315,7 @@ lc_collate_is_c(Oid collation)
 	/*
 	 * Otherwise, we have to consult pg_collation, but we cache that.
 	 */
-	return (lookup_collation_cache(collation, true))->collate_is_c;
+	return pg_newlocale_from_collation(collation)->collate_is_c;
 }
 
 /*
@@ -1440,7 +1381,7 @@ lc_ctype_is_c(Oid collation)
 	/*
 	 * Otherwise, we have to consult pg_collation, but we cache that.
 	 */
-	return (lookup_collation_cache(collation, true))->ctype_is_c;
+	return pg_newlocale_from_collation(collation)->ctype_is_c;
 }
 
 struct pg_locale_struct default_locale;
@@ -1563,7 +1504,7 @@ pg_newlocale_from_collation(Oid collid)
 			return &default_locale;
 	}
 
-	cache_entry = lookup_collation_cache(collid, false);
+	cache_entry = lookup_collation_cache(collid);
 
 	if (cache_entry->locale == 0)
 	{
@@ -1592,6 +1533,8 @@ pg_newlocale_from_collation(Oid collid)
 			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colllocale);
 			locstr = TextDatumGetCString(datum);
 
+			result.collate_is_c = true;
+			result.ctype_is_c = (strcmp(locstr, "C") == 0);
 			builtin_validate_locale(GetDatabaseEncoding(), locstr);
 
 			result.info.builtin.locale = MemoryContextStrdup(TopMemoryContext,
@@ -1607,6 +1550,11 @@ pg_newlocale_from_collation(Oid collid)
 			collcollate = TextDatumGetCString(datum);
 			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_collctype);
 			collctype = TextDatumGetCString(datum);
+
+			result.collate_is_c = ((strcmp(collcollate, "C") == 0) ||
+								   (strcmp(collcollate, "POSIX") == 0));
+			result.ctype_is_c = ((strcmp(collctype, "C") == 0) ||
+								 (strcmp(collctype, "POSIX") == 0));
 
 			if (strcmp(collcollate, collctype) == 0)
 			{
@@ -1657,6 +1605,9 @@ pg_newlocale_from_collation(Oid collid)
 
 			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colllocale);
 			iculocstr = TextDatumGetCString(datum);
+
+			result.collate_is_c = false;
+			result.ctype_is_c = false;
 
 			datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collicurules, &isnull);
 			if (!isnull)
