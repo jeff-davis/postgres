@@ -793,6 +793,10 @@ main(int argc, char **argv)
 	if (dopt.if_exists && !dopt.outputClean)
 		pg_fatal("option --if-exists requires option -c/--clean");
 
+	/* set derivative flags */
+	dopt.dumpSchema = (!dopt.dataOnly);
+	dopt.dumpData = (!dopt.schemaOnly);
+
 	/*
 	 * --inserts are already implied above if --column-inserts or
 	 * --rows-per-insert were specified.
@@ -975,7 +979,7 @@ main(int argc, char **argv)
 	 * -s means "schema only" and LOs are data, not schema, so we never
 	 * include LOs when -s is used.
 	 */
-	if (dopt.include_everything && !dopt.schemaOnly && !dopt.dontOutputLOs)
+	if (dopt.include_everything && dopt.dumpData && !dopt.dontOutputLOs)
 		dopt.outputLOs = true;
 
 	/*
@@ -989,15 +993,15 @@ main(int argc, char **argv)
 	 */
 	tblinfo = getSchemaData(fout, &numTables);
 
-	if (!dopt.schemaOnly)
+	if (dopt.dumpData)
 	{
 		getTableData(&dopt, tblinfo, numTables, 0);
 		buildMatViewRefreshDependencies(fout);
-		if (dopt.dataOnly)
+		if (!dopt.dumpSchema)
 			getTableDataFKConstraints();
 	}
 
-	if (dopt.schemaOnly && dopt.sequence_data)
+	if (!dopt.dumpData && dopt.sequence_data)
 		getTableData(&dopt, tblinfo, numTables, RELKIND_SEQUENCE);
 
 	/*
@@ -4159,8 +4163,8 @@ dumpPolicy(Archive *fout, const PolicyInfo *polinfo)
 	const char *cmd;
 	char	   *tag;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	/*
@@ -4375,8 +4379,8 @@ dumpPublication(Archive *fout, const PublicationInfo *pubinfo)
 	char	   *qpubname;
 	bool		first = true;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	delq = createPQExpBuffer();
@@ -4690,8 +4694,8 @@ dumpPublicationNamespace(Archive *fout, const PublicationSchemaInfo *pubsinfo)
 	PQExpBuffer query;
 	char	   *tag;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	tag = psprintf("%s %s", pubinfo->dobj.name, schemainfo->dobj.name);
@@ -4733,8 +4737,8 @@ dumpPublicationTable(Archive *fout, const PublicationRelInfo *pubrinfo)
 	PQExpBuffer query;
 	char	   *tag;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	tag = psprintf("%s %s", pubinfo->dobj.name, tbinfo->dobj.name);
@@ -5119,8 +5123,8 @@ dumpSubscriptionTable(Archive *fout, const SubRelInfo *subrinfo)
 	PQExpBuffer query;
 	char	   *tag;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	Assert(fout->dopt->binary_upgrade && fout->remoteVersion >= 170000);
@@ -5193,8 +5197,8 @@ dumpSubscription(Archive *fout, const SubscriptionInfo *subinfo)
 	int			i;
 	char		two_phase_disabled[] = {LOGICALREP_TWOPHASE_STATE_DISABLED, '\0'};
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	delq = createPQExpBuffer();
@@ -7343,8 +7347,8 @@ getPartitioningInfo(Archive *fout)
 	/* hash partitioning didn't exist before v11 */
 	if (fout->remoteVersion < 110000)
 		return;
-	/* needn't bother if schema-only dump */
-	if (fout->dopt->schemaOnly)
+	/* needn't bother if not dumping data */
+	if (!fout->dopt->dumpData)
 		return;
 
 	query = createPQExpBuffer();
@@ -8996,7 +9000,7 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
 	 * Now get info about column defaults.  This is skipped for a data-only
 	 * dump, as it is only needed for table schemas.
 	 */
-	if (!dopt->dataOnly && tbloids->len > 1)
+	if (dopt->dumpSchema && tbloids->len > 1)
 	{
 		AttrDefInfo *attrdefs;
 		int			numDefaults;
@@ -9126,7 +9130,7 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
 	 * Get info about table CHECK constraints.  This is skipped for a
 	 * data-only dump, as it is only needed for table schemas.
 	 */
-	if (!dopt->dataOnly && checkoids->len > 2)
+	if (dopt->dumpSchema && checkoids->len > 2)
 	{
 		ConstraintInfo *constrs;
 		int			numConstrs;
@@ -10036,13 +10040,13 @@ dumpCommentExtended(Archive *fout, const char *type,
 	/* Comments are schema not data ... except LO comments are data */
 	if (strcmp(type, "LARGE OBJECT") != 0)
 	{
-		if (dopt->dataOnly)
+		if (!dopt->dumpSchema)
 			return;
 	}
 	else
 	{
 		/* We do dump LO comments in binary-upgrade mode */
-		if (dopt->schemaOnly && !dopt->binary_upgrade)
+		if (!dopt->dumpData && !dopt->binary_upgrade)
 			return;
 	}
 
@@ -10149,7 +10153,7 @@ dumpTableComment(Archive *fout, const TableInfo *tbinfo,
 		return;
 
 	/* Comments are SCHEMA not data */
-	if (dopt->dataOnly)
+	if (!dopt->dumpSchema)
 		return;
 
 	/* Search for comments associated with relation, using table */
@@ -10595,8 +10599,8 @@ dumpNamespace(Archive *fout, const NamespaceInfo *nspinfo)
 	PQExpBuffer delq;
 	char	   *qnspname;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	q = createPQExpBuffer();
@@ -10672,8 +10676,8 @@ dumpExtension(Archive *fout, const ExtensionInfo *extinfo)
 	PQExpBuffer delq;
 	char	   *qextname;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	q = createPQExpBuffer();
@@ -10797,8 +10801,8 @@ dumpType(Archive *fout, const TypeInfo *tyinfo)
 {
 	DumpOptions *dopt = fout->dopt;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	/* Dump out in proper style */
@@ -11908,8 +11912,8 @@ dumpShellType(Archive *fout, const ShellTypeInfo *stinfo)
 	DumpOptions *dopt = fout->dopt;
 	PQExpBuffer q;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	q = createPQExpBuffer();
@@ -11960,8 +11964,8 @@ dumpProcLang(Archive *fout, const ProcLangInfo *plang)
 	FuncInfo   *inlineInfo = NULL;
 	FuncInfo   *validatorInfo = NULL;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	/*
@@ -12168,8 +12172,8 @@ dumpFunc(Archive *fout, const FuncInfo *finfo)
 	int			nconfigitems = 0;
 	const char *keyword;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	query = createPQExpBuffer();
@@ -12560,8 +12564,8 @@ dumpCast(Archive *fout, const CastInfo *cast)
 	const char *sourceType;
 	const char *targetType;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	/* Cannot dump if we don't have the cast function's info */
@@ -12666,8 +12670,8 @@ dumpTransform(Archive *fout, const TransformInfo *transform)
 	char	   *lanname;
 	const char *transformType;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	/* Cannot dump if we don't have the transform functions' info */
@@ -12815,8 +12819,8 @@ dumpOpr(Archive *fout, const OprInfo *oprinfo)
 	char	   *oprregproc;
 	char	   *oprref;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	/*
@@ -13102,8 +13106,8 @@ dumpAccessMethod(Archive *fout, const AccessMethodInfo *aminfo)
 	PQExpBuffer delq;
 	char	   *qamname;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	q = createPQExpBuffer();
@@ -13205,8 +13209,8 @@ dumpOpclass(Archive *fout, const OpclassInfo *opcinfo)
 	bool		needComma;
 	int			i;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	query = createPQExpBuffer();
@@ -13476,8 +13480,8 @@ dumpOpfamily(Archive *fout, const OpfamilyInfo *opfinfo)
 	bool		needComma;
 	int			i;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	query = createPQExpBuffer();
@@ -13683,8 +13687,8 @@ dumpCollation(Archive *fout, const CollInfo *collinfo)
 	const char *colllocale;
 	const char *collicurules;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	query = createPQExpBuffer();
@@ -13937,8 +13941,8 @@ dumpConversion(Archive *fout, const ConvInfo *convinfo)
 	const char *conproc;
 	bool		condefault;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	query = createPQExpBuffer();
@@ -14085,8 +14089,8 @@ dumpAgg(Archive *fout, const AggInfo *agginfo)
 	const char *proparallel;
 	char		defaultfinalmodify;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	query = createPQExpBuffer();
@@ -14415,8 +14419,8 @@ dumpTSParser(Archive *fout, const TSParserInfo *prsinfo)
 	PQExpBuffer delq;
 	char	   *qprsname;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	q = createPQExpBuffer();
@@ -14483,8 +14487,8 @@ dumpTSDictionary(Archive *fout, const TSDictInfo *dictinfo)
 	char	   *nspname;
 	char	   *tmplname;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	q = createPQExpBuffer();
@@ -14559,8 +14563,8 @@ dumpTSTemplate(Archive *fout, const TSTemplateInfo *tmplinfo)
 	PQExpBuffer delq;
 	char	   *qtmplname;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	q = createPQExpBuffer();
@@ -14625,8 +14629,8 @@ dumpTSConfig(Archive *fout, const TSConfigInfo *cfginfo)
 	int			i_tokenname;
 	int			i_dictname;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	q = createPQExpBuffer();
@@ -14737,8 +14741,8 @@ dumpForeignDataWrapper(Archive *fout, const FdwInfo *fdwinfo)
 	PQExpBuffer delq;
 	char	   *qfdwname;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	q = createPQExpBuffer();
@@ -14810,8 +14814,8 @@ dumpForeignServer(Archive *fout, const ForeignServerInfo *srvinfo)
 	char	   *qsrvname;
 	char	   *fdwname;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	q = createPQExpBuffer();
@@ -15001,8 +15005,8 @@ dumpDefaultACL(Archive *fout, const DefaultACLInfo *daclinfo)
 	PQExpBuffer tag;
 	const char *type;
 
-	/* Do nothing in data-only dump, or if we're skipping ACLs */
-	if (dopt->dataOnly || dopt->aclsSkip)
+	/* Do nothing if not dumping schema, or if we're skipping ACLs */
+	if (!dopt->dumpSchema || dopt->aclsSkip)
 		return;
 
 	q = createPQExpBuffer();
@@ -15102,7 +15106,7 @@ dumpACL(Archive *fout, DumpId objDumpId, DumpId altDumpId,
 		return InvalidDumpId;
 
 	/* --data-only skips ACLs *except* large object ACLs */
-	if (dopt->dataOnly && strcmp(type, "LARGE OBJECT") != 0)
+	if (!dopt->dumpSchema && strcmp(type, "LARGE OBJECT") != 0)
 		return InvalidDumpId;
 
 	sql = createPQExpBuffer();
@@ -15231,13 +15235,13 @@ dumpSecLabel(Archive *fout, const char *type, const char *name,
 	 */
 	if (strcmp(type, "LARGE OBJECT") != 0)
 	{
-		if (dopt->dataOnly)
+		if (!dopt->dumpSchema)
 			return;
 	}
 	else
 	{
 		/* We do dump large object security labels in binary-upgrade mode */
-		if (dopt->schemaOnly && !dopt->binary_upgrade)
+		if (!dopt->dumpData && !dopt->binary_upgrade)
 			return;
 	}
 
@@ -15305,7 +15309,7 @@ dumpTableSecLabel(Archive *fout, const TableInfo *tbinfo, const char *reltypenam
 		return;
 
 	/* SecLabel are SCHEMA not data */
-	if (dopt->dataOnly)
+	if (!dopt->dumpSchema)
 		return;
 
 	/* Search for comments associated with relation, using table */
@@ -15544,8 +15548,8 @@ dumpTable(Archive *fout, const TableInfo *tbinfo)
 	DumpId		tableAclDumpId = InvalidDumpId;
 	char	   *namecopy;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	if (tbinfo->dobj.dump & DUMP_COMPONENT_DEFINITION)
@@ -16641,8 +16645,8 @@ dumpTableAttach(Archive *fout, const TableAttachInfo *attachinfo)
 	PGresult   *res;
 	char	   *partbound;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	q = createPQExpBuffer();
@@ -16713,8 +16717,8 @@ dumpAttrDef(Archive *fout, const AttrDefInfo *adinfo)
 	char	   *tag;
 	char	   *foreign;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	/* Skip if not "separate"; it was dumped in the table's definition */
@@ -16802,8 +16806,8 @@ dumpIndex(Archive *fout, const IndxInfo *indxinfo)
 	char	   *qindxname;
 	char	   *qqindxname;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	q = createPQExpBuffer();
@@ -16935,8 +16939,8 @@ dumpIndex(Archive *fout, const IndxInfo *indxinfo)
 static void
 dumpIndexAttach(Archive *fout, const IndexAttachInfo *attachinfo)
 {
-	/* Do nothing in data-only dump */
-	if (fout->dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!fout->dopt->dumpSchema)
 		return;
 
 	if (attachinfo->partitionIdx->dobj.dump & DUMP_COMPONENT_DEFINITION)
@@ -16982,8 +16986,8 @@ dumpStatisticsExt(Archive *fout, const StatsExtInfo *statsextinfo)
 	PGresult   *res;
 	char	   *stxdef;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	q = createPQExpBuffer();
@@ -17058,8 +17062,8 @@ dumpConstraint(Archive *fout, const ConstraintInfo *coninfo)
 	char	   *tag = NULL;
 	char	   *foreign;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	q = createPQExpBuffer();
@@ -17795,8 +17799,8 @@ dumpTrigger(Archive *fout, const TriggerInfo *tginfo)
 	char	   *qtabname;
 	char	   *tag;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	query = createPQExpBuffer();
@@ -17917,8 +17921,8 @@ dumpEventTrigger(Archive *fout, const EventTriggerInfo *evtinfo)
 	PQExpBuffer delqry;
 	char	   *qevtname;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	query = createPQExpBuffer();
@@ -18008,8 +18012,8 @@ dumpRule(Archive *fout, const RuleInfo *rinfo)
 	PGresult   *res;
 	char	   *tag;
 
-	/* Do nothing in data-only dump */
-	if (dopt->dataOnly)
+	/* Do nothing if not dumping schema */
+	if (!dopt->dumpSchema)
 		return;
 
 	/*

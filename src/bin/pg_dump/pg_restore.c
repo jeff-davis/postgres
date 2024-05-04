@@ -360,6 +360,10 @@ main(int argc, char **argv)
 	if (opts->single_txn && numWorkers > 1)
 		pg_fatal("cannot specify both --single-transaction and multiple jobs");
 
+	/* set derivative flags */
+	opts->dumpSchema = (opts->dataOnly != 1);
+	opts->dumpData = (opts->schemaOnly != 1);
+
 	opts->disable_triggers = disable_triggers;
 	opts->enable_row_security = enable_row_security;
 	opts->noDataForFailedTables = no_data_for_failed_tables;
