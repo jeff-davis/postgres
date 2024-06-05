@@ -1154,7 +1154,7 @@ get_iso_localename(const char *winlocname)
 		char	   *hyphen;
 
 		/* Locale names use only ASCII, any conversion locale suffices. */
-		rc = wchar2char(iso_lc_messages, buffer, sizeof(iso_lc_messages), NULL);
+		rc = wchar2char(iso_lc_messages, buffer, sizeof(iso_lc_messages), default_locale);
 		if (rc == -1 || rc == sizeof(iso_lc_messages))
 			return NULL;
 
@@ -1449,11 +1449,7 @@ make_icu_collator(const char *iculocstr,
 bool
 pg_locale_deterministic(pg_locale_t locale)
 {
-	/* default locale must always be deterministic */
-	if (locale == NULL)
-		return true;
-	else
-		return locale->deterministic;
+	return locale->deterministic;
 }
 
 /*
@@ -1813,7 +1809,7 @@ pg_strncoll_libc_win32_utf8(const char *arg1, size_t len1, const char *arg2,
 	int			r;
 	int			result;
 
-	Assert(!locale || locale->provider == COLLPROVIDER_LIBC);
+	Assert(locale->provider == COLLPROVIDER_LIBC);
 	Assert(GetDatabaseEncoding() == PG_UTF8);
 #ifndef WIN32
 	Assert(false);
@@ -1853,10 +1849,7 @@ pg_strncoll_libc_win32_utf8(const char *arg1, size_t len1, const char *arg2,
 	((LPWSTR) a2p)[r] = 0;
 
 	errno = 0;
-	if (locale)
-		result = wcscoll_l((LPWSTR) a1p, (LPWSTR) a2p, locale->info.lt);
-	else
-		result = wcscoll((LPWSTR) a1p, (LPWSTR) a2p);
+	result = wcscoll_l((LPWSTR) a1p, (LPWSTR) a2p, locale->info.lt);
 	if (result == 2147483647)	/* _NLSCMPERROR; missing from mingw headers */
 		ereport(ERROR,
 				(errmsg("could not compare Unicode strings: %m")));
@@ -1882,7 +1875,7 @@ pg_strcoll_libc(const char *arg1, const char *arg2, pg_locale_t locale)
 {
 	int			result;
 
-	Assert(!locale || locale->provider == COLLPROVIDER_LIBC);
+	Assert(locale->provider == COLLPROVIDER_LIBC);
 #ifdef WIN32
 	if (GetDatabaseEncoding() == PG_UTF8)
 	{
@@ -1893,10 +1886,7 @@ pg_strcoll_libc(const char *arg1, const char *arg2, pg_locale_t locale)
 	}
 	else
 #endif							/* WIN32 */
-	if (locale)
 		result = strcoll_l(arg1, arg2, locale->info.lt);
-	else
-		result = strcoll(arg1, arg2);
 
 	return result;
 }
@@ -1918,7 +1908,7 @@ pg_strncoll_libc(const char *arg1, size_t len1, const char *arg2, size_t len2,
 	char	   *arg2n;
 	int			result;
 
-	Assert(!locale || locale->provider == COLLPROVIDER_LIBC);
+	Assert(locale->provider == COLLPROVIDER_LIBC);
 
 #ifdef WIN32
 	/* check for this case before doing the work for nul-termination */
@@ -2064,7 +2054,7 @@ pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
 {
 	int			result;
 
-	if (!locale || locale->provider == COLLPROVIDER_LIBC)
+	if (locale->provider == COLLPROVIDER_LIBC)
 		result = pg_strcoll_libc(arg1, arg2, locale);
 #ifdef USE_ICU
 	else if (locale->provider == COLLPROVIDER_ICU)
@@ -2100,7 +2090,7 @@ pg_strncoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 {
 	int			result;
 
-	if (!locale || locale->provider == COLLPROVIDER_LIBC)
+	if (locale->provider == COLLPROVIDER_LIBC)
 		result = pg_strncoll_libc(arg1, len1, arg2, len2, locale);
 #ifdef USE_ICU
 	else if (locale->provider == COLLPROVIDER_ICU)
@@ -2118,13 +2108,10 @@ static size_t
 pg_strxfrm_libc(char *dest, const char *src, size_t destsize,
 				pg_locale_t locale)
 {
-	Assert(!locale || locale->provider == COLLPROVIDER_LIBC);
+	Assert(locale->provider == COLLPROVIDER_LIBC);
 
 #ifdef TRUST_STRXFRM
-	if (locale)
-		return strxfrm_l(dest, src, destsize, locale->info.lt);
-	else
-		return strxfrm(dest, src, destsize);
+	return strxfrm_l(dest, src, destsize, locale->info.lt);
 #else
 	/* shouldn't happen */
 	PGLOCALE_SUPPORT_ERROR(locale->provider);
@@ -2141,7 +2128,7 @@ pg_strnxfrm_libc(char *dest, const char *src, size_t srclen, size_t destsize,
 	size_t		bufsize = srclen + 1;
 	size_t		result;
 
-	Assert(!locale || locale->provider == COLLPROVIDER_LIBC);
+	Assert(locale->provider == COLLPROVIDER_LIBC);
 
 	if (bufsize > TEXTBUFLEN)
 		buf = palloc(bufsize);
@@ -2313,7 +2300,7 @@ pg_strnxfrm_prefix_icu(char *dest, const char *src, int32_t srclen,
 bool
 pg_strxfrm_enabled(pg_locale_t locale)
 {
-	if (!locale || locale->provider == COLLPROVIDER_LIBC)
+	if (locale->provider == COLLPROVIDER_LIBC)
 #ifdef TRUST_STRXFRM
 		return true;
 #else
@@ -2347,7 +2334,7 @@ pg_strxfrm(char *dest, const char *src, size_t destsize, pg_locale_t locale)
 {
 	size_t		result = 0;		/* keep compiler quiet */
 
-	if (!locale || locale->provider == COLLPROVIDER_LIBC)
+	if (locale->provider == COLLPROVIDER_LIBC)
 		result = pg_strxfrm_libc(dest, src, destsize, locale);
 #ifdef USE_ICU
 	else if (locale->provider == COLLPROVIDER_ICU)
@@ -2384,7 +2371,7 @@ pg_strnxfrm(char *dest, size_t destsize, const char *src, size_t srclen,
 {
 	size_t		result = 0;		/* keep compiler quiet */
 
-	if (!locale || locale->provider == COLLPROVIDER_LIBC)
+	if (locale->provider == COLLPROVIDER_LIBC)
 		result = pg_strnxfrm_libc(dest, src, srclen, destsize, locale);
 #ifdef USE_ICU
 	else if (locale->provider == COLLPROVIDER_ICU)
@@ -2404,7 +2391,7 @@ pg_strnxfrm(char *dest, size_t destsize, const char *src, size_t srclen,
 bool
 pg_strxfrm_prefix_enabled(pg_locale_t locale)
 {
-	if (!locale || locale->provider == COLLPROVIDER_LIBC)
+	if (locale->provider == COLLPROVIDER_LIBC)
 		return false;
 	else if (locale->provider == COLLPROVIDER_ICU)
 		return true;
@@ -2434,13 +2421,11 @@ pg_strxfrm_prefix(char *dest, const char *src, size_t destsize,
 {
 	size_t		result = 0;		/* keep compiler quiet */
 
-	if (!locale)
-		PGLOCALE_SUPPORT_ERROR(COLLPROVIDER_LIBC);
 #ifdef USE_ICU
-	else if (locale->provider == COLLPROVIDER_ICU)
+	if (locale->provider == COLLPROVIDER_ICU)
 		result = pg_strnxfrm_prefix_icu(dest, src, -1, destsize, locale);
-#endif
 	else
+#endif
 		PGLOCALE_SUPPORT_ERROR(locale->provider);
 
 	return result;
@@ -2469,13 +2454,11 @@ pg_strnxfrm_prefix(char *dest, size_t destsize, const char *src,
 {
 	size_t		result = 0;		/* keep compiler quiet */
 
-	if (!locale)
-		PGLOCALE_SUPPORT_ERROR(COLLPROVIDER_LIBC);
 #ifdef USE_ICU
-	else if (locale->provider == COLLPROVIDER_ICU)
+	if (locale->provider == COLLPROVIDER_ICU)
 		result = pg_strnxfrm_prefix_icu(dest, src, -1, destsize, locale);
-#endif
 	else
+#endif
 		PGLOCALE_SUPPORT_ERROR(locale->provider);
 
 	return result;
@@ -3032,7 +3015,7 @@ wchar2char(char *to, const wchar_t *from, size_t tolen, pg_locale_t locale)
 {
 	size_t		result;
 
-	Assert(!locale || locale->provider == COLLPROVIDER_LIBC);
+	Assert(locale->provider == COLLPROVIDER_LIBC);
 
 	if (tolen == 0)
 		return 0;
@@ -3060,12 +3043,6 @@ wchar2char(char *to, const wchar_t *from, size_t tolen, pg_locale_t locale)
 	}
 	else
 #endif							/* WIN32 */
-	if (locale == (pg_locale_t) 0)
-	{
-		/* Use wcstombs directly for the default locale */
-		result = wcstombs(to, from, tolen);
-	}
-	else
 	{
 		/* Use wcstombs_l for nondefault locales */
 		result = wcstombs_l(to, from, tolen, locale->info.lt);
@@ -3089,7 +3066,7 @@ char2wchar(wchar_t *to, size_t tolen, const char *from, size_t fromlen,
 {
 	size_t		result;
 
-	Assert(!locale || locale->provider == COLLPROVIDER_LIBC);
+	Assert(locale->provider == COLLPROVIDER_LIBC);
 
 	if (tolen == 0)
 		return 0;
@@ -3122,16 +3099,8 @@ char2wchar(wchar_t *to, size_t tolen, const char *from, size_t fromlen,
 		/* mbstowcs requires ending '\0' */
 		char	   *str = pnstrdup(from, fromlen);
 
-		if (locale == (pg_locale_t) 0)
-		{
-			/* Use mbstowcs directly for the default locale */
-			result = mbstowcs(to, str, tolen);
-		}
-		else
-		{
-			/* Use mbstowcs_l for nondefault locales */
-			result = mbstowcs_l(to, str, tolen, locale->info.lt);
-		}
+		/* Use mbstowcs_l for nondefault locales */
+		result = mbstowcs_l(to, str, tolen, locale->info.lt);
 
 		pfree(str);
 	}
