@@ -80,7 +80,12 @@ struct pg_locale_struct
 		{
 			const char *locale;
 		}			builtin;
-		locale_t	lt;
+		struct
+		{
+			const char *collate;
+			const char *ctype;
+			locale_t	lt;
+		}			libc;
 #ifdef USE_ICU
 		struct
 		{

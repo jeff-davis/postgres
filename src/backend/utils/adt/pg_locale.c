@@ -1350,9 +1350,7 @@ lc_collate_is_c(Oid collation)
 		}
 		else if (default_locale.provider == COLLPROVIDER_LIBC)
 		{
-			localeptr = setlocale(LC_CTYPE, NULL);
-			if (!localeptr)
-				elog(ERROR, "invalid LC_CTYPE setting");
+			localeptr = default_locale.info.libc.collate;
 		}
 		else
 			elog(ERROR, "unexpected collation provider '%c'",
@@ -1416,9 +1414,7 @@ lc_ctype_is_c(Oid collation)
 		}
 		else if (default_locale.provider == COLLPROVIDER_LIBC)
 		{
-			localeptr = setlocale(LC_CTYPE, NULL);
-			if (!localeptr)
-				elog(ERROR, "invalid LC_CTYPE setting");
+			localeptr = default_locale.info.libc.ctype;
 		}
 		else
 			elog(ERROR, "unexpected collation provider '%c'",
@@ -1629,7 +1625,11 @@ pg_init_database_collation()
 #endif
 		}
 
-		default_locale.info.lt = loc;
+		default_locale.info.libc.collate = MemoryContextStrdup(
+			TopMemoryContext, datcollate);
+		default_locale.info.libc.ctype = MemoryContextStrdup(
+			TopMemoryContext, datctype);
+		default_locale.info.libc.lt = loc;
 	}
 
 	default_locale.provider = dbform->datlocprovider;
@@ -1750,7 +1750,11 @@ pg_newlocale_from_collation(Oid collid)
 #endif
 			}
 
-			result.info.lt = loc;
+			result.info.libc.collate = MemoryContextStrdup(
+				TopMemoryContext, collcollate);
+			result.info.libc.ctype = MemoryContextStrdup(
+				TopMemoryContext, collctype);
+			result.info.libc.lt = loc;
 		}
 		else if (collform->collprovider == COLLPROVIDER_ICU)
 		{
@@ -1990,7 +1994,7 @@ pg_strncoll_libc_win32_utf8(const char *arg1, size_t len1, const char *arg2,
 	((LPWSTR) a2p)[r] = 0;
 
 	errno = 0;
-	result = wcscoll_l((LPWSTR) a1p, (LPWSTR) a2p, locale->info.lt);
+	result = wcscoll_l((LPWSTR) a1p, (LPWSTR) a2p, locale->info.libc.lt);
 	if (result == 2147483647)	/* _NLSCMPERROR; missing from mingw headers */
 		ereport(ERROR,
 				(errmsg("could not compare Unicode strings: %m")));
@@ -2027,7 +2031,7 @@ pg_strcoll_libc(const char *arg1, const char *arg2, pg_locale_t locale)
 	}
 	else
 #endif							/* WIN32 */
-		result = strcoll_l(arg1, arg2, locale->info.lt);
+		result = strcoll_l(arg1, arg2, locale->info.libc.lt);
 
 	return result;
 }
@@ -2252,7 +2256,7 @@ pg_strxfrm_libc(char *dest, const char *src, size_t destsize,
 	Assert(locale->provider == COLLPROVIDER_LIBC);
 
 #ifdef TRUST_STRXFRM
-	return strxfrm_l(dest, src, destsize, locale->info.lt);
+	return strxfrm_l(dest, src, destsize, locale->info.libc.lt);
 #else
 	/* shouldn't happen */
 	PGLOCALE_SUPPORT_ERROR(locale->provider);
@@ -3185,7 +3189,7 @@ wchar2char(char *to, const wchar_t *from, size_t tolen, pg_locale_t locale)
 	else
 	{
 		/* Use wcstombs_l for nondefault locales */
-		result = wcstombs_l(to, from, tolen, locale->info.lt);
+		result = wcstombs_l(to, from, tolen, locale->info.libc.lt);
 	}
 
 	return result;
@@ -3247,7 +3251,7 @@ char2wchar(wchar_t *to, size_t tolen, const char *from, size_t fromlen,
 		else
 		{
 			/* Use mbstowcs_l for nondefault locales */
-			result = mbstowcs_l(to, str, tolen, locale->info.lt);
+			result = mbstowcs_l(to, str, tolen, locale->info.libc.lt);
 		}
 
 		pfree(str);
