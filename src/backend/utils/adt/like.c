@@ -194,7 +194,7 @@ Generic_Text_IC_like(text *str, text *pat, Oid collation)
 	else
 		locale = pg_newlocale_from_collation(collation);
 
-	if (!pg_locale_deterministic(locale))
+	if (!locale_is_c && !pg_locale_deterministic(locale))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("nondeterministic collations are not supported for ILIKE")));
