@@ -1582,7 +1582,58 @@ pg_init_database_collation()
 	}
 	else
 	{
+		const char *datcollate;
+		const char *datctype pg_attribute_unused();
+		locale_t	loc;
+
 		Assert(dbform->datlocprovider == COLLPROVIDER_LIBC);
+
+		datum = SysCacheGetAttrNotNull(DATABASEOID, tup, Anum_pg_database_datcollate);
+		datcollate = TextDatumGetCString(datum);
+		datum = SysCacheGetAttrNotNull(DATABASEOID, tup, Anum_pg_database_datctype);
+		datctype = TextDatumGetCString(datum);
+
+		if (strcmp(datcollate, datctype) == 0)
+		{
+			/* Normal case where they're the same */
+			errno = 0;
+#ifndef WIN32
+			loc = newlocale(LC_COLLATE_MASK | LC_CTYPE_MASK, datcollate,
+							NULL);
+#else
+			loc = _create_locale(LC_ALL, datcollate);
+#endif
+			if (!loc)
+				report_newlocale_failure(datcollate);
+		}
+		else
+		{
+#ifndef WIN32
+			/* We need two newlocale() steps */
+			locale_t	loc1;
+
+			errno = 0;
+			loc1 = newlocale(LC_COLLATE_MASK, datcollate, NULL);
+			if (!loc1)
+				report_newlocale_failure(datcollate);
+			errno = 0;
+			loc = newlocale(LC_CTYPE_MASK, datctype, loc1);
+			if (!loc)
+				report_newlocale_failure(datctype);
+#else
+
+			/*
+			 * XXX The _create_locale() API doesn't appear to support
+			 * this. Could perhaps be worked around by changing
+			 * pg_locale_t to contain two separate fields.
+			 */
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("collations with different collate and ctype values are not supported on this platform")));
+#endif
+		}
+
+		default_locale.info.lt = loc;
 	}
 
 	default_locale.provider = dbform->datlocprovider;
@@ -1616,12 +1667,7 @@ pg_newlocale_from_collation(Oid collid)
 	Assert(OidIsValid(collid));
 
 	if (collid == DEFAULT_COLLATION_OID)
-	{
-		if (default_locale.provider == COLLPROVIDER_LIBC)
-			return (pg_locale_t) 0;
-		else
-			return &default_locale;
-	}
+		return &default_locale;
 
 	cache_entry = lookup_collation_cache(collid, false);
 
