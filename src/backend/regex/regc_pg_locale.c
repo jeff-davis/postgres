@@ -67,8 +67,6 @@ typedef enum
 {
 	PG_REGEX_LOCALE_C,			/* C locale (encoding independent) */
 	PG_REGEX_BUILTIN,			/* built-in Unicode semantics */
-	PG_REGEX_LOCALE_WIDE,		/* Use <wctype.h> functions */
-	PG_REGEX_LOCALE_1BYTE,		/* Use <ctype.h> functions */
 	PG_REGEX_LOCALE_WIDE_L,		/* Use locale_t <wctype.h> functions */
 	PG_REGEX_LOCALE_1BYTE_L,	/* Use locale_t <ctype.h> functions */
 	PG_REGEX_LOCALE_ICU,		/* Use ICU uchar.h functions */
@@ -261,13 +259,13 @@ pg_set_regex_collation(Oid collation)
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("nondeterministic collations are not supported for regular expressions")));
 
-		if (pg_regex_locale && pg_regex_locale->provider == COLLPROVIDER_BUILTIN)
+		if (pg_regex_locale->provider == COLLPROVIDER_BUILTIN)
 		{
 			Assert(GetDatabaseEncoding() == PG_UTF8);
 			pg_regex_strategy = PG_REGEX_BUILTIN;
 		}
 #ifdef USE_ICU
-		else if (pg_regex_locale && pg_regex_locale->provider == COLLPROVIDER_ICU)
+		else if (pg_regex_locale->provider == COLLPROVIDER_ICU)
 		{
 			/* NB: assumes casting from pg_wchar to int gives code point */
 			pg_regex_strategy = PG_REGEX_LOCALE_ICU;
@@ -276,19 +274,9 @@ pg_set_regex_collation(Oid collation)
 		else
 		{
 			if (GetDatabaseEncoding() == PG_UTF8)
-			{
-				if (pg_regex_locale)
-					pg_regex_strategy = PG_REGEX_LOCALE_WIDE_L;
-				else
-					pg_regex_strategy = PG_REGEX_LOCALE_WIDE;
-			}
+				pg_regex_strategy = PG_REGEX_LOCALE_WIDE_L;
 			else
-			{
-				if (pg_regex_locale)
-					pg_regex_strategy = PG_REGEX_LOCALE_1BYTE_L;
-				else
-					pg_regex_strategy = PG_REGEX_LOCALE_1BYTE;
-			}
+				pg_regex_strategy = PG_REGEX_LOCALE_1BYTE_L;
 		}
 
 		pg_regex_collation = collation;
@@ -305,13 +293,6 @@ pg_wc_isdigit(pg_wchar c)
 					(pg_char_properties[c] & PG_ISDIGIT));
 		case PG_REGEX_BUILTIN:
 			return pg_u_isdigit(c, true);
-		case PG_REGEX_LOCALE_WIDE:
-			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
-				return iswdigit((wint_t) c);
-			/* FALL THRU */
-		case PG_REGEX_LOCALE_1BYTE:
-			return (c <= (pg_wchar) UCHAR_MAX &&
-					isdigit((unsigned char) c));
 		case PG_REGEX_LOCALE_WIDE_L:
 			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
 				return iswdigit_l((wint_t) c, pg_regex_locale->info.lt);
@@ -339,13 +320,6 @@ pg_wc_isalpha(pg_wchar c)
 					(pg_char_properties[c] & PG_ISALPHA));
 		case PG_REGEX_BUILTIN:
 			return pg_u_isalpha(c);
-		case PG_REGEX_LOCALE_WIDE:
-			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
-				return iswalpha((wint_t) c);
-			/* FALL THRU */
-		case PG_REGEX_LOCALE_1BYTE:
-			return (c <= (pg_wchar) UCHAR_MAX &&
-					isalpha((unsigned char) c));
 		case PG_REGEX_LOCALE_WIDE_L:
 			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
 				return iswalpha_l((wint_t) c, pg_regex_locale->info.lt);
@@ -373,13 +347,6 @@ pg_wc_isalnum(pg_wchar c)
 					(pg_char_properties[c] & PG_ISALNUM));
 		case PG_REGEX_BUILTIN:
 			return pg_u_isalnum(c, true);
-		case PG_REGEX_LOCALE_WIDE:
-			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
-				return iswalnum((wint_t) c);
-			/* FALL THRU */
-		case PG_REGEX_LOCALE_1BYTE:
-			return (c <= (pg_wchar) UCHAR_MAX &&
-					isalnum((unsigned char) c));
 		case PG_REGEX_LOCALE_WIDE_L:
 			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
 				return iswalnum_l((wint_t) c, pg_regex_locale->info.lt);
@@ -416,13 +383,6 @@ pg_wc_isupper(pg_wchar c)
 					(pg_char_properties[c] & PG_ISUPPER));
 		case PG_REGEX_BUILTIN:
 			return pg_u_isupper(c);
-		case PG_REGEX_LOCALE_WIDE:
-			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
-				return iswupper((wint_t) c);
-			/* FALL THRU */
-		case PG_REGEX_LOCALE_1BYTE:
-			return (c <= (pg_wchar) UCHAR_MAX &&
-					isupper((unsigned char) c));
 		case PG_REGEX_LOCALE_WIDE_L:
 			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
 				return iswupper_l((wint_t) c, pg_regex_locale->info.lt);
@@ -450,13 +410,6 @@ pg_wc_islower(pg_wchar c)
 					(pg_char_properties[c] & PG_ISLOWER));
 		case PG_REGEX_BUILTIN:
 			return pg_u_islower(c);
-		case PG_REGEX_LOCALE_WIDE:
-			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
-				return iswlower((wint_t) c);
-			/* FALL THRU */
-		case PG_REGEX_LOCALE_1BYTE:
-			return (c <= (pg_wchar) UCHAR_MAX &&
-					islower((unsigned char) c));
 		case PG_REGEX_LOCALE_WIDE_L:
 			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
 				return iswlower_l((wint_t) c, pg_regex_locale->info.lt);
@@ -484,13 +437,6 @@ pg_wc_isgraph(pg_wchar c)
 					(pg_char_properties[c] & PG_ISGRAPH));
 		case PG_REGEX_BUILTIN:
 			return pg_u_isgraph(c);
-		case PG_REGEX_LOCALE_WIDE:
-			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
-				return iswgraph((wint_t) c);
-			/* FALL THRU */
-		case PG_REGEX_LOCALE_1BYTE:
-			return (c <= (pg_wchar) UCHAR_MAX &&
-					isgraph((unsigned char) c));
 		case PG_REGEX_LOCALE_WIDE_L:
 			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
 				return iswgraph_l((wint_t) c, pg_regex_locale->info.lt);
@@ -518,13 +464,6 @@ pg_wc_isprint(pg_wchar c)
 					(pg_char_properties[c] & PG_ISPRINT));
 		case PG_REGEX_BUILTIN:
 			return pg_u_isprint(c);
-		case PG_REGEX_LOCALE_WIDE:
-			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
-				return iswprint((wint_t) c);
-			/* FALL THRU */
-		case PG_REGEX_LOCALE_1BYTE:
-			return (c <= (pg_wchar) UCHAR_MAX &&
-					isprint((unsigned char) c));
 		case PG_REGEX_LOCALE_WIDE_L:
 			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
 				return iswprint_l((wint_t) c, pg_regex_locale->info.lt);
@@ -552,13 +491,6 @@ pg_wc_ispunct(pg_wchar c)
 					(pg_char_properties[c] & PG_ISPUNCT));
 		case PG_REGEX_BUILTIN:
 			return pg_u_ispunct(c, true);
-		case PG_REGEX_LOCALE_WIDE:
-			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
-				return iswpunct((wint_t) c);
-			/* FALL THRU */
-		case PG_REGEX_LOCALE_1BYTE:
-			return (c <= (pg_wchar) UCHAR_MAX &&
-					ispunct((unsigned char) c));
 		case PG_REGEX_LOCALE_WIDE_L:
 			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
 				return iswpunct_l((wint_t) c, pg_regex_locale->info.lt);
@@ -586,13 +518,6 @@ pg_wc_isspace(pg_wchar c)
 					(pg_char_properties[c] & PG_ISSPACE));
 		case PG_REGEX_BUILTIN:
 			return pg_u_isspace(c);
-		case PG_REGEX_LOCALE_WIDE:
-			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
-				return iswspace((wint_t) c);
-			/* FALL THRU */
-		case PG_REGEX_LOCALE_1BYTE:
-			return (c <= (pg_wchar) UCHAR_MAX &&
-					isspace((unsigned char) c));
 		case PG_REGEX_LOCALE_WIDE_L:
 			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
 				return iswspace_l((wint_t) c, pg_regex_locale->info.lt);
@@ -621,20 +546,6 @@ pg_wc_toupper(pg_wchar c)
 			return c;
 		case PG_REGEX_BUILTIN:
 			return unicode_uppercase_simple(c);
-		case PG_REGEX_LOCALE_WIDE:
-			/* force C behavior for ASCII characters, per comments above */
-			if (c <= (pg_wchar) 127)
-				return pg_ascii_toupper((unsigned char) c);
-			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
-				return towupper((wint_t) c);
-			/* FALL THRU */
-		case PG_REGEX_LOCALE_1BYTE:
-			/* force C behavior for ASCII characters, per comments above */
-			if (c <= (pg_wchar) 127)
-				return pg_ascii_toupper((unsigned char) c);
-			if (c <= (pg_wchar) UCHAR_MAX)
-				return toupper((unsigned char) c);
-			return c;
 		case PG_REGEX_LOCALE_WIDE_L:
 			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
 				return towupper_l((wint_t) c, pg_regex_locale->info.lt);
@@ -663,20 +574,6 @@ pg_wc_tolower(pg_wchar c)
 			return c;
 		case PG_REGEX_BUILTIN:
 			return unicode_lowercase_simple(c);
-		case PG_REGEX_LOCALE_WIDE:
-			/* force C behavior for ASCII characters, per comments above */
-			if (c <= (pg_wchar) 127)
-				return pg_ascii_tolower((unsigned char) c);
-			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
-				return towlower((wint_t) c);
-			/* FALL THRU */
-		case PG_REGEX_LOCALE_1BYTE:
-			/* force C behavior for ASCII characters, per comments above */
-			if (c <= (pg_wchar) 127)
-				return pg_ascii_tolower((unsigned char) c);
-			if (c <= (pg_wchar) UCHAR_MAX)
-				return tolower((unsigned char) c);
-			return c;
 		case PG_REGEX_LOCALE_WIDE_L:
 			if (sizeof(wchar_t) >= 4 || c <= (pg_wchar) 0xFFFF)
 				return towlower_l((wint_t) c, pg_regex_locale->info.lt);
@@ -830,11 +727,9 @@ pg_ctype_get_cache(pg_wc_probefunc probefunc, int cclasscode)
 		case PG_REGEX_BUILTIN:
 			max_chr = (pg_wchar) MAX_SIMPLE_CHR;
 			break;
-		case PG_REGEX_LOCALE_WIDE:
 		case PG_REGEX_LOCALE_WIDE_L:
 			max_chr = (pg_wchar) MAX_SIMPLE_CHR;
 			break;
-		case PG_REGEX_LOCALE_1BYTE:
 		case PG_REGEX_LOCALE_1BYTE_L:
 #if MAX_SIMPLE_CHR >= UCHAR_MAX
 			max_chr = (pg_wchar) UCHAR_MAX;
