@@ -12255,4 +12255,13 @@
   proargnames => '{summarized_tli,summarized_lsn,pending_lsn,summarizer_pid}',
   prosrc => 'pg_get_wal_summarizer_state' },
 
+# Statistics Import
+{ oid => '8048',
+  descr => 'set statistics on relation',
+  proname => 'pg_set_relation_stats', provolatile => 'v', proisstrict => 'f',
+  proparallel => 'u', prorettype => 'void',
+  proargtypes => 'oid int4 float4 int4',
+  proargnames => '{relation,relpages,reltuples,relallvisible}',
+  prosrc => 'pg_set_relation_stats' },
+
 ]
