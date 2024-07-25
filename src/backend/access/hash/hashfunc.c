@@ -268,7 +268,7 @@ hashtext(PG_FUNCTION_ARGS)
 {
 	text	   *key = PG_GETARG_TEXT_PP(0);
 	Oid			collid = PG_GET_COLLATION();
-	pg_locale_t mylocale = 0;
+	pg_locale_t mylocale;
 	Datum		result;
 
 	if (!collid)
@@ -277,10 +277,9 @@ hashtext(PG_FUNCTION_ARGS)
 				 errmsg("could not determine which collation to use for string hashing"),
 				 errhint("Use the COLLATE clause to set the collation explicitly.")));
 
-	if (!lc_collate_is_c(collid))
-		mylocale = pg_newlocale_from_collation(collid);
+	mylocale = pg_newlocale_from_collation(collid);
 
-	if (!mylocale || pg_locale_deterministic(mylocale))
+	if (pg_locale_deterministic(mylocale))
 	{
 		result = hash_any((unsigned char *) VARDATA_ANY(key),
 						  VARSIZE_ANY_EXHDR(key));
@@ -322,7 +321,7 @@ hashtextextended(PG_FUNCTION_ARGS)
 {
 	text	   *key = PG_GETARG_TEXT_PP(0);
 	Oid			collid = PG_GET_COLLATION();
-	pg_locale_t mylocale = 0;
+	pg_locale_t mylocale;
 	Datum		result;
 
 	if (!collid)
@@ -331,10 +330,9 @@ hashtextextended(PG_FUNCTION_ARGS)
 				 errmsg("could not determine which collation to use for string hashing"),
 				 errhint("Use the COLLATE clause to set the collation explicitly.")));
 
-	if (!lc_collate_is_c(collid))
-		mylocale = pg_newlocale_from_collation(collid);
+	mylocale = pg_newlocale_from_collation(collid);
 
-	if (!mylocale || pg_locale_deterministic(mylocale))
+	if (pg_locale_deterministic(mylocale))
 	{
 		result = hash_any_extended((unsigned char *) VARDATA_ANY(key),
 								   VARSIZE_ANY_EXHDR(key),
