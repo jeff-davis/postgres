@@ -3,6 +3,7 @@
 backend_sources += files(
   'dependencies.c',
   'extended_stats.c',
+  'import_stats.c',
   'mcv.c',
   'mvdistinct.c',
 )
