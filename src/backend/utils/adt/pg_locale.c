@@ -66,6 +66,7 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/pg_locale.h"
+#include "utils/resowner.h"
 #include "utils/syscache.h"
 
 #ifdef USE_ICU
@@ -151,6 +152,16 @@ typedef struct
 static MemoryContext CollationCacheContext = NULL;
 static collation_cache_hash *CollationCache = NULL;
 
+/*
+ * Collator objects (UCollator for ICU or locale_t for libc) are allocated in
+ * an external library, so track them using a resource owner. While still
+ * initializing the pg_locale_t structure, the collators are owned by
+ * CurrentResourceOwner, so that they are released if an error is encountered
+ * partway through. After the pg_locale_t is fully initialized, the collators
+ * are transferred to CollationCacheOwner.
+ */
+static ResourceOwner CollationCacheOwner = NULL;
+
 #if defined(WIN32) && defined(LC_MESSAGES)
 static char *IsoLocaleName(const char *);
 #endif
@@ -173,6 +184,51 @@ static int32_t uchar_convert(UConverter *converter,
 static void icu_set_collation_attributes(UCollator *collator, const char *loc,
 										 UErrorCode *status);
 #endif
+
+static void ResOwnerReleaseLocaleT(Datum val);
+
+#ifdef USE_ICU
+static void ResOwnerReleaseICUCollator(Datum val);
+
+static const ResourceOwnerDesc ICUCollatorResourceKind =
+{
+	.name = "ICU collator reference",
+	.release_phase = RESOURCE_RELEASE_AFTER_LOCKS,
+	.release_priority = RELEASE_PRIO_LAST,
+	.ReleaseResource = ResOwnerReleaseICUCollator,
+	.DebugPrint = NULL			/* the default message is fine */
+};
+
+static void
+ResOwnerReleaseICUCollator(Datum val)
+{
+	UCollator  *ucol = (UCollator *) DatumGetPointer(val);
+
+	ucol_close(ucol);
+}
+
+#endif
+
+static const ResourceOwnerDesc LocaleTResourceKind =
+{
+	.name = "locale_t reference",
+	.release_phase = RESOURCE_RELEASE_AFTER_LOCKS,
+	.release_priority = RELEASE_PRIO_LAST,
+	.ReleaseResource = ResOwnerReleaseLocaleT,
+	.DebugPrint = NULL			/* the default message is fine */
+};
+
+static void
+ResOwnerReleaseLocaleT(Datum val)
+{
+	locale_t	loc = (locale_t) DatumGetPointer(val);
+
+#ifndef WIN32
+	freelocale(loc);
+#else
+	_free_locale(loc);
+#endif
+}
 
 /*
  * POSIX doesn't define _l-variants of these functions, but several systems
@@ -1574,7 +1630,12 @@ init_pg_locale(Oid collid)
 		result->ctype_is_c = (strcmp(collctype, "C") == 0) ||
 			(strcmp(collctype, "POSIX") == 0);
 
+		ResourceOwnerEnlarge(CurrentResourceOwner);
 		result->info.lt = make_libc_collator(collcollate, collctype);
+		if (result->info.lt != NULL)
+			ResourceOwnerRemember(CurrentResourceOwner,
+								  PointerGetDatum(result->info.lt),
+								  &LocaleTResourceKind);
 	}
 	else if (collform->collprovider == COLLPROVIDER_ICU)
 	{
@@ -1594,7 +1655,11 @@ init_pg_locale(Oid collid)
 		else
 			icurules = NULL;
 
+		ResourceOwnerEnlarge(CurrentResourceOwner);
 		result->info.icu.ucol = make_icu_collator(iculocstr, icurules);
+		Assert(result->info.icu.ucol != NULL);
+		ResourceOwnerRemember(CurrentResourceOwner, PointerGetDatum(result->info.icu.ucol),
+							  &ICUCollatorResourceKind);
 		result->info.icu.locale = pstrdup(iculocstr);
 #else							/* not USE_ICU */
 		/* could get here if a collation was created by a build with ICU */
@@ -1677,6 +1742,7 @@ pg_newlocale_from_collation(Oid collid)
 	 */
 	if (CollationCache == NULL)
 	{
+		CollationCacheOwner = ResourceOwnerCreate(NULL, "collation cache");
 		CollationCacheContext = AllocSetContextCreate(TopMemoryContext,
 													  "collation cache",
 													  ALLOCSET_DEFAULT_SIZES);
@@ -1691,14 +1757,20 @@ pg_newlocale_from_collation(Oid collid)
 		pg_locale_t tmplocale;
 		pg_locale_t locale;
 
+		ResourceOwnerEnlarge(CollationCacheOwner);
+
 		tmplocale = init_pg_locale(collid);
+
+		/*
+		 * Deep copy the memory into CollationCacheContext and reassign the
+		 * collators to CollationCacheOwner.
+		 */
 
 		oldcontext = MemoryContextSwitchTo(CollationCacheContext);
 
 		locale = palloc0_object(struct pg_locale_struct);
 		*locale = *tmplocale;
 
-		/* deep copy */
 		if (locale->provider == COLLPROVIDER_BUILTIN)
 		{
 			locale->info.builtin.locale = pstrdup(locale->info.builtin.locale);
@@ -1707,13 +1779,29 @@ pg_newlocale_from_collation(Oid collid)
 		else if (locale->provider == COLLPROVIDER_ICU)
 		{
 			locale->info.icu.locale = pstrdup(locale->info.icu.locale);
+			Assert(locale->info.icu.ucol != NULL);
+			ResourceOwnerForget(CurrentResourceOwner,
+								PointerGetDatum(locale->info.icu.ucol),
+								&ICUCollatorResourceKind);
+			ResourceOwnerRemember(CollationCacheOwner,
+								  PointerGetDatum(locale->info.icu.ucol),
+								  &ICUCollatorResourceKind);
 		}
 #endif
-		else if (locale->provider != COLLPROVIDER_LIBC)
+		else if (locale->provider == COLLPROVIDER_LIBC)
 		{
+			/* may be NULL if locale is "C" or "POSIX" */
+			if (locale->info.lt != NULL)
+			{
+				ResourceOwnerForget(CurrentResourceOwner, PointerGetDatum(locale->info.lt),
+									&LocaleTResourceKind);
+				ResourceOwnerRemember(CollationCacheOwner, PointerGetDatum(locale->info.lt),
+									  &LocaleTResourceKind);
+			}
+		}
+		else
 			/* shouldn't happen */
 			PGLOCALE_SUPPORT_ERROR(locale->provider);
-		}
 
 		MemoryContextSwitchTo(oldcontext);
 
