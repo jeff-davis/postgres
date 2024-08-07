@@ -63,6 +63,7 @@
 #include "utils/builtins.h"
 #include "utils/formatting.h"
 #include "utils/guc_hooks.h"
+#include "utils/inval.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/pg_locale.h"
@@ -1453,6 +1454,18 @@ pg_locale_deterministic(pg_locale_t locale)
 	return locale->deterministic;
 }
 
+static void
+CollationCacheInvalidate(Datum arg, int cacheid, uint32 hashvalue)
+{
+	ResourceOwnerReleaseAllOfKind(CollationCacheOwner,
+								  &PGLocaleResourceKind);
+
+	/* free all memory and reset hash table */
+	MemoryContextReset(CollationCacheContext);
+	CollationCache = collation_cache_create(CollationCacheContext,
+											16, NULL);
+}
+
 /*
  * Initialize default_locale with database locale settings.
  */
@@ -1722,14 +1735,7 @@ pg_newlocale_from_collation(Oid collid)
 	if (collid == DEFAULT_COLLATION_OID)
 		return &default_locale;
 
-	/*
-	 * Cache mechanism for collation information.
-	 *
-	 * Note that we currently lack any way to flush the cache.  Since we don't
-	 * support ALTER COLLATION, this is OK.  The worst case is that someone
-	 * drops a collation, and a useless cache entry hangs around in existing
-	 * backends.
-	 */
+	/* cache mechanism for collation information */
 	if (CollationCache == NULL)
 	{
 		CollationCacheOwner = ResourceOwnerCreate(NULL, "collation cache");
@@ -1738,6 +1744,9 @@ pg_newlocale_from_collation(Oid collid)
 													  ALLOCSET_DEFAULT_SIZES);
 		CollationCache = collation_cache_create(CollationCacheContext,
 												16, NULL);
+		CacheRegisterSyscacheCallback(COLLOID,
+									  CollationCacheInvalidate,
+									  (Datum) 0);
 	}
 
 	cache_entry = collation_cache_insert(CollationCache, collid, &found);
