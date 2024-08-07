@@ -1589,23 +1589,22 @@ check_collation_version(Oid collid)
 }
 
 /*
- * Create pg_locale_t from collation oid in TopMemoryContext.
+ * Create pg_locale_t from collation oid.
  *
- * For simplicity, we always generate COLLATE + CTYPE even though we
- * might only need one of them.  Since this is called only once per session,
- * it shouldn't cost much.
+ * For simplicity, we always generate COLLATE + CTYPE even though we might
+ * only need one of them.  Since this is called only once per session, it
+ * shouldn't cost much.
  *
  * Ensure that no path leaks a collator. That is, create the collator after
  * any error paths, such as memory allocation.
  */
 static pg_locale_t
-create_pg_locale(Oid collid)
+create_pg_locale(Oid collid, MemoryContext context)
 {
 	/* We haven't computed this yet in this session, so do it */
 	HeapTuple	tp;
 	Form_pg_collation collform;
-	struct pg_locale_struct result;
-	pg_locale_t resultp;
+	pg_locale_t result;
 	Datum		datum;
 
 	tp = SearchSysCache1(COLLOID, ObjectIdGetDatum(collid));
@@ -1613,10 +1612,9 @@ create_pg_locale(Oid collid)
 		elog(ERROR, "cache lookup failed for collation %u", collid);
 	collform = (Form_pg_collation) GETSTRUCT(tp);
 
-	/* We'll fill in the result struct locally before allocating memory */
-	memset(&result, 0, sizeof(result));
-	result.provider = collform->collprovider;
-	result.deterministic = collform->collisdeterministic;
+	result = MemoryContextAllocZero(context, sizeof(struct pg_locale_struct));
+	result->provider = collform->collprovider;
+	result->deterministic = collform->collisdeterministic;
 
 	if (collform->collprovider == COLLPROVIDER_BUILTIN)
 	{
@@ -1625,13 +1623,12 @@ create_pg_locale(Oid collid)
 		datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colllocale);
 		locstr = TextDatumGetCString(datum);
 
-		result.collate_is_c = true;
-		result.ctype_is_c = (strcmp(locstr, "C") == 0);
+		result->collate_is_c = true;
+		result->ctype_is_c = (strcmp(locstr, "C") == 0);
 
 		builtin_validate_locale(GetDatabaseEncoding(), locstr);
 
-		result.info.builtin.locale = MemoryContextStrdup(TopMemoryContext,
-														 locstr);
+		result->info.builtin.locale = MemoryContextStrdup(context, locstr);
 	}
 	else if (collform->collprovider == COLLPROVIDER_LIBC)
 	{
@@ -1643,12 +1640,12 @@ create_pg_locale(Oid collid)
 		datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_collctype);
 		collctype = TextDatumGetCString(datum);
 
-		result.collate_is_c = (strcmp(collcollate, "C") == 0) ||
+		result->collate_is_c = (strcmp(collcollate, "C") == 0) ||
 			(strcmp(collcollate, "POSIX") == 0);
-		result.ctype_is_c = (strcmp(collctype, "C") == 0) ||
+		result->ctype_is_c = (strcmp(collctype, "C") == 0) ||
 			(strcmp(collctype, "POSIX") == 0);
 
-		result.info.lt = make_libc_collator(collcollate, collctype);
+		result->info.lt = make_libc_collator(collcollate, collctype);
 	}
 	else if (collform->collprovider == COLLPROVIDER_ICU)
 	{
@@ -1660,8 +1657,8 @@ create_pg_locale(Oid collid)
 		datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colllocale);
 		iculocstr = TextDatumGetCString(datum);
 
-		result.collate_is_c = false;
-		result.ctype_is_c = false;
+		result->collate_is_c = false;
+		result->ctype_is_c = false;
 
 		datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collicurules, &isnull);
 		if (!isnull)
@@ -1669,8 +1666,8 @@ create_pg_locale(Oid collid)
 		else
 			icurules = NULL;
 
-		result.info.icu.ucol = make_icu_collator(iculocstr, icurules);
-		result.info.icu.locale = MemoryContextStrdup(TopMemoryContext, iculocstr);
+		result->info.icu.locale = MemoryContextStrdup(context, iculocstr);
+		result->info.icu.ucol = make_icu_collator(iculocstr, icurules);
 #else							/* not USE_ICU */
 		/* could get here if a collation was created by a build with ICU */
 		ereport(ERROR,
@@ -1681,11 +1678,7 @@ create_pg_locale(Oid collid)
 
 	ReleaseSysCache(tp);
 
-	/* We'll keep the pg_locale_t structures in TopMemoryContext */
-	resultp = MemoryContextAlloc(TopMemoryContext, sizeof(*resultp));
-	*resultp = result;
-
-	return resultp;
+	return result;
 }
 
 /*
@@ -1724,7 +1717,7 @@ pg_newlocale_from_collation(Oid collid)
 	cache_entry = collation_cache_insert(CollationCache, collid, &found);
 	if (!found || !cache_entry->locale)
 	{
-		pg_locale_t locale = create_pg_locale(collid);
+		pg_locale_t locale = create_pg_locale(collid, CollationCacheContext);
 
 		check_collation_version(collid);
 
