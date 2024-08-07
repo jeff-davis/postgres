@@ -92,13 +92,13 @@ struct pg_locale_struct
 	{
 		struct
 		{
-			const char *locale;
+			char	   *locale;
 		}			builtin;
 		locale_t	lt;
 #ifdef USE_ICU
 		struct
 		{
-			const char *locale;
+			char	   *locale;
 			UCollator  *ucol;
 		}			icu;
 #endif

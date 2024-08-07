@@ -66,6 +66,7 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/pg_locale.h"
+#include "utils/resowner.h"
 #include "utils/syscache.h"
 
 #ifdef USE_ICU
@@ -151,6 +152,12 @@ typedef struct
 static MemoryContext CollationCacheContext = NULL;
 static collation_cache_hash *CollationCache = NULL;
 
+/*
+ * Collator objects (UCollator for ICU or locale_t for libc) are allocated in
+ * an external library, so track them using a resource owner.
+ */
+static ResourceOwner CollationCacheOwner = NULL;
+
 #if defined(WIN32) && defined(LC_MESSAGES)
 static char *IsoLocaleName(const char *);
 #endif
@@ -173,6 +180,24 @@ static int32_t uchar_convert(UConverter *converter,
 static void icu_set_collation_attributes(UCollator *collator, const char *loc,
 										 UErrorCode *status);
 #endif
+
+static void ResOwnerReleasePGLocale(Datum val);
+static void pg_freelocale(pg_locale_t val);
+
+static const ResourceOwnerDesc PGLocaleResourceKind =
+{
+	.name = "pg_locale_t reference",
+	.release_phase = RESOURCE_RELEASE_AFTER_LOCKS,
+	.release_priority = RELEASE_PRIO_LAST,
+	.ReleaseResource = ResOwnerReleasePGLocale,
+	.DebugPrint = NULL			/* the default message is fine */
+};
+
+static void
+ResOwnerReleasePGLocale(Datum val)
+{
+	pg_freelocale((pg_locale_t) DatumGetPointer(val));
+}
 
 /*
  * POSIX doesn't define _l-variants of these functions, but several systems
@@ -1707,6 +1732,7 @@ pg_newlocale_from_collation(Oid collid)
 	 */
 	if (CollationCache == NULL)
 	{
+		CollationCacheOwner = ResourceOwnerCreate(NULL, "collation cache");
 		CollationCacheContext = AllocSetContextCreate(TopMemoryContext,
 													  "collation cache",
 													  ALLOCSET_DEFAULT_SIZES);
@@ -1717,14 +1743,58 @@ pg_newlocale_from_collation(Oid collid)
 	cache_entry = collation_cache_insert(CollationCache, collid, &found);
 	if (!found || !cache_entry->locale)
 	{
-		pg_locale_t locale = create_pg_locale(collid, CollationCacheContext);
+		pg_locale_t locale;
+
+		ResourceOwnerEnlarge(CollationCacheOwner);
+
+		locale = create_pg_locale(collid, CollationCacheContext);
+		ResourceOwnerRemember(CurrentResourceOwner,
+							  PointerGetDatum(locale),
+							  &PGLocaleResourceKind);
 
 		check_collation_version(collid);
+
+		/* reassign locale from CurrentResourceOwner to CollationCacheOwner */
+		ResourceOwnerForget(CurrentResourceOwner,
+							PointerGetDatum(locale),
+							&PGLocaleResourceKind);
+		ResourceOwnerRemember(CollationCacheOwner,
+							  PointerGetDatum(locale),
+							  &PGLocaleResourceKind);
 
 		cache_entry->locale = locale;
 	}
 
 	return cache_entry->locale;
+}
+
+static void
+pg_freelocale(pg_locale_t locale)
+{
+	if (locale->provider == COLLPROVIDER_BUILTIN)
+	{
+		pfree(locale->info.builtin.locale);
+	}
+#ifdef USE_ICU
+	else if (locale->provider == COLLPROVIDER_ICU)
+	{
+		ucol_close(locale->info.icu.ucol);
+		pfree(locale->info.icu.locale);
+	}
+#endif
+	else if (locale->provider == COLLPROVIDER_LIBC)
+	{
+		if (locale->info.lt != NULL)
+		{
+#ifndef WIN32
+			freelocale(locale->info.lt);
+#else
+			_free_locale(locale->info.lt);
+#endif
+		}
+	}
+
+	pfree(locale);
 }
 
 /*
