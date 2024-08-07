@@ -63,6 +63,7 @@
 #include "utils/builtins.h"
 #include "utils/formatting.h"
 #include "utils/guc_hooks.h"
+#include "utils/inval.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/pg_locale.h"
@@ -158,7 +159,8 @@ static collation_cache_hash *CollationCache = NULL;
  * initializing the pg_locale_t structure, the collators are owned by
  * CurrentResourceOwner, so that they are released if an error is encountered
  * partway through. After the pg_locale_t is fully initialized, the collators
- * are transferred to CollationCacheOwner.
+ * are transferred to CollationCacheOwner, which lasts until the next cache
+ * invalidation.
  */
 static ResourceOwner CollationCacheOwner = NULL;
 
@@ -1484,6 +1486,23 @@ pg_locale_deterministic(pg_locale_t locale)
 	return locale->deterministic;
 }
 
+static void
+CollationCacheInvalidate(Datum arg, int cacheid, uint32 hashvalue)
+{
+	/* free all memory and reset hash table */
+	MemoryContextReset(CollationCacheContext);
+	CollationCache = collation_cache_create(CollationCacheContext,
+											16, NULL);
+
+	/* release ICU collator and locale_t objects */
+#ifdef USE_ICU
+	ResourceOwnerReleaseAllOfKind(CollationCacheOwner,
+								  &ICUCollatorResourceKind);
+#endif
+	ResourceOwnerReleaseAllOfKind(CollationCacheOwner,
+								  &LocaleTResourceKind);
+}
+
 /*
  * Initialize default_locale with database locale settings.
  */
@@ -1732,14 +1751,7 @@ pg_newlocale_from_collation(Oid collid)
 	if (collid == DEFAULT_COLLATION_OID)
 		return &default_locale;
 
-	/*
-	 * Cache mechanism for collation information.
-	 *
-	 * Note that we currently lack any way to flush the cache.  Since we don't
-	 * support ALTER COLLATION, this is OK.  The worst case is that someone
-	 * drops a collation, and a useless cache entry hangs around in existing
-	 * backends.
-	 */
+	/* cache mechanism for collation information */
 	if (CollationCache == NULL)
 	{
 		CollationCacheOwner = ResourceOwnerCreate(NULL, "collation cache");
@@ -1748,6 +1760,9 @@ pg_newlocale_from_collation(Oid collid)
 													  ALLOCSET_DEFAULT_SIZES);
 		CollationCache = collation_cache_create(CollationCacheContext,
 												16, NULL);
+		CacheRegisterSyscacheCallback(COLLOID,
+									  CollationCacheInvalidate,
+									  (Datum) 0);
 	}
 
 	cache_entry = collation_cache_insert(CollationCache, collid, &found);
@@ -1763,7 +1778,8 @@ pg_newlocale_from_collation(Oid collid)
 
 		/*
 		 * Deep copy the memory into CollationCacheContext and reassign the
-		 * collators to CollationCacheOwner.
+		 * collators to CollationCacheOwner, which last until the next cache
+		 * invalidation.
 		 */
 
 		oldcontext = MemoryContextSwitchTo(CollationCacheContext);
