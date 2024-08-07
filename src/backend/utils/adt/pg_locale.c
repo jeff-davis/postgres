@@ -1520,11 +1520,11 @@ init_database_collation(void)
 }
 
 /*
- * Create pg_locale_t from collation oid in TopMemoryContext.
+ * Create pg_locale_t from collation oid.
  *
- * For simplicity, we always generate COLLATE + CTYPE even though we
- * might only need one of them.  Since this is called only once per session,
- * it shouldn't cost much.
+ * For simplicity, we always generate COLLATE + CTYPE even though we might
+ * only need one of them.  Since this is called only once per session, it
+ * shouldn't cost much.
  */
 static pg_locale_t
 init_pg_locale(Oid collid)
@@ -1532,8 +1532,7 @@ init_pg_locale(Oid collid)
 	/* We haven't computed this yet in this session, so do it */
 	HeapTuple	tp;
 	Form_pg_collation collform;
-	struct pg_locale_struct result;
-	pg_locale_t resultp;
+	pg_locale_t result;
 	Datum		datum;
 	bool		isnull;
 
@@ -1542,10 +1541,9 @@ init_pg_locale(Oid collid)
 		elog(ERROR, "cache lookup failed for collation %u", collid);
 	collform = (Form_pg_collation) GETSTRUCT(tp);
 
-	/* We'll fill in the result struct locally before allocating memory */
-	memset(&result, 0, sizeof(result));
-	result.provider = collform->collprovider;
-	result.deterministic = collform->collisdeterministic;
+	result = palloc0_object(struct pg_locale_struct);
+	result->provider = collform->collprovider;
+	result->deterministic = collform->collisdeterministic;
 
 	if (collform->collprovider == COLLPROVIDER_BUILTIN)
 	{
@@ -1554,13 +1552,12 @@ init_pg_locale(Oid collid)
 		datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colllocale);
 		locstr = TextDatumGetCString(datum);
 
-		result.collate_is_c = true;
-		result.ctype_is_c = (strcmp(locstr, "C") == 0);
+		result->collate_is_c = true;
+		result->ctype_is_c = (strcmp(locstr, "C") == 0);
 
 		builtin_validate_locale(GetDatabaseEncoding(), locstr);
 
-		result.info.builtin.locale = MemoryContextStrdup(TopMemoryContext,
-														 locstr);
+		result->info.builtin.locale = pstrdup(locstr);
 	}
 	else if (collform->collprovider == COLLPROVIDER_LIBC)
 	{
@@ -1572,12 +1569,12 @@ init_pg_locale(Oid collid)
 		datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_collctype);
 		collctype = TextDatumGetCString(datum);
 
-		result.collate_is_c = (strcmp(collcollate, "C") == 0) ||
+		result->collate_is_c = (strcmp(collcollate, "C") == 0) ||
 			(strcmp(collcollate, "POSIX") == 0);
-		result.ctype_is_c = (strcmp(collctype, "C") == 0) ||
+		result->ctype_is_c = (strcmp(collctype, "C") == 0) ||
 			(strcmp(collctype, "POSIX") == 0);
 
-		result.info.lt = make_libc_collator(collcollate, collctype);
+		result->info.lt = make_libc_collator(collcollate, collctype);
 	}
 	else if (collform->collprovider == COLLPROVIDER_ICU)
 	{
@@ -1588,8 +1585,8 @@ init_pg_locale(Oid collid)
 		datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colllocale);
 		iculocstr = TextDatumGetCString(datum);
 
-		result.collate_is_c = false;
-		result.ctype_is_c = false;
+		result->collate_is_c = false;
+		result->ctype_is_c = false;
 
 		datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collicurules, &isnull);
 		if (!isnull)
@@ -1597,8 +1594,8 @@ init_pg_locale(Oid collid)
 		else
 			icurules = NULL;
 
-		result.info.icu.ucol = make_icu_collator(iculocstr, icurules);
-		result.info.icu.locale = MemoryContextStrdup(TopMemoryContext, iculocstr);
+		result->info.icu.ucol = make_icu_collator(iculocstr, icurules);
+		result->info.icu.locale = pstrdup(iculocstr);
 #else							/* not USE_ICU */
 		/* could get here if a collation was created by a build with ICU */
 		ereport(ERROR,
@@ -1651,11 +1648,7 @@ init_pg_locale(Oid collid)
 
 	ReleaseSysCache(tp);
 
-	/* We'll keep the pg_locale_t structures in TopMemoryContext */
-	resultp = MemoryContextAlloc(TopMemoryContext, sizeof(*resultp));
-	*resultp = result;
-
-	return resultp;
+	return result;
 }
 
 /*
@@ -1693,7 +1686,39 @@ pg_newlocale_from_collation(Oid collid)
 
 	cache_entry = collation_cache_insert(CollationCache, collid, &found);
 	if (!found || !cache_entry->locale)
-		cache_entry->locale = init_pg_locale(collid);
+	{
+		MemoryContext oldcontext;
+		pg_locale_t tmplocale;
+		pg_locale_t locale;
+
+		tmplocale = init_pg_locale(collid);
+
+		oldcontext = MemoryContextSwitchTo(CollationCacheContext);
+
+		locale = palloc0_object(struct pg_locale_struct);
+		*locale = *tmplocale;
+
+		/* deep copy */
+		if (locale->provider == COLLPROVIDER_BUILTIN)
+		{
+			locale->info.builtin.locale = pstrdup(locale->info.builtin.locale);
+		}
+#ifdef USE_ICU
+		else if (locale->provider == COLLPROVIDER_ICU)
+		{
+			locale->info.icu.locale = pstrdup(locale->info.icu.locale);
+		}
+#endif
+		else if (locale->provider != COLLPROVIDER_LIBC)
+		{
+			/* shouldn't happen */
+			PGLOCALE_SUPPORT_ERROR(locale->provider);
+		}
+
+		MemoryContextSwitchTo(oldcontext);
+
+		cache_entry->locale = locale;
+	}
 
 	return cache_entry->locale;
 }
