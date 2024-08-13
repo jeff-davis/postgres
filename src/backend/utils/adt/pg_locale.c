@@ -1520,11 +1520,83 @@ init_database_collation(void)
 }
 
 /*
+ * Check that the collation version in the catalog (from the time the
+ * collation was last created or refreshed) matches the version currently
+ * reported by the collation provider.
+ *
+ * A mismatch can indicate that the provider has been updated, which can lead
+ * to index inconsistencies or other problems.
+ */
+static void
+check_collation_version(Oid collid)
+{
+	/* We haven't computed this yet in this session, so do it */
+	HeapTuple	tp;
+	Form_pg_collation collform;
+	Datum		datum;
+	bool		isnull;
+	char	   *actual_versionstr;
+	char	   *collversionstr;
+
+	tp = SearchSysCache1(COLLOID, ObjectIdGetDatum(collid));
+	if (!HeapTupleIsValid(tp))
+		elog(ERROR, "cache lookup failed for collation %u", collid);
+	collform = (Form_pg_collation) GETSTRUCT(tp);
+
+	datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collversion,
+							&isnull);
+	if (isnull)
+	{
+		ReleaseSysCache(tp);
+		return;
+	}
+
+	collversionstr = TextDatumGetCString(datum);
+
+	if (collform->collprovider == COLLPROVIDER_LIBC)
+		datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_collcollate);
+	else
+		datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colllocale);
+
+	actual_versionstr = get_collation_actual_version(collform->collprovider,
+													 TextDatumGetCString(datum));
+	if (!actual_versionstr)
+	{
+		/*
+		 * This could happen when specifying a version in CREATE COLLATION but
+		 * the provider does not support versioning, or manually creating a
+		 * mess in the catalogs.
+		 */
+		ereport(ERROR,
+				(errmsg("collation \"%s\" has no actual version, but a version was recorded",
+						NameStr(collform->collname))));
+	}
+
+	if (strcmp(actual_versionstr, collversionstr) != 0)
+		ereport(WARNING,
+				(errmsg("collation \"%s\" has version mismatch",
+						NameStr(collform->collname)),
+				 errdetail("The collation in the database was created using version %s, "
+						   "but the operating system provides version %s.",
+						   collversionstr, actual_versionstr),
+				 errhint("Rebuild all objects affected by this collation and run "
+						 "ALTER COLLATION %s REFRESH VERSION, "
+						 "or build PostgreSQL with the right library version.",
+						 quote_qualified_identifier(get_namespace_name(collform->collnamespace),
+													NameStr(collform->collname)))));
+
+	ReleaseSysCache(tp);
+}
+
+/*
  * Create pg_locale_t from collation oid in TopMemoryContext.
  *
  * For simplicity, we always generate COLLATE + CTYPE even though we
  * might only need one of them.  Since this is called only once per session,
  * it shouldn't cost much.
+ *
+ * Ensure that no path leaks a collator. That is, create the collator after
+ * any error paths, such as memory allocation.
  */
 static pg_locale_t
 create_pg_locale(Oid collid)
@@ -1535,7 +1607,6 @@ create_pg_locale(Oid collid)
 	struct pg_locale_struct result;
 	pg_locale_t resultp;
 	Datum		datum;
-	bool		isnull;
 
 	tp = SearchSysCache1(COLLOID, ObjectIdGetDatum(collid));
 	if (!HeapTupleIsValid(tp))
@@ -1584,6 +1655,7 @@ create_pg_locale(Oid collid)
 #ifdef USE_ICU
 		const char *iculocstr;
 		const char *icurules;
+		bool		isnull;
 
 		datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colllocale);
 		iculocstr = TextDatumGetCString(datum);
@@ -1605,48 +1677,6 @@ create_pg_locale(Oid collid)
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("ICU is not supported in this build")));
 #endif							/* not USE_ICU */
-	}
-
-	datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collversion,
-							&isnull);
-	if (!isnull)
-	{
-		char	   *actual_versionstr;
-		char	   *collversionstr;
-
-		collversionstr = TextDatumGetCString(datum);
-
-		if (collform->collprovider == COLLPROVIDER_LIBC)
-			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_collcollate);
-		else
-			datum = SysCacheGetAttrNotNull(COLLOID, tp, Anum_pg_collation_colllocale);
-
-		actual_versionstr = get_collation_actual_version(collform->collprovider,
-														 TextDatumGetCString(datum));
-		if (!actual_versionstr)
-		{
-			/*
-			 * This could happen when specifying a version in CREATE COLLATION
-			 * but the provider does not support versioning, or manually
-			 * creating a mess in the catalogs.
-			 */
-			ereport(ERROR,
-					(errmsg("collation \"%s\" has no actual version, but a version was recorded",
-							NameStr(collform->collname))));
-		}
-
-		if (strcmp(actual_versionstr, collversionstr) != 0)
-			ereport(WARNING,
-					(errmsg("collation \"%s\" has version mismatch",
-							NameStr(collform->collname)),
-					 errdetail("The collation in the database was created using version %s, "
-							   "but the operating system provides version %s.",
-							   collversionstr, actual_versionstr),
-					 errhint("Rebuild all objects affected by this collation and run "
-							 "ALTER COLLATION %s REFRESH VERSION, "
-							 "or build PostgreSQL with the right library version.",
-							 quote_qualified_identifier(get_namespace_name(collform->collnamespace),
-														NameStr(collform->collname)))));
 	}
 
 	ReleaseSysCache(tp);
@@ -1693,7 +1723,13 @@ pg_newlocale_from_collation(Oid collid)
 
 	cache_entry = collation_cache_insert(CollationCache, collid, &found);
 	if (!found || !cache_entry->locale)
-		cache_entry->locale = create_pg_locale(collid);
+	{
+		pg_locale_t locale = create_pg_locale(collid);
+
+		check_collation_version(collid);
+
+		cache_entry->locale = locale;
+	}
 
 	return cache_entry->locale;
 }
