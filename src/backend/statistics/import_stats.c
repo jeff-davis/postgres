@@ -41,6 +41,10 @@ static bool array_check(Datum datum, int one_dim, const char *statname,
 static bool type_is_scalar(Oid typid);
 static TypeCacheEntry *get_attr_stat_type(Relation rel, AttrNumber attnum,
 										  int elevel, int32 *typmod, Oid *typcoll);
+static void use_stats_slot(Datum *values, bool *nulls, int slotidx,
+						   int16 stakind, Oid staop, Oid stacoll,
+						   Datum stanumbers, bool stanumbers_isnull,
+						   Datum stavalues, bool stavalues_isnull);
 
 /*
  * Names of parameters found in the functions pg_set_relation_stats and
@@ -199,6 +203,14 @@ relation_statistics_update(Oid reloid, int version, int32 relpages,
 
 /*
  * Insert or Update Attribute Statistics
+ *
+ * See pg_statistic.h for an explanation of how each statistic kind is
+ * stored. Custom statistics kinds are not supported.
+ *
+ * Depending on the statistics kind, we need to derive information from the
+ * attribute for which we're storing the stats. For instance, the MCVs are
+ * stored as an anyarray, and the representation of the array needs to store
+ * the correct element type, which must be derived from the attribute.
  */
 static bool
 attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
@@ -225,8 +237,6 @@ attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
 
 	FmgrInfo	finfo;
 
-	int			stakind_count;
-
 	Datum		values[Natts_pg_statistic];
 	bool		nulls[Natts_pg_statistic];
 
@@ -237,16 +247,16 @@ attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
 	char	   *attname = get_attname(reloid, attnum, false);
 
 	/*
-	 * Initialize output tuple.
-	 *
-	 * All non-repeating attributes should be NOT NULL. Only values for unused
-	 * statistics slots, and certain stakind-specific values for stanumbersN
-	 * and stavaluesN will ever be set NULL.
+	 * Initialize nulls array to be false for all non-NULL attributes, and
+	 * true for all nullable attributes.
 	 */
 	for (int i = 0; i < Natts_pg_statistic; i++)
 	{
 		values[i] = (Datum) 0;
-		nulls[i] = false;
+		if (i < Anum_pg_statistic_stanumbers1 - 1)
+			nulls[i] = false;
+		else
+			nulls[i] = true;
 	}
 
 	/*
@@ -301,28 +311,6 @@ attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
 						range_length_hist_name : range_empty_frac_name)));
 		range_length_hist_isnull = true;
 		range_empty_frac_isnull = true;
-	}
-
-	/*
-	 * If a caller specifies more stakind-stats than we have slots to store
-	 * them, reject them all.
-	 */
-	stakind_count = (int) !mc_vals_isnull +
-		(int) !mc_elems_isnull +
-		(int) (!range_length_hist_isnull) +
-		(int) !histogram_bounds_isnull +
-		(int) !correlation_isnull +
-		(int) !elem_count_hist_isnull +
-		(int) !range_bounds_hist_isnull;
-
-	if (stakind_count > STATISTIC_NUM_SLOTS)
-	{
-		ereport(elevel,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("imported statistics must have a maximum of %d slots "
-						"but %d given",
-						STATISTIC_NUM_SLOTS, stakind_count)));
-		return false;
 	}
 
 	rel = try_relation_open(reloid, ShareUpdateExclusiveLock);
@@ -527,9 +515,6 @@ attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
 	 */
 	if (!mc_vals_isnull)
 	{
-		Datum		stakind = Int16GetDatum(STATISTIC_KIND_MCV);
-		Datum		staop = ObjectIdGetDatum(typcache->eq_opr);
-		Datum		stacoll = ObjectIdGetDatum(typcoll);
 		bool		converted = false;
 		Datum		stanumbers = mc_freqs_datum;
 		Datum		stavalues = cast_stavalues(&finfo, mc_vals_datum,
@@ -540,13 +525,10 @@ attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
 			array_check(stavalues, false, mc_vals_name, elevel) &&
 			array_check(stanumbers, true, mc_freqs_name, elevel))
 		{
-			values[Anum_pg_statistic_stakind1 - 1 + stakindidx] = stakind;
-			values[Anum_pg_statistic_staop1 - 1 + stakindidx] = staop;
-			values[Anum_pg_statistic_stacoll1 - 1 + stakindidx] = stacoll;
-			values[Anum_pg_statistic_stanumbers1 - 1 + stakindidx] = stanumbers;
-			values[Anum_pg_statistic_stavalues1 - 1 + stakindidx] = stavalues;
-
-			stakindidx++;
+			use_stats_slot(values, nulls, stakindidx++,
+						   STATISTIC_KIND_MCV,
+						   typcache->eq_opr, typcoll,
+						   stanumbers, false, stavalues, false);
 		}
 		else
 		{
@@ -563,9 +545,6 @@ attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
 	 */
 	if (!histogram_bounds_isnull)
 	{
-		Datum		stakind = Int16GetDatum(STATISTIC_KIND_HISTOGRAM);
-		Datum		staop = ObjectIdGetDatum(typcache->lt_opr);
-		Datum		stacoll = ObjectIdGetDatum(typcoll);
 		Datum		stavalues;
 		bool		converted = false;
 
@@ -576,13 +555,10 @@ attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
 		if (converted &&
 			array_check(stavalues, false, histogram_bounds_name, elevel))
 		{
-			values[Anum_pg_statistic_stakind1 - 1 + stakindidx] = stakind;
-			values[Anum_pg_statistic_staop1 - 1 + stakindidx] = staop;
-			values[Anum_pg_statistic_stacoll1 - 1 + stakindidx] = stacoll;
-			nulls[Anum_pg_statistic_stanumbers1 - 1 + stakindidx] = true;
-			values[Anum_pg_statistic_stavalues1 - 1 + stakindidx] = stavalues;
-
-			stakindidx++;
+			use_stats_slot(values, nulls, stakindidx++,
+						   STATISTIC_KIND_HISTOGRAM,
+						   typcache->lt_opr, typcoll,
+						   0, true, stavalues, false);
 		}
 		else
 			histogram_bounds_isnull = true;
@@ -595,20 +571,14 @@ attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
 	 */
 	if (!correlation_isnull)
 	{
-		Datum		stakind = Int16GetDatum(STATISTIC_KIND_CORRELATION);
-		Datum		staop = ObjectIdGetDatum(typcache->lt_opr);
-		Datum		stacoll = ObjectIdGetDatum(typcoll);
 		Datum		elems[] = {correlation_datum};
 		ArrayType  *arry = construct_array_builtin(elems, 1, FLOAT4OID);
 		Datum		stanumbers = PointerGetDatum(arry);
 
-		values[Anum_pg_statistic_stakind1 - 1 + stakindidx] = stakind;
-		values[Anum_pg_statistic_staop1 - 1 + stakindidx] = staop;
-		values[Anum_pg_statistic_stacoll1 - 1 + stakindidx] = stacoll;
-		values[Anum_pg_statistic_stanumbers1 - 1 + stakindidx] = stanumbers;
-		nulls[Anum_pg_statistic_stavalues1 - 1 + stakindidx] = true;
-
-		stakindidx++;
+		use_stats_slot(values, nulls, stakindidx++,
+					   STATISTIC_KIND_CORRELATION,
+					   typcache->lt_opr, typcoll,
+					   stanumbers, false, 0, true);
 	}
 
 	/*
@@ -620,9 +590,6 @@ attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
 	 */
 	if (!mc_elems_isnull)
 	{
-		Datum		stakind = Int16GetDatum(STATISTIC_KIND_MCELEM);
-		Datum		staop = ObjectIdGetDatum(elemtypcache->eq_opr);
-		Datum		stacoll = ObjectIdGetDatum(typcoll);
 		Datum		stanumbers = mc_elem_freqs_datum;
 		bool		converted = false;
 		Datum		stavalues;
@@ -635,13 +602,10 @@ attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
 			array_check(stavalues, false, mc_elems_name, elevel) &&
 			array_check(stanumbers, true, mc_elem_freqs_name, elevel))
 		{
-			values[Anum_pg_statistic_stakind1 - 1 + stakindidx] = stakind;
-			values[Anum_pg_statistic_staop1 - 1 + stakindidx] = staop;
-			values[Anum_pg_statistic_stacoll1 - 1 + stakindidx] = stacoll;
-			values[Anum_pg_statistic_stanumbers1 - 1 + stakindidx] = stanumbers;
-			values[Anum_pg_statistic_stavalues1 - 1 + stakindidx] = stavalues;
-
-			stakindidx++;
+			use_stats_slot(values, nulls, stakindidx++,
+						   STATISTIC_KIND_MCELEM,
+						   elemtypcache->eq_opr, typcoll,
+						   stanumbers, false, stavalues, false);
 		}
 		else
 		{
@@ -658,18 +622,12 @@ attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
 	 */
 	if (!elem_count_hist_isnull)
 	{
-		Datum		stakind = Int16GetDatum(STATISTIC_KIND_DECHIST);
-		Datum		staop = ObjectIdGetDatum(elemtypcache->eq_opr);
-		Datum		stacoll = ObjectIdGetDatum(typcoll);
 		Datum		stanumbers = elem_count_hist_datum;
 
-		values[Anum_pg_statistic_stakind1 - 1 + stakindidx] = stakind;
-		values[Anum_pg_statistic_staop1 - 1 + stakindidx] = staop;
-		values[Anum_pg_statistic_stacoll1 - 1 + stakindidx] = stacoll;
-		values[Anum_pg_statistic_stanumbers1 - 1 + stakindidx] = stanumbers;
-		nulls[Anum_pg_statistic_stavalues1 - 1 + stakindidx] = true;
-
-		stakindidx++;
+		use_stats_slot(values, nulls, stakindidx++,
+					   STATISTIC_KIND_DECHIST,
+					   elemtypcache->eq_opr, typcoll,
+					   stanumbers, false, 0, true);
 	}
 
 	/*
@@ -684,10 +642,6 @@ attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
 	 */
 	if (!range_bounds_hist_isnull)
 	{
-		Datum		stakind = Int16GetDatum(STATISTIC_KIND_BOUNDS_HISTOGRAM);
-		Datum		staop = ObjectIdGetDatum(InvalidOid);
-		Datum		stacoll = ObjectIdGetDatum(InvalidOid);
-
 		bool		converted = false;
 		Datum		stavalues;
 
@@ -698,13 +652,10 @@ attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
 		if (converted &&
 			array_check(stavalues, false, "range_bounds_histogram", elevel))
 		{
-			values[Anum_pg_statistic_stakind1 - 1 + stakindidx] = stakind;
-			values[Anum_pg_statistic_staop1 - 1 + stakindidx] = staop;
-			values[Anum_pg_statistic_stacoll1 - 1 + stakindidx] = stacoll;
-			nulls[Anum_pg_statistic_stanumbers1 - 1 + stakindidx] = true;
-			values[Anum_pg_statistic_stavalues1 - 1 + stakindidx] = stavalues;
-
-			stakindidx++;
+			use_stats_slot(values, nulls, stakindidx++,
+						   STATISTIC_KIND_BOUNDS_HISTOGRAM,
+						   InvalidOid, InvalidOid,
+						   0, true, stavalues, false);
 		}
 		else
 			range_bounds_hist_isnull = true;
@@ -719,10 +670,6 @@ attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
 	 */
 	if (!range_length_hist_isnull)
 	{
-		Datum		stakind = Int16GetDatum(STATISTIC_KIND_RANGE_LENGTH_HISTOGRAM);
-		Datum		staop = ObjectIdGetDatum(Float8LessOperator);
-		Datum		stacoll = ObjectIdGetDatum(InvalidOid);
-
 		/* The anyarray is always a float8[] for this stakind */
 		Datum		elems[] = {range_empty_frac_datum};
 		ArrayType  *arry = construct_array_builtin(elems, 1, FLOAT4OID);
@@ -737,30 +684,16 @@ attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
 		if (converted &&
 			array_check(stavalues, false, range_length_hist_name, elevel))
 		{
-			values[Anum_pg_statistic_staop1 - 1 + stakindidx] = staop;
-			values[Anum_pg_statistic_stakind1 - 1 + stakindidx] = stakind;
-			values[Anum_pg_statistic_stacoll1 - 1 + stakindidx] = stacoll;
-			values[Anum_pg_statistic_stanumbers1 - 1 + stakindidx] = stanumbers;
-			values[Anum_pg_statistic_stavalues1 - 1 + stakindidx] = stavalues;
-			stakindidx++;
+			use_stats_slot(values, nulls, stakindidx++,
+						   STATISTIC_KIND_RANGE_LENGTH_HISTOGRAM,
+						   Float8LessOperator, InvalidOid,
+						   stanumbers, false, stavalues, false);
 		}
 		else
 		{
 			range_empty_frac_isnull = true;
 			range_length_hist_isnull = true;
 		}
-	}
-
-	/* fill in all remaining slots */
-	while (stakindidx < STATISTIC_NUM_SLOTS)
-	{
-		values[Anum_pg_statistic_stakind1 - 1 + stakindidx] = Int16GetDatum(0);
-		values[Anum_pg_statistic_staop1 - 1 + stakindidx] = ObjectIdGetDatum(InvalidOid);
-		values[Anum_pg_statistic_stacoll1 - 1 + stakindidx] = ObjectIdGetDatum(InvalidOid);
-		nulls[Anum_pg_statistic_stanumbers1 - 1 + stakindidx] = true;
-		nulls[Anum_pg_statistic_stavalues1 - 1 + stakindidx] = true;
-
-		stakindidx++;
 	}
 
 	update_pg_statistic(values, nulls);
@@ -1073,6 +1006,46 @@ pg_set_relation_stats(PG_FUNCTION_ARGS)
 							   relallvisible, elevel);
 
 	PG_RETURN_VOID();
+}
+
+static
+void use_stats_slot(Datum *values, bool *nulls, int slotidx,
+					int16 stakind, Oid staop, Oid stacoll,
+					Datum stanumbers, bool stanumbers_isnull,
+					Datum stavalues, bool stavalues_isnull)
+{
+	if (slotidx >= STATISTIC_NUM_SLOTS)
+		ereport(ERROR,
+				(errmsg("maximum number of statistics slots exceeded: %d", slotidx + 1)));
+
+	/* slot should not be taken */
+	Assert(values[Anum_pg_statistic_stakind1 - 1 + slotidx] == (Datum) 0);
+	Assert(values[Anum_pg_statistic_staop1 - 1 + slotidx] == (Datum) 0);
+	Assert(values[Anum_pg_statistic_stacoll1 - 1 + slotidx] == (Datum) 0);
+	Assert(values[Anum_pg_statistic_stanumbers1 - 1 + slotidx] == (Datum) 0);
+	Assert(values[Anum_pg_statistic_stavalues1 - 1 + slotidx] == (Datum) 0);
+
+	/* nulls should be false for non-NULL attributes, true for nullable */
+	Assert(!nulls[Anum_pg_statistic_stakind1 - 1 + slotidx]);
+	Assert(!nulls[Anum_pg_statistic_staop1 - 1 + slotidx]);
+	Assert(!nulls[Anum_pg_statistic_stacoll1 - 1 + slotidx]);
+	Assert(nulls[Anum_pg_statistic_stanumbers1 - 1 + slotidx]);
+	Assert(nulls[Anum_pg_statistic_stavalues1 - 1 + slotidx]);
+
+	values[Anum_pg_statistic_stakind1 - 1 + slotidx] = stakind;
+	values[Anum_pg_statistic_staop1 - 1 + slotidx] = staop;
+	values[Anum_pg_statistic_stacoll1 - 1 + slotidx] = stacoll;
+
+	if (!stanumbers_isnull)
+	{
+		values[Anum_pg_statistic_stanumbers1 - 1 + slotidx] = stanumbers;
+		nulls[Anum_pg_statistic_stanumbers1 - 1 + slotidx] = false;
+	}
+	if (!stavalues_isnull)
+	{
+		values[Anum_pg_statistic_stavalues1 - 1 + slotidx] = stavalues;
+		nulls[Anum_pg_statistic_stavalues1 - 1 + slotidx] = false;
+	}
 }
 
 /*
