@@ -33,6 +33,15 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 
+static void update_pg_statistic(Datum values[], bool nulls[]);
+static Datum cast_stavalues(FmgrInfo *flinfo, Datum d, Oid typid,
+							int32 typmod, int elevel, bool *ok);
+static bool array_check(Datum datum, int one_dim, const char *statname,
+						int elevel);
+static bool type_is_scalar(Oid typid);
+static TypeCacheEntry *get_attr_stat_type(Relation rel, AttrNumber attnum,
+										  int elevel, int32 *typmod, Oid *typcoll);
+
 /*
  * Names of parameters found in the functions pg_set_relation_stats and
  * pg_set_attribute_stats
@@ -189,323 +198,12 @@ relation_statistics_update(Oid reloid, int version, int32 relpages,
 }
 
 /*
- * Set statistics for a given pg_class entry.
- *
- * Use a transactional update, and assume statistics come from the current
- * server version.
- *
- * Not intended for bulk import of statistics from older versions.
- */
-Datum
-pg_set_relation_stats(PG_FUNCTION_ARGS)
-{
-	Oid			reloid;
-	int			version = PG_VERSION_NUM;
-	int			elevel = ERROR;
-	int32		relpages;
-	float		reltuples;
-	int32		relallvisible;
-
-	if (PG_ARGISNULL(0))
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("relation cannot be NULL")));
-	else
-		reloid = PG_GETARG_OID(0);
-
-	if (PG_ARGISNULL(1))
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("relpages cannot be NULL")));
-	else
-		relpages = PG_GETARG_INT32(1);
-
-	if (PG_ARGISNULL(2))
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("reltuples cannot be NULL")));
-	else
-		reltuples = PG_GETARG_FLOAT4(2);
-
-	if (PG_ARGISNULL(3))
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("relallvisible cannot be NULL")));
-	else
-		relallvisible = PG_GETARG_INT32(3);
-
-
-	relation_statistics_update(reloid, version, relpages, reltuples,
-							   relallvisible, elevel);
-
-	PG_RETURN_VOID();
-}
-
-/*
- * Test if the type is a scalar for MCELEM purposes
- */
-static bool
-type_is_scalar(Oid typid)
-{
-	HeapTuple	tp;
-	bool		result = false;
-
-	tp = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));
-	if (HeapTupleIsValid(tp))
-	{
-		Form_pg_type typtup = (Form_pg_type) GETSTRUCT(tp);
-
-		result = (!OidIsValid(typtup->typanalyze));
-		ReleaseSysCache(tp);
-	}
-	return result;
-}
-
-/*
- * If this relation is an index and that index has expressions in it, and
- * the attnum specified is known to be an expression, then we must walk
- * the list attributes up to the specified attnum to get the right
- * expression.
- */
-static Node *
-get_attr_expr(Relation rel, int attnum)
-{
-	if ((rel->rd_rel->relkind == RELKIND_INDEX
-		 || (rel->rd_rel->relkind == RELKIND_PARTITIONED_INDEX))
-		&& (rel->rd_indexprs != NIL)
-		&& (rel->rd_index->indkey.values[attnum - 1] == 0))
-	{
-		ListCell   *indexpr_item = list_head(rel->rd_indexprs);
-
-		for (int i = 0; i < attnum - 1; i++)
-			if (rel->rd_index->indkey.values[i] == 0)
-				indexpr_item = lnext(rel->rd_indexprs, indexpr_item);
-
-		if (indexpr_item == NULL)	/* shouldn't happen */
-			elog(ERROR, "too few entries in indexprs list");
-
-		return (Node *) lfirst(indexpr_item);
-	}
-	return NULL;
-}
-
-/*
- * Fetch datatype information, this is needed to derive the proper staopN
- * and stacollN values.
- *
- */
-static TypeCacheEntry *
-get_attr_stat_type(Relation rel, Name attname, int elevel,
-				   int16 *attnum, int32 *typmod, Oid *typcoll)
-{
-	Oid			relid = RelationGetRelid(rel);
-	Form_pg_attribute attr;
-	HeapTuple	atup;
-	Oid			typid;
-	Node	   *expr;
-
-	atup = SearchSysCache2(ATTNAME, ObjectIdGetDatum(relid),
-						   NameGetDatum(attname));
-
-	/* Attribute not found */
-	if (!HeapTupleIsValid(atup))
-	{
-		ereport(elevel,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 errmsg("Relation %s has no attname %s",
-						RelationGetRelationName(rel),
-						NameStr(*attname))));
-		return NULL;
-	}
-
-	attr = (Form_pg_attribute) GETSTRUCT(atup);
-	if (attr->attisdropped)
-	{
-		ereport(elevel,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 errmsg("Relation %s attname %s is dropped",
-						RelationGetRelationName(rel),
-						NameStr(*attname))));
-		return NULL;
-	}
-	*attnum = attr->attnum;
-
-	expr = get_attr_expr(rel, attr->attnum);
-
-	if (expr == NULL)
-	{
-		/* regular attribute */
-		typid = attr->atttypid;
-		*typmod = attr->atttypmod;
-		*typcoll = attr->attcollation;
-	}
-	else
-	{
-		typid = exprType(expr);
-		*typmod = exprTypmod(expr);
-
-		/*
-		 * If a collation has been specified for the index column, use that in
-		 * preference to anything else; but if not, fall back to whatever we
-		 * can get from the expression.
-		 */
-		if (OidIsValid(attr->attcollation))
-			*typcoll = attr->attcollation;
-		else
-			*typcoll = exprCollation(expr);
-	}
-	ReleaseSysCache(atup);
-
-	/* if it's a multirange, step down to the range type */
-	if (type_is_multirange(typid))
-		typid = get_multirange_range(typid);
-
-	return lookup_type_cache(typid,
-							 TYPECACHE_LT_OPR | TYPECACHE_EQ_OPR);
-}
-
-/*
- * Perform the cast of a known TextDatum into the type specified.
- *
- * If no errors are found, ok is set to true.
- *
- * Otherwise, set ok to false, capture the error found, and re-throw at the
- * level specified by elevel.
- */
-static Datum
-cast_stavalues(FmgrInfo *flinfo, Datum d, Oid typid, int32 typmod, 
-			   int elevel, bool *ok)
-{
-	LOCAL_FCINFO(fcinfo, 8);
-	char	   *s;
-	Datum		result;
-	ErrorSaveContext escontext = {T_ErrorSaveContext};
-
-	escontext.details_wanted = true;
-
-	s = TextDatumGetCString(d);
-
-	InitFunctionCallInfoData(*fcinfo, flinfo, 3, InvalidOid,
-							 (Node *) &escontext, NULL);
-
-	fcinfo->args[0].value = CStringGetDatum(s);
-	fcinfo->args[0].isnull = false;
-	fcinfo->args[1].value = ObjectIdGetDatum(typid);
-	fcinfo->args[1].isnull = false;
-	fcinfo->args[2].value = Int32GetDatum(typmod);
-	fcinfo->args[2].isnull = false;
-
-	result = FunctionCallInvoke(fcinfo);
-
-	if (SOFT_ERROR_OCCURRED(&escontext))
-	{
-		if (elevel != ERROR)
-			escontext.error_data->elevel = elevel;
-		ThrowErrorData(escontext.error_data);
-		*ok = false;
-	}
-	else
-		*ok = true;
-
-	pfree(s);
-
-	return result;
-}
-
-
-/*
- * Check array for any NULLs, and optionally for one-dimensionality.
- *
- * Report any failures at the level of elevel.
- */
-static bool
-array_check(Datum datum, int one_dim, const char *statname, int elevel)
-{
-	ArrayType  *arr = DatumGetArrayTypeP(datum);
-	int16		elmlen;
-	char		elmalign;
-	bool		elembyval;
-	Datum	   *values;
-	bool	   *nulls;
-	int			nelems;
-
-	if (one_dim && (arr->ndim != 1))
-	{
-		ereport(elevel,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("%s cannot be a multidimensional array", statname)));
-		return false;
-	}
-
-	get_typlenbyvalalign(ARR_ELEMTYPE(arr), &elmlen, &elembyval, &elmalign);
-
-	deconstruct_array(arr, ARR_ELEMTYPE(arr), elmlen, elembyval, elmalign,
-					  &values, &nulls, &nelems);
-
-	for (int i = 0; i < nelems; i++)
-		if (nulls[i])
-		{
-			ereport(elevel,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("%s array cannot contain NULL values", statname)));
-			return false;
-		}
-	return true;
-}
-
-/*
- * Update the pg_statistic record.
- */
-static void
-update_pg_statistic(Datum values[], bool nulls[])
-{
-	Relation	sd = table_open(StatisticRelationId, RowExclusiveLock);
-	CatalogIndexState indstate = CatalogOpenIndexes(sd);
-	HeapTuple	oldtup;
-	HeapTuple	stup;
-
-	/* Is there already a pg_statistic tuple for this attribute? */
-	oldtup = SearchSysCache3(STATRELATTINH,
-							 values[Anum_pg_statistic_starelid - 1],
-							 values[Anum_pg_statistic_staattnum - 1],
-							 values[Anum_pg_statistic_stainherit - 1]);
-
-	if (HeapTupleIsValid(oldtup))
-	{
-		/* Yes, replace it */
-		bool		replaces[Natts_pg_statistic];
-
-		for (int i = 0; i < Natts_pg_statistic; i++)
-			replaces[i] = true;
-
-		stup = heap_modify_tuple(oldtup, RelationGetDescr(sd),
-								 values, nulls, replaces);
-		ReleaseSysCache(oldtup);
-		CatalogTupleUpdateWithInfo(sd, &stup->t_self, stup, indstate);
-	}
-	else
-	{
-		/* No, insert new tuple */
-		stup = heap_form_tuple(RelationGetDescr(sd), values, nulls);
-		CatalogTupleInsertWithInfo(sd, stup, indstate);
-	}
-
-	heap_freetuple(stup);
-	CatalogCloseIndexes(indstate);
-	table_close(sd, NoLock);
-}
-
-/*
  * Insert or Update Attribute Statistics
  */
 static bool
-attribute_statistics_update(Datum relation_datum, bool relation_isnull,
-							Datum attname_datum, bool attname_isnull,
-							Datum inherited_datum, bool inherited_isnull,
-							Datum version_datum, bool version_isnull,
-							Datum null_frac_datum, bool null_frac_isnull,
-							Datum avg_width_datum, bool avg_width_isnull,
-							Datum n_distinct_datum, bool n_distinct_isnull,
+attribute_statistics_update(Oid reloid, AttrNumber attnum, int version,
+							int elevel, bool inherited, float null_frac,
+							int avg_width, float n_distinct,
 							Datum mc_vals_datum, bool mc_vals_isnull,
 							Datum mc_freqs_datum, bool mc_freqs_isnull, 
 							Datum histogram_bounds_datum, bool histogram_bounds_isnull,
@@ -515,21 +213,13 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 							Datum elem_count_hist_datum, bool elem_count_hist_isnull,
 							Datum range_length_hist_datum, bool range_length_hist_isnull,
 							Datum range_empty_frac_datum, bool range_empty_frac_isnull,
-							Datum range_bounds_hist_datum, bool range_bounds_hist_isnull,
-							bool raise_errors)
+							Datum range_bounds_hist_datum, bool range_bounds_hist_isnull)
 {
-	int			elevel = (raise_errors) ? ERROR : WARNING;
-
-	Oid			relation;
-	Name		attname;
-	int			version;
-
 	Relation	rel;
 
 	TypeCacheEntry *typcache;
 	TypeCacheEntry *elemtypcache = NULL;
 
-	int16		attnum;
 	int32		typmod;
 	Oid			typcoll;
 
@@ -544,6 +234,7 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 	 * The statkind index, we have only STATISTIC_NUM_SLOTS to hold these stats
 	 */
 	int			stakindidx = 0;
+	char	   *attname = get_attname(reloid, attnum, false);
 
 	/*
 	 * Initialize output tuple.
@@ -556,72 +247,6 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 	{
 		values[i] = (Datum) 0;
 		nulls[i] = false;
-	}
-
-	/*
-	 * Some parameters are "required" in that nothing can happen if any of
-	 * them are NULL.
-	 */
-	if (relation_isnull)
-	{
-		ereport(elevel,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("%s cannot be NULL", relation_name)));
-		return false;
-	}
-	relation = DatumGetObjectId(relation_datum);
-
-	if (attname_isnull)
-	{
-		ereport(elevel,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("%s cannot be NULL", attname_name)));
-		return false;
-	}
-	attname = DatumGetName(attname_datum);
-
-	if (inherited_isnull)
-	{
-		ereport(elevel,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("%s cannot be NULL", inherited_name)));
-		return false;
-	}
-
-	/*
-	 * NULL version means assume current server version
-	 */
-	version = (version_isnull) ? PG_VERSION_NUM : DatumGetInt32(version_datum);
-	if (version < 90200)
-	{
-		ereport(elevel,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("Cannot export statistics prior to version 9.2")));
-		return false;
-	}
-
-	if (null_frac_isnull)
-	{
-		ereport(elevel,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("%s cannot be NULL", null_frac_name)));
-		return false;
-	}
-
-	if (avg_width_isnull)
-	{
-		ereport(elevel,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("%s cannot be NULL", avg_width_name)));
-		return false;
-	}
-
-	if (n_distinct_isnull)
-	{
-		ereport(elevel,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("%s cannot be NULL", n_distinct_name)));
-		return false;
 	}
 
 	/*
@@ -700,13 +325,13 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 		return false;
 	}
 
-	rel = try_relation_open(relation, ShareUpdateExclusiveLock);
+	rel = try_relation_open(reloid, ShareUpdateExclusiveLock);
 
 	if (rel == NULL)
 	{
 		ereport(elevel,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("Parameter relation OID %u is invalid", relation)));
+				 errmsg("Parameter relation OID %u is invalid", reloid)));
 		return false;
 	}
 
@@ -714,7 +339,7 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 	 * Many of the values that are set for a particular stakind are entirely
 	 * derived from the attribute itself, or it's expression.
 	 */
-	typcache = get_attr_stat_type(rel, attname, elevel, &attnum, &typmod, &typcoll);
+	typcache = get_attr_stat_type(rel, attnum, elevel, &typmod, &typcoll);
 	if (typcache == NULL)
 	{
 		relation_close(rel, NoLock);
@@ -763,7 +388,7 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 				ereport(elevel,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("%s cannot accept %s stats, ignored",
-								NameStr(*attname),
+								attname,
 								mc_elems_name)));
 				mc_elems_isnull = true;
 				mc_elem_freqs_isnull = true;
@@ -774,7 +399,7 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 				ereport(elevel,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("%s cannot accept %s stats, ignored",
-								NameStr(*attname),
+								attname,
 								elem_count_hist_name)));
 				elem_count_hist_isnull = true;
 			}
@@ -793,7 +418,7 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 					 errmsg("Relation %s attname %s cannot "
 							"have stats of type %s, ignored.",
 							RelationGetRelationName(rel),
-							NameStr(*attname),
+							attname,
 							histogram_bounds_name)));
 			histogram_bounds_isnull = true;
 		}
@@ -805,7 +430,7 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 					 errmsg("Relation %s attname %s cannot "
 							"have stats of type %s, ignored.",
 							RelationGetRelationName(rel),
-							NameStr(*attname),
+							attname,
 							correlation_name)));
 			correlation_isnull = true;
 		}
@@ -825,7 +450,7 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 					 errmsg("Relation %s attname %s is a scalar type, "
 							"cannot have stats of type %s, ignored",
 							RelationGetRelationName(rel),
-							NameStr(*attname),
+							attname,
 							mc_elems_name)));
 			mc_elems_isnull = true;
 			mc_elem_freqs_isnull = true;
@@ -838,7 +463,7 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 					 errmsg("Relation %s attname %s is a scalar type, "
 							"cannot have stats of type %s, ignored",
 							RelationGetRelationName(rel),
-							NameStr(*attname),
+							attname,
 							elem_count_hist_name)));
 			elem_count_hist_isnull = true;
 		}
@@ -856,7 +481,7 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 					 errmsg("Relation %s attname %s is not a range type, "
 							"cannot have stats of type %s",
 							RelationGetRelationName(rel),
-							NameStr(*attname),
+							attname,
 							range_length_hist_name)));
 			range_length_hist_isnull = true;
 			range_empty_frac_isnull = true;
@@ -869,7 +494,7 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 					 errmsg("Relation %s attname %s is not a range type, "
 							"cannot have stats of type %s",
 							RelationGetRelationName(rel),
-							NameStr(*attname),
+							attname,
 							range_bounds_hist_name)));
 			range_bounds_hist_isnull = true;
 		}
@@ -886,12 +511,12 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 	}
 
 	/* Populate pg_statistic tuple */
-	values[Anum_pg_statistic_starelid - 1] = relation_datum;
+	values[Anum_pg_statistic_starelid - 1] = ObjectIdGetDatum(reloid);
 	values[Anum_pg_statistic_staattnum - 1] = Int16GetDatum(attnum);
-	values[Anum_pg_statistic_stainherit - 1] = inherited_datum;
-	values[Anum_pg_statistic_stanullfrac - 1] = null_frac_datum;
-	values[Anum_pg_statistic_stawidth - 1] = avg_width_datum;
-	values[Anum_pg_statistic_stadistinct - 1] = n_distinct_datum;
+	values[Anum_pg_statistic_stainherit - 1] = BoolGetDatum(inherited);
+	values[Anum_pg_statistic_stanullfrac - 1] = Float4GetDatum(null_frac);
+	values[Anum_pg_statistic_stawidth - 1] = Int32GetDatum(avg_width);
+	values[Anum_pg_statistic_stadistinct - 1] = Float4GetDatum(n_distinct);
 
 	fmgr_info(F_ARRAY_IN, &finfo);
 
@@ -1146,6 +771,311 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 }
 
 /*
+ * Test if the type is a scalar for MCELEM purposes
+ */
+static bool
+type_is_scalar(Oid typid)
+{
+	HeapTuple	tp;
+	bool		result = false;
+
+	tp = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));
+	if (HeapTupleIsValid(tp))
+	{
+		Form_pg_type typtup = (Form_pg_type) GETSTRUCT(tp);
+
+		result = (!OidIsValid(typtup->typanalyze));
+		ReleaseSysCache(tp);
+	}
+	return result;
+}
+
+/*
+ * If this relation is an index and that index has expressions in it, and
+ * the attnum specified is known to be an expression, then we must walk
+ * the list attributes up to the specified attnum to get the right
+ * expression.
+ */
+static Node *
+get_attr_expr(Relation rel, int attnum)
+{
+	if ((rel->rd_rel->relkind == RELKIND_INDEX
+		 || (rel->rd_rel->relkind == RELKIND_PARTITIONED_INDEX))
+		&& (rel->rd_indexprs != NIL)
+		&& (rel->rd_index->indkey.values[attnum - 1] == 0))
+	{
+		ListCell   *indexpr_item = list_head(rel->rd_indexprs);
+
+		for (int i = 0; i < attnum - 1; i++)
+			if (rel->rd_index->indkey.values[i] == 0)
+				indexpr_item = lnext(rel->rd_indexprs, indexpr_item);
+
+		if (indexpr_item == NULL)	/* shouldn't happen */
+			elog(ERROR, "too few entries in indexprs list");
+
+		return (Node *) lfirst(indexpr_item);
+	}
+	return NULL;
+}
+
+/*
+ * Fetch datatype information, this is needed to derive the proper staopN
+ * and stacollN values.
+ *
+ */
+static TypeCacheEntry *
+get_attr_stat_type(Relation rel, AttrNumber attnum, int elevel,
+				   int32 *typmod, Oid *typcoll)
+{
+	Oid			relid = RelationGetRelid(rel);
+	Form_pg_attribute attr;
+	HeapTuple	atup;
+	Oid			typid;
+	Node	   *expr;
+
+	atup = SearchSysCache2(ATTNUM, ObjectIdGetDatum(relid),
+						   Int16GetDatum(attnum));
+
+	/* Attribute not found */
+	if (!HeapTupleIsValid(atup))
+	{
+		ereport(elevel,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("Relation %s has no attribute %d",
+						RelationGetRelationName(rel), attnum)));
+		return NULL;
+	}
+
+	attr = (Form_pg_attribute) GETSTRUCT(atup);
+	if (attr->attisdropped)
+	{
+		ereport(elevel,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("Relation %s attribute %d is dropped",
+						RelationGetRelationName(rel),
+						attnum)));
+		return NULL;
+	}
+
+	expr = get_attr_expr(rel, attr->attnum);
+
+	if (expr == NULL)
+	{
+		/* regular attribute */
+		typid = attr->atttypid;
+		*typmod = attr->atttypmod;
+		*typcoll = attr->attcollation;
+	}
+	else
+	{
+		typid = exprType(expr);
+		*typmod = exprTypmod(expr);
+
+		/*
+		 * If a collation has been specified for the index column, use that in
+		 * preference to anything else; but if not, fall back to whatever we
+		 * can get from the expression.
+		 */
+		if (OidIsValid(attr->attcollation))
+			*typcoll = attr->attcollation;
+		else
+			*typcoll = exprCollation(expr);
+	}
+	ReleaseSysCache(atup);
+
+	/* if it's a multirange, step down to the range type */
+	if (type_is_multirange(typid))
+		typid = get_multirange_range(typid);
+
+	return lookup_type_cache(typid,
+							 TYPECACHE_LT_OPR | TYPECACHE_EQ_OPR);
+}
+
+/*
+ * Perform the cast of a known TextDatum into the type specified.
+ *
+ * If no errors are found, ok is set to true.
+ *
+ * Otherwise, set ok to false, capture the error found, and re-throw at the
+ * level specified by elevel.
+ */
+static Datum
+cast_stavalues(FmgrInfo *flinfo, Datum d, Oid typid, int32 typmod, 
+			   int elevel, bool *ok)
+{
+	LOCAL_FCINFO(fcinfo, 8);
+	char	   *s;
+	Datum		result;
+	ErrorSaveContext escontext = {T_ErrorSaveContext};
+
+	escontext.details_wanted = true;
+
+	s = TextDatumGetCString(d);
+
+	InitFunctionCallInfoData(*fcinfo, flinfo, 3, InvalidOid,
+							 (Node *) &escontext, NULL);
+
+	fcinfo->args[0].value = CStringGetDatum(s);
+	fcinfo->args[0].isnull = false;
+	fcinfo->args[1].value = ObjectIdGetDatum(typid);
+	fcinfo->args[1].isnull = false;
+	fcinfo->args[2].value = Int32GetDatum(typmod);
+	fcinfo->args[2].isnull = false;
+
+	result = FunctionCallInvoke(fcinfo);
+
+	if (SOFT_ERROR_OCCURRED(&escontext))
+	{
+		if (elevel != ERROR)
+			escontext.error_data->elevel = elevel;
+		ThrowErrorData(escontext.error_data);
+		*ok = false;
+	}
+	else
+		*ok = true;
+
+	pfree(s);
+
+	return result;
+}
+
+
+/*
+ * Check array for any NULLs, and optionally for one-dimensionality.
+ *
+ * Report any failures at the level of elevel.
+ */
+static bool
+array_check(Datum datum, int one_dim, const char *statname, int elevel)
+{
+	ArrayType  *arr = DatumGetArrayTypeP(datum);
+	int16		elmlen;
+	char		elmalign;
+	bool		elembyval;
+	Datum	   *values;
+	bool	   *nulls;
+	int			nelems;
+
+	if (one_dim && (arr->ndim != 1))
+	{
+		ereport(elevel,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("%s cannot be a multidimensional array", statname)));
+		return false;
+	}
+
+	get_typlenbyvalalign(ARR_ELEMTYPE(arr), &elmlen, &elembyval, &elmalign);
+
+	deconstruct_array(arr, ARR_ELEMTYPE(arr), elmlen, elembyval, elmalign,
+					  &values, &nulls, &nelems);
+
+	for (int i = 0; i < nelems; i++)
+		if (nulls[i])
+		{
+			ereport(elevel,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("%s array cannot contain NULL values", statname)));
+			return false;
+		}
+	return true;
+}
+
+/*
+ * Update the pg_statistic record.
+ */
+static void
+update_pg_statistic(Datum values[], bool nulls[])
+{
+	Relation	sd = table_open(StatisticRelationId, RowExclusiveLock);
+	CatalogIndexState indstate = CatalogOpenIndexes(sd);
+	HeapTuple	oldtup;
+	HeapTuple	stup;
+
+	/* Is there already a pg_statistic tuple for this attribute? */
+	oldtup = SearchSysCache3(STATRELATTINH,
+							 values[Anum_pg_statistic_starelid - 1],
+							 values[Anum_pg_statistic_staattnum - 1],
+							 values[Anum_pg_statistic_stainherit - 1]);
+
+	if (HeapTupleIsValid(oldtup))
+	{
+		/* Yes, replace it */
+		bool		replaces[Natts_pg_statistic];
+
+		for (int i = 0; i < Natts_pg_statistic; i++)
+			replaces[i] = true;
+
+		stup = heap_modify_tuple(oldtup, RelationGetDescr(sd),
+								 values, nulls, replaces);
+		ReleaseSysCache(oldtup);
+		CatalogTupleUpdateWithInfo(sd, &stup->t_self, stup, indstate);
+	}
+	else
+	{
+		/* No, insert new tuple */
+		stup = heap_form_tuple(RelationGetDescr(sd), values, nulls);
+		CatalogTupleInsertWithInfo(sd, stup, indstate);
+	}
+
+	heap_freetuple(stup);
+	CatalogCloseIndexes(indstate);
+	table_close(sd, NoLock);
+}
+
+/*
+ * Set statistics for a given pg_class entry.
+ *
+ * Use a transactional update, and assume statistics come from the current
+ * server version.
+ *
+ * Not intended for bulk import of statistics from older versions.
+ */
+Datum
+pg_set_relation_stats(PG_FUNCTION_ARGS)
+{
+	Oid			reloid;
+	int			version = PG_VERSION_NUM;
+	int			elevel = ERROR;
+	int32		relpages;
+	float		reltuples;
+	int32		relallvisible;
+
+	if (PG_ARGISNULL(0))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("relation cannot be NULL")));
+	else
+		reloid = PG_GETARG_OID(0);
+
+	if (PG_ARGISNULL(1))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("relpages cannot be NULL")));
+	else
+		relpages = PG_GETARG_INT32(1);
+
+	if (PG_ARGISNULL(2))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("reltuples cannot be NULL")));
+	else
+		reltuples = PG_GETARG_FLOAT4(2);
+
+	if (PG_ARGISNULL(3))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("relallvisible cannot be NULL")));
+	else
+		relallvisible = PG_GETARG_INT32(3);
+
+
+	relation_statistics_update(reloid, version, relpages, reltuples,
+							   relallvisible, elevel);
+
+	PG_RETURN_VOID();
+}
+
+/*
  * Import statistics for a given relation attribute.
  *
  * This will insert/replace a row in pg_statistic for the given relation and
@@ -1181,18 +1111,74 @@ attribute_statistics_update(Datum relation_datum, bool relation_isnull,
 Datum
 pg_set_attribute_stats(PG_FUNCTION_ARGS)
 {
-	Datum	version_datum = (Datum) 0;
-	bool	version_isnull = true;
-	bool	raise_errors = true;
+	Oid			reloid;
+	Name		attname;
+	AttrNumber	attnum;
+	int			version	= PG_VERSION_NUM;
+	int			elevel	= ERROR;
+	bool		inherited;
+	float		null_frac;
+	int			avg_width;
+	float		n_distinct;
+
+	if (PG_ARGISNULL(0))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("relation cannot be NULL")));
+		return false;
+	}
+	reloid = PG_GETARG_OID(0);
+
+	if (PG_ARGISNULL(1))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("attname cannot be NULL")));
+		return false;
+	}
+	attname = PG_GETARG_NAME(1);
+	attnum = get_attnum(reloid, NameStr(*attname));
+
+	if (PG_ARGISNULL(2))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("inherited cannot be NULL")));
+		return false;
+	}
+	inherited = PG_GETARG_BOOL(2);
+
+	if (PG_ARGISNULL(3))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("null_frac cannot be NULL")));
+		return false;
+	}
+	null_frac = PG_GETARG_FLOAT4(3);
+
+	if (PG_ARGISNULL(4))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("avg_width cannot be NULL")));
+		return false;
+	}
+	avg_width = PG_GETARG_INT32(4);
+
+	if (PG_ARGISNULL(5))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("n_distinct cannot be NULL")));
+		return false;
+	}
+	n_distinct = PG_GETARG_FLOAT4(5);
 
 	attribute_statistics_update(
-		PG_GETARG_DATUM(0), PG_ARGISNULL(0),
-		PG_GETARG_DATUM(1), PG_ARGISNULL(1),
-		PG_GETARG_DATUM(2), PG_ARGISNULL(2),
-		version_datum, version_isnull,
-		PG_GETARG_DATUM(3), PG_ARGISNULL(3),
-		PG_GETARG_DATUM(4), PG_ARGISNULL(4),
-		PG_GETARG_DATUM(5), PG_ARGISNULL(5),
+		reloid, attnum, version, elevel, inherited,
+		null_frac, avg_width, n_distinct,
 		PG_GETARG_DATUM(6), PG_ARGISNULL(6),
 		PG_GETARG_DATUM(7), PG_ARGISNULL(7),
 		PG_GETARG_DATUM(8), PG_ARGISNULL(8),
@@ -1202,8 +1188,7 @@ pg_set_attribute_stats(PG_FUNCTION_ARGS)
 		PG_GETARG_DATUM(12), PG_ARGISNULL(12),
 		PG_GETARG_DATUM(13), PG_ARGISNULL(13),
 		PG_GETARG_DATUM(14), PG_ARGISNULL(14),
-		PG_GETARG_DATUM(15), PG_ARGISNULL(15),
-		raise_errors);
+		PG_GETARG_DATUM(15), PG_ARGISNULL(15));
 
 	PG_RETURN_VOID();
 }

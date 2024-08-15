@@ -30031,7 +30031,7 @@ DETAIL:  Make sure pg_wal_replay_wait() isn't called within a transaction with a
          requirements of the corresponding attribute.
         </para>
         <para>
-         Any parameters left unspecified will cause the corresponding
+         Any optional parameters left unspecified will cause the corresponding
          statistics to be set to <literal>NULL</literal>.
         </para>
         <para>

@@ -101,7 +101,7 @@ SELECT pg_catalog.pg_set_attribute_stats(
     null_frac => 0.1::real,
     avg_width => 2::integer,
     n_distinct => 0.3::real);
-ERROR:  Parameter relation OID 0 is invalid
+ERROR:  cache lookup failed for attribute 0 of relation 0
 -- error: relation null
 SELECT pg_catalog.pg_set_attribute_stats(
     relation => NULL::oid,
