@@ -1809,6 +1809,8 @@ get_collation_actual_version(char collprovider, const char *collcollate)
  *
  * Win32 does not have UTF-8. Convert UTF8 arguments to wide characters and
  * invoke wcscoll_l().
+ *
+ * An input string length of -1 means that it's NUL-terminated.
  */
 #ifdef WIN32
 static int
@@ -1819,8 +1821,8 @@ pg_strncoll_libc_win32_utf8(const char *arg1, size_t len1, const char *arg2,
 	char	   *buf = sbuf;
 	char	   *a1p,
 			   *a2p;
-	int			a1len = len1 * 2 + 2;
-	int			a2len = len2 * 2 + 2;
+	int			a1len;
+	int			a2len;
 	int			r;
 	int			result;
 
@@ -1829,6 +1831,14 @@ pg_strncoll_libc_win32_utf8(const char *arg1, size_t len1, const char *arg2,
 #ifndef WIN32
 	Assert(false);
 #endif
+
+	if (len1 == -1)
+		len1 = strlen(arg1);
+	if (len2 == -1)
+		len2 = strlen(arg2);
+
+	a1len = len1 * 2 + 2;
+	a2len = len2 * 2 + 2;
 
 	if (a1len + a2len > TEXTBUFLEN)
 		buf = palloc(a1len + a2len);
@@ -1877,39 +1887,9 @@ pg_strncoll_libc_win32_utf8(const char *arg1, size_t len1, const char *arg2,
 #endif							/* WIN32 */
 
 /*
- * pg_strcoll_libc
- *
- * Call strcoll_l() or wcscoll_l() as appropriate for the given locale,
- * platform, and database encoding. If the locale is NULL, use the database
- * collation.
- *
- * Arguments must be encoded in the database encoding and nul-terminated.
- */
-static int
-pg_strcoll_libc(const char *arg1, const char *arg2, pg_locale_t locale)
-{
-	int			result;
-
-	Assert(locale->provider == COLLPROVIDER_LIBC);
-#ifdef WIN32
-	if (GetDatabaseEncoding() == PG_UTF8)
-	{
-		size_t		len1 = strlen(arg1);
-		size_t		len2 = strlen(arg2);
-
-		result = pg_strncoll_libc_win32_utf8(arg1, len1, arg2, len2, locale);
-	}
-	else
-#endif							/* WIN32 */
-		result = strcoll_l(arg1, arg2, locale->info.lt);
-
-	return result;
-}
-
-/*
  * pg_strncoll_libc
  *
- * Nul-terminate the arguments and call pg_strcoll_libc().
+ * An input string length of -1 means that it's NUL-terminated.
  */
 static int
 pg_strncoll_libc(const char *arg1, size_t len1, const char *arg2, size_t len2,
@@ -1917,10 +1897,10 @@ pg_strncoll_libc(const char *arg1, size_t len1, const char *arg2, size_t len2,
 {
 	char		sbuf[TEXTBUFLEN];
 	char	   *buf = sbuf;
-	size_t		bufsize1 = len1 + 1;
-	size_t		bufsize2 = len2 + 1;
-	char	   *arg1n;
-	char	   *arg2n;
+	size_t		bufsize1 = (len1 == -1) ? 0 : len1 + 1;
+	size_t		bufsize2 = (len2 == -1) ? 0 : len2 + 1;
+	const char *arg1n;
+	const char *arg2n;
 	int			result;
 
 	Assert(locale->provider == COLLPROVIDER_LIBC);
@@ -1934,16 +1914,32 @@ pg_strncoll_libc(const char *arg1, size_t len1, const char *arg2, size_t len2,
 	if (bufsize1 + bufsize2 > TEXTBUFLEN)
 		buf = palloc(bufsize1 + bufsize2);
 
-	arg1n = buf;
-	arg2n = buf + bufsize1;
+	/* nul-terminate arguments if not already */
+	if (len1 == -1)
+	{
+		arg1n = arg1;
+	}
+	else
+	{
+		char *buf1 = buf;
+		memcpy(buf1, arg1, len1);
+		buf1[len1] = '\0';
+		arg1n = buf1;
+	}
 
-	/* nul-terminate arguments */
-	memcpy(arg1n, arg1, len1);
-	arg1n[len1] = '\0';
-	memcpy(arg2n, arg2, len2);
-	arg2n[len2] = '\0';
+	if (len2 == -1)
+	{
+		arg2n = arg2;
+	}
+	else
+	{
+		char *buf2 = buf + bufsize1;
+		memcpy(buf2, arg2, len2);
+		buf2[len2] = '\0';
+		arg2n = buf2;
+	}
 
-	result = pg_strcoll_libc(arg1n, arg2n, locale);
+	result = strcoll_l(arg1n, arg2n, locale->info.lt);
 
 	if (buf != sbuf)
 		pfree(buf);
@@ -2015,8 +2011,6 @@ pg_strncoll_icu_no_utf8(const char *arg1, int32_t len1,
  * Call ucol_strcollUTF8() or ucol_strcoll() as appropriate for the given
  * database encoding. An argument length of -1 means the string is
  * NUL-terminated.
- *
- * Arguments must be encoded in the database encoding.
  */
 static int
 pg_strncoll_icu(const char *arg1, int32_t len1, const char *arg2, int32_t len2,
@@ -2054,15 +2048,7 @@ pg_strncoll_icu(const char *arg1, int32_t len1, const char *arg2, int32_t len2,
 /*
  * pg_strcoll
  *
- * Call ucol_strcollUTF8(), ucol_strcoll(), strcoll_l() or wcscoll_l() as
- * appropriate for the given locale, platform, and database encoding. If the
- * locale is not specified, use the database collation.
- *
- * Arguments must be encoded in the database encoding and nul-terminated.
- *
- * The caller is responsible for breaking ties if the collation is
- * deterministic; this maintains consistency with pg_strxfrm(), which cannot
- * easily account for deterministic collations.
+ * Like pg_strncoll for NUL-terminated input strings.
  */
 int
 pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
@@ -2070,7 +2056,7 @@ pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
 	int			result;
 
 	if (locale->provider == COLLPROVIDER_LIBC)
-		result = pg_strcoll_libc(arg1, arg2, locale);
+		result = pg_strncoll_libc(arg1, -1, arg2, -1, locale);
 #ifdef USE_ICU
 	else if (locale->provider == COLLPROVIDER_ICU)
 		result = pg_strncoll_icu(arg1, -1, arg2, -1, locale);
@@ -2089,11 +2075,8 @@ pg_strcoll(const char *arg1, const char *arg2, pg_locale_t locale)
  * appropriate for the given locale, platform, and database encoding. If the
  * locale is not specified, use the database collation.
  *
- * Arguments must be encoded in the database encoding.
- *
- * This function may need to nul-terminate the arguments for libc functions;
- * so if the caller already has nul-terminated strings, it should call
- * pg_strcoll() instead.
+ * The input strings must be encoded in the database encoding. If an input
+ * string is NUL-terminated, its length may be specified as -1.
  *
  * The caller is responsible for breaking ties if the collation is
  * deterministic; this maintains consistency with pg_strnxfrm(), which cannot
@@ -2120,14 +2103,6 @@ pg_strncoll(const char *arg1, size_t len1, const char *arg2, size_t len2,
 
 
 static size_t
-pg_strxfrm_libc(char *dest, const char *src, size_t destsize,
-				pg_locale_t locale)
-{
-	Assert(locale->provider == COLLPROVIDER_LIBC);
-	return strxfrm_l(dest, src, destsize, locale->info.lt);
-}
-
-static size_t
 pg_strnxfrm_libc(char *dest, const char *src, size_t srclen, size_t destsize,
 				 pg_locale_t locale)
 {
@@ -2138,14 +2113,17 @@ pg_strnxfrm_libc(char *dest, const char *src, size_t srclen, size_t destsize,
 
 	Assert(locale->provider == COLLPROVIDER_LIBC);
 
+	if (srclen == -1)
+		return strxfrm_l(dest, src, destsize, locale->info.lt);
+
 	if (bufsize > TEXTBUFLEN)
 		buf = palloc(bufsize);
 
-	/* nul-terminate arguments */
+	/* nul-terminate argument */
 	memcpy(buf, src, srclen);
 	buf[srclen] = '\0';
 
-	result = pg_strxfrm_libc(dest, buf, destsize, locale);
+	result = strxfrm_l(dest, buf, destsize, locale->info.lt);
 
 	if (buf != sbuf)
 		pfree(buf);
@@ -2326,20 +2304,7 @@ pg_strxfrm_enabled(pg_locale_t locale)
 /*
  * pg_strxfrm
  *
- * Transforms 'src' to a nul-terminated string stored in 'dest' such that
- * ordinary strcmp() on transformed strings is equivalent to pg_strcoll() on
- * untransformed strings.
- *
- * The provided 'src' must be nul-terminated. If 'destsize' is zero, 'dest'
- * may be NULL.
- *
- * Not all providers support pg_strxfrm() safely. The caller should check
- * pg_strxfrm_enabled() first, otherwise this function may return wrong
- * results or an error.
- *
- * Returns the number of bytes needed (or more) to store the transformed
- * string, excluding the terminating nul byte. If the value returned is
- * 'destsize' or greater, the resulting contents of 'dest' are undefined.
+ * Like pg_strnxfrm for a NUL-terminated input string.
  */
 size_t
 pg_strxfrm(char *dest, const char *src, size_t destsize, pg_locale_t locale)
@@ -2347,7 +2312,7 @@ pg_strxfrm(char *dest, const char *src, size_t destsize, pg_locale_t locale)
 	size_t		result = 0;		/* keep compiler quiet */
 
 	if (locale->provider == COLLPROVIDER_LIBC)
-		result = pg_strxfrm_libc(dest, src, destsize, locale);
+		result = pg_strnxfrm_libc(dest, src, -1, destsize, locale);
 #ifdef USE_ICU
 	else if (locale->provider == COLLPROVIDER_ICU)
 		result = pg_strnxfrm_icu(dest, src, -1, destsize, locale);
@@ -2366,8 +2331,9 @@ pg_strxfrm(char *dest, const char *src, size_t destsize, pg_locale_t locale)
  * ordinary strcmp() on transformed strings is equivalent to pg_strcoll() on
  * untransformed strings.
  *
- * 'src' does not need to be nul-terminated. If 'destsize' is zero, 'dest' may
- * be NULL.
+ * The input string must be encoded in the database encoding. If the input
+ * string is NUL-terminated, its length may be specified as -1. If 'destsize'
+ * is zero, 'dest' may be NULL.
  *
  * Not all providers support pg_strnxfrm() safely. The caller should check
  * pg_strxfrm_enabled() first, otherwise this function may return wrong
@@ -2376,10 +2342,6 @@ pg_strxfrm(char *dest, const char *src, size_t destsize, pg_locale_t locale)
  * Returns the number of bytes needed (or more) to store the transformed
  * string, excluding the terminating nul byte. If the value returned is
  * 'destsize' or greater, the resulting contents of 'dest' are undefined.
- *
- * This function may need to nul-terminate the argument for libc functions;
- * so if the caller already has a nul-terminated string, it should call
- * pg_strxfrm() instead.
  */
 size_t
 pg_strnxfrm(char *dest, size_t destsize, const char *src, size_t srclen,
@@ -2421,44 +2383,24 @@ pg_strxfrm_prefix_enabled(pg_locale_t locale)
 /*
  * pg_strxfrm_prefix
  *
- * Transforms 'src' to a byte sequence stored in 'dest' such that ordinary
- * memcmp() on the byte sequence is equivalent to pg_strcoll() on
- * untransformed strings. The result is not nul-terminated.
- *
- * The provided 'src' must be nul-terminated.
- *
- * Not all providers support pg_strxfrm_prefix() safely. The caller should
- * check pg_strxfrm_prefix_enabled() first, otherwise this function may return
- * wrong results or an error.
- *
- * If destsize is not large enough to hold the resulting byte sequence, stores
- * only the first destsize bytes in 'dest'. Returns the number of bytes
- * actually copied to 'dest'.
+ * Like pg_strnxfrm_prefix for a NUL-terminated input string.
  */
 size_t
 pg_strxfrm_prefix(char *dest, const char *src, size_t destsize,
 				  pg_locale_t locale)
 {
-	size_t		result = 0;		/* keep compiler quiet */
-
-#ifdef USE_ICU
-	if (locale->provider == COLLPROVIDER_ICU)
-		result = pg_strnxfrm_prefix_icu(dest, src, -1, destsize, locale);
-	else
-#endif
-		PGLOCALE_SUPPORT_ERROR(locale->provider);
-
-	return result;
+	return pg_strnxfrm_prefix(dest, destsize, src, -1, locale);
 }
 
 /*
  * pg_strnxfrm_prefix
  *
  * Transforms 'src' to a byte sequence stored in 'dest' such that ordinary
- * memcmp() on the byte sequence is equivalent to pg_strcoll() on
+ * memcmp() on the byte sequence is equivalent to pg_strncoll() on
  * untransformed strings. The result is not nul-terminated.
  *
- * The provided 'src' must be nul-terminated.
+ * The input string must be encoded in the database encoding. If the input
+ * string is NUL-terminated, its length may be specified as -1.
  *
  * Not all providers support pg_strnxfrm_prefix() safely. The caller should
  * check pg_strxfrm_prefix_enabled() first, otherwise this function may return
@@ -2467,10 +2409,6 @@ pg_strxfrm_prefix(char *dest, const char *src, size_t destsize,
  * If destsize is not large enough to hold the resulting byte sequence, stores
  * only the first destsize bytes in 'dest'. Returns the number of bytes
  * actually copied to 'dest'.
- *
- * This function may need to nul-terminate the argument for libc functions;
- * so if the caller already has a nul-terminated string, it should call
- * pg_strxfrm_prefix() instead.
  */
 size_t
 pg_strnxfrm_prefix(char *dest, size_t destsize, const char *src,
@@ -2661,6 +2599,8 @@ init_icu_converter(void)
 
 /*
  * Find length, in UChars, of given string if converted to UChar string.
+ *
+ * A length of -1 indicates that the input string is NUL-terminated.
  */
 static size_t
 uchar_length(UConverter *converter, const char *str, int32_t len)
@@ -2678,6 +2618,8 @@ uchar_length(UConverter *converter, const char *str, int32_t len)
 /*
  * Convert the given source string into a UChar string, stored in dest, and
  * return the length (in UChars).
+ *
+ * A srclen of -1 indicates that the input string is NUL-terminated.
  */
 static int32_t
 uchar_convert(UConverter *converter, UChar *dest, int32_t destlen,
