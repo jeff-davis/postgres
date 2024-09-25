@@ -174,6 +174,22 @@ struct pg_locale_struct
 
 typedef struct pg_locale_struct *pg_locale_t;
 
+/*
+ * Hooks to allow creating a custom pg_locale_t.
+ *
+ * default_pg_locale_hook should allocate the object in TopMemoryContext, and
+ * create_pg_locale_hook should allocate in the provided context.
+ *
+ * Accept a HeapTuple to avoid an extra catalog lookup.
+ */
+struct HeapTupleData;
+typedef pg_locale_t (*default_pg_locale_hook_type)(struct HeapTupleData *dattuple);
+typedef pg_locale_t (*create_pg_locale_hook_type)(struct HeapTupleData *colltuple,
+												  MemoryContext context);
+
+extern PGDLLIMPORT default_pg_locale_hook_type default_pg_locale_hook;
+extern PGDLLIMPORT create_pg_locale_hook_type create_pg_locale_hook;
+
 extern void init_database_collation(void);
 extern pg_locale_t pg_newlocale_from_collation(Oid collid);
 

@@ -100,6 +100,9 @@ extern pg_locale_t dat_create_locale_libc(HeapTuple dattuple);
 extern pg_locale_t coll_create_locale_libc(HeapTuple colltuple,
 										   MemoryContext context);
 
+default_pg_locale_hook_type default_pg_locale_hook = NULL;
+create_pg_locale_hook_type	create_pg_locale_hook  = NULL;
+
 #ifdef USE_ICU
 extern UCollator *pg_ucol_open(const char *loc_str);
 #endif
@@ -1409,22 +1412,28 @@ create_pg_locale(Oid collid, MemoryContext context)
 	Datum		datum;
 	bool		isnull;
 	Form_pg_collation collform;
-	pg_locale_t	result;
+	pg_locale_t	result = NULL;
 
 	tp = SearchSysCache1(COLLOID, ObjectIdGetDatum(collid));
 	if (!HeapTupleIsValid(tp))
 		elog(ERROR, "cache lookup failed for collation %u", collid);
 	collform = (Form_pg_collation) GETSTRUCT(tp);
 
-	if (collform->collprovider == COLLPROVIDER_BUILTIN)
-		result = coll_create_locale_builtin(tp, context);
-	else if (collform->collprovider == COLLPROVIDER_ICU)
-		result = coll_create_locale_icu(tp, context);
-	else if (collform->collprovider == COLLPROVIDER_LIBC)
-		result = coll_create_locale_libc(tp, context);
-	else
-		/* shouldn't happen */
-		PGLOCALE_SUPPORT_ERROR(collform->collprovider);
+	if (create_pg_locale_hook != NULL)
+		result = create_pg_locale_hook(tp, context);
+
+	if (result == NULL)
+	{
+		if (collform->collprovider == COLLPROVIDER_BUILTIN)
+			result = coll_create_locale_builtin(tp, context);
+		else if (collform->collprovider == COLLPROVIDER_ICU)
+			result = coll_create_locale_icu(tp, context);
+		else if (collform->collprovider == COLLPROVIDER_LIBC)
+			result = coll_create_locale_libc(tp, context);
+		else
+			/* shouldn't happen */
+			PGLOCALE_SUPPORT_ERROR(collform->collprovider);
+	}
 
 	datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collversion,
 							&isnull);
@@ -1481,7 +1490,7 @@ init_database_collation(void)
 {
 	HeapTuple	tup;
 	Form_pg_database dbform;
-	pg_locale_t	result;
+	pg_locale_t	result = NULL;
 
 	Assert(default_locale == NULL);
 
@@ -1491,15 +1500,21 @@ init_database_collation(void)
 		elog(ERROR, "cache lookup failed for database %u", MyDatabaseId);
 	dbform = (Form_pg_database) GETSTRUCT(tup);
 
-	if (dbform->datlocprovider == COLLPROVIDER_BUILTIN)
-		result = dat_create_locale_builtin(tup);
-	else if (dbform->datlocprovider == COLLPROVIDER_ICU)
-		result = dat_create_locale_icu(tup);
-	else if (dbform->datlocprovider == COLLPROVIDER_LIBC)
-		result = dat_create_locale_libc(tup);
-	else
-		/* shouldn't happen */
-		PGLOCALE_SUPPORT_ERROR(dbform->datlocprovider);
+	if (default_pg_locale_hook != NULL)
+		result = default_pg_locale_hook(tup);
+
+	if (result == NULL)
+	{
+		if (dbform->datlocprovider == COLLPROVIDER_BUILTIN)
+			result = dat_create_locale_builtin(tup);
+		else if (dbform->datlocprovider == COLLPROVIDER_ICU)
+			result = dat_create_locale_icu(tup);
+		else if (dbform->datlocprovider == COLLPROVIDER_LIBC)
+			result = dat_create_locale_libc(tup);
+		else
+			/* shouldn't happen */
+			PGLOCALE_SUPPORT_ERROR(dbform->datlocprovider);
+	}
 
 	ReleaseSysCache(tup);
 
