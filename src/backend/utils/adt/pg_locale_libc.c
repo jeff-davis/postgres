@@ -11,10 +11,15 @@
 
 #include "postgres.h"
 
+#include "access/htup_details.h"
+#include "catalog/pg_database.h"
 #include "catalog/pg_collation.h"
 #include "mb/pg_wchar.h"
+#include "utils/builtins.h"
 #include "utils/formatting.h"
+#include "utils/memutils.h"
 #include "utils/pg_locale.h"
+#include "utils/syscache.h"
 
 /*
  * This should be large enough that most strings will fit, but small enough
@@ -22,8 +27,10 @@
  */
 #define		TEXTBUFLEN			1024
 
-extern locale_t make_libc_collator(const char *collate,
-								   const char *ctype);
+extern pg_locale_t dat_create_locale_libc(HeapTuple dattuple);
+extern pg_locale_t coll_create_locale_libc(HeapTuple colltuple,
+										   MemoryContext context);
+
 extern int strncoll_libc(const char *arg1, ssize_t len1,
 						 const char *arg2, ssize_t len2,
 						 pg_locale_t locale);
@@ -31,6 +38,8 @@ extern size_t strnxfrm_libc(char *dest, size_t destsize,
 							const char *src, ssize_t srclen,
 							pg_locale_t locale);
 
+static locale_t make_libc_collator(const char *collate,
+								   const char *ctype);
 static void report_newlocale_failure(const char *localename);
 
 #ifdef WIN32
@@ -38,6 +47,74 @@ static int strncoll_libc_win32_utf8(const char *arg1, ssize_t len1,
 									const char *arg2, ssize_t len2,
 									pg_locale_t locale);
 #endif
+
+pg_locale_t
+dat_create_locale_libc(HeapTuple dattuple)
+{
+	Form_pg_database	 dbform;
+	Datum				 datum;
+	const char			*datcollate;
+	const char			*datctype;
+	locale_t			 loc;
+	pg_locale_t			 result;
+
+	dbform = (Form_pg_database) GETSTRUCT(dattuple);
+
+	datum = SysCacheGetAttrNotNull(DATABASEOID, dattuple,
+								   Anum_pg_database_datcollate);
+	datcollate = TextDatumGetCString(datum);
+
+	datum = SysCacheGetAttrNotNull(DATABASEOID, dattuple,
+								   Anum_pg_database_datctype);
+	datctype = TextDatumGetCString(datum);
+
+	loc = make_libc_collator(datcollate, datctype);
+
+	result = MemoryContextAllocZero(TopMemoryContext,
+									sizeof(struct pg_locale_struct));
+	result->provider = dbform->datlocprovider;
+	result->deterministic = true;
+	result->collate_is_c = (strcmp(datcollate, "C") == 0) ||
+		(strcmp(datcollate, "POSIX") == 0);
+	result->ctype_is_c = (strcmp(datctype, "C") == 0) ||
+		(strcmp(datctype, "POSIX") == 0);
+	result->info.lt = loc;
+
+	return result;
+}
+
+pg_locale_t
+coll_create_locale_libc(HeapTuple colltuple, MemoryContext context)
+{
+	Form_pg_collation	 collform;
+	Datum				 datum;
+	const char			*collcollate;
+	const char			*collctype;
+	locale_t			 loc;
+	pg_locale_t			 result;
+
+	collform = (Form_pg_collation) GETSTRUCT(colltuple);
+
+	datum = SysCacheGetAttrNotNull(COLLOID, colltuple,
+								   Anum_pg_collation_collcollate);
+	collcollate = TextDatumGetCString(datum);
+	datum = SysCacheGetAttrNotNull(COLLOID, colltuple,
+								   Anum_pg_collation_collctype);
+	collctype = TextDatumGetCString(datum);
+
+	loc = make_libc_collator(collcollate, collctype);
+
+	result = MemoryContextAllocZero(context, sizeof(struct pg_locale_struct));
+	result->provider = collform->collprovider;
+	result->deterministic = collform->collisdeterministic;
+	result->collate_is_c = (strcmp(collcollate, "C") == 0) ||
+		(strcmp(collcollate, "POSIX") == 0);
+	result->ctype_is_c = (strcmp(collctype, "C") == 0) ||
+		(strcmp(collctype, "POSIX") == 0);
+	result->info.lt = loc;
+
+	return result;
+}
 
 /*
  * Create a locale_t with the given collation and ctype.
@@ -47,7 +124,7 @@ static int strncoll_libc_win32_utf8(const char *arg1, ssize_t len1,
  *
  * Ensure that no path leaks a locale_t.
  */
-locale_t
+static locale_t
 make_libc_collator(const char *collate, const char *ctype)
 {
 	locale_t	loc = 0;

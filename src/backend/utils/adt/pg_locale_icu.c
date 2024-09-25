@@ -12,14 +12,19 @@
 #include "postgres.h"
 
 #ifdef USE_ICU
-
 #include <unicode/ucnv.h>
 #include <unicode/ustring.h>
+#endif
 
+#include "access/htup_details.h"
+#include "catalog/pg_database.h"
 #include "catalog/pg_collation.h"
 #include "mb/pg_wchar.h"
+#include "utils/builtins.h"
 #include "utils/formatting.h"
+#include "utils/memutils.h"
 #include "utils/pg_locale.h"
+#include "utils/syscache.h"
 
 /*
  * This should be large enough that most strings will fit, but small enough
@@ -27,9 +32,14 @@
  */
 #define		TEXTBUFLEN			1024
 
+extern pg_locale_t dat_create_locale_icu(HeapTuple dattuple);
+
+extern pg_locale_t coll_create_locale_icu(HeapTuple colltuple,
+										  MemoryContext context);
+
+#ifdef USE_ICU
+
 extern UCollator *pg_ucol_open(const char *loc_str);
-extern UCollator *make_icu_collator(const char *iculocstr,
-									const char *icurules);
 extern int strncoll_icu(const char *arg1, ssize_t len1,
 						const char *arg2, ssize_t len2,
 						pg_locale_t locale);
@@ -47,6 +57,8 @@ extern size_t strnxfrm_prefix_icu(char *dest, size_t destsize,
  */
 static UConverter *icu_converter = NULL;
 
+static UCollator *make_icu_collator(const char *iculocstr,
+									const char *icurules);
 static int strncoll_icu_no_utf8(const char *arg1, ssize_t len1,
 								const char *arg2, ssize_t len2,
 								pg_locale_t locale);
@@ -61,6 +73,98 @@ static int32_t uchar_convert(UConverter *converter,
 							 const char *src, int32_t srclen);
 static void icu_set_collation_attributes(UCollator *collator, const char *loc,
 										 UErrorCode *status);
+#endif
+
+pg_locale_t
+dat_create_locale_icu(HeapTuple dattuple)
+{
+#ifdef USE_ICU
+	Form_pg_database	 dbform;
+	Datum				 datum;
+	bool				 isnull;
+	const char			*iculocstr;
+	const char			*icurules = NULL;
+	UCollator			*collator;
+	pg_locale_t			 result;
+
+	dbform = (Form_pg_database) GETSTRUCT(dattuple);
+
+	datum = SysCacheGetAttrNotNull(DATABASEOID, dattuple,
+								   Anum_pg_database_datlocale);
+	iculocstr = TextDatumGetCString(datum);
+
+	datum = SysCacheGetAttr(DATABASEOID, dattuple,
+							Anum_pg_database_daticurules, &isnull);
+	if (!isnull)
+		icurules = TextDatumGetCString(datum);
+
+	collator = make_icu_collator(iculocstr, icurules);
+
+	result = MemoryContextAllocZero(TopMemoryContext,
+									sizeof(struct pg_locale_struct));
+	result->info.icu.locale = MemoryContextStrdup(TopMemoryContext, iculocstr);
+	result->info.icu.ucol = collator;
+	result->provider = dbform->datlocprovider;
+	result->deterministic = true;
+	result->collate_is_c = false;
+	result->ctype_is_c = false;
+
+	return result;
+#else
+	/* could get here if a collation was created by a build with ICU */
+	ereport(ERROR,
+			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			 errmsg("ICU is not supported in this build")));
+
+	return NULL;
+#endif
+}
+
+pg_locale_t
+coll_create_locale_icu(HeapTuple colltuple, MemoryContext context)
+{
+#ifdef USE_ICU
+	Form_pg_collation	 collform;
+	Datum				 datum;
+	bool				 isnull;
+	const char			*iculocstr;
+	const char			*icurules = NULL;
+	UCollator			*collator;
+	pg_locale_t			 result;
+
+	collform = (Form_pg_collation) GETSTRUCT(colltuple);
+
+	datum = SysCacheGetAttrNotNull(COLLOID, colltuple,
+								   Anum_pg_collation_colllocale);
+	iculocstr = TextDatumGetCString(datum);
+
+	datum = SysCacheGetAttr(COLLOID, colltuple,
+							Anum_pg_collation_collicurules, &isnull);
+	if (!isnull)
+		icurules = TextDatumGetCString(datum);
+
+	collator = make_icu_collator(iculocstr, icurules);
+
+	result = MemoryContextAllocZero(context, sizeof(struct pg_locale_struct));
+	result->info.icu.locale = MemoryContextStrdup(context, iculocstr);
+	result->info.icu.ucol = collator;
+	result->provider = collform->collprovider;
+	result->deterministic = collform->collisdeterministic;
+	result->collate_is_c = false;
+	result->ctype_is_c = false;
+
+	return result;
+#else
+	/* could get here if a collation was created by a build with ICU */
+	ereport(ERROR,
+			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			 errmsg("ICU is not supported in this build")));
+
+	return NULL;
+#endif
+}
+
+#ifdef USE_ICU
 
 /*
  * Wrapper around ucol_open() to handle API differences for older ICU
@@ -158,7 +262,7 @@ pg_ucol_open(const char *loc_str)
  *
  * Ensure that no path leaks a UCollator.
  */
-UCollator *
+static UCollator *
 make_icu_collator(const char *iculocstr, const char *icurules)
 {
 	if (!icurules)
