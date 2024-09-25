@@ -103,6 +103,15 @@ extern size_t strnxfrm_prefix_icu(char *dest, size_t destsize,
 								  pg_locale_t locale);
 #endif
 
+extern locale_t make_libc_collator(const char *collate,
+								   const char *ctype);
+extern int strncoll_libc(const char *arg1, ssize_t len1,
+						 const char *arg2, ssize_t len2,
+						 pg_locale_t locale);
+extern size_t strnxfrm_libc(char *dest, size_t destsize,
+							const char *src, ssize_t srclen,
+							pg_locale_t locale);
+
 /* GUC settings */
 char	   *locale_messages;
 char	   *locale_monetary;
@@ -1256,108 +1265,6 @@ lookup_collation_cache(Oid collation)
 	return cache_entry;
 }
 
-/* simple subroutine for reporting errors from newlocale() */
-static void
-report_newlocale_failure(const char *localename)
-{
-	int			save_errno;
-
-	/*
-	 * Windows doesn't provide any useful error indication from
-	 * _create_locale(), and BSD-derived platforms don't seem to feel they
-	 * need to set errno either (even though POSIX is pretty clear that
-	 * newlocale should do so).  So, if errno hasn't been set, assume ENOENT
-	 * is what to report.
-	 */
-	if (errno == 0)
-		errno = ENOENT;
-
-	/*
-	 * ENOENT means "no such locale", not "no such file", so clarify that
-	 * errno with an errdetail message.
-	 */
-	save_errno = errno;			/* auxiliary funcs might change errno */
-	ereport(ERROR,
-			(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-			 errmsg("could not create locale \"%s\": %m",
-					localename),
-			 (save_errno == ENOENT ?
-			  errdetail("The operating system could not find any locale data for the locale name \"%s\".",
-						localename) : 0)));
-}
-
-/*
- * Create a locale_t with the given collation and ctype.
- *
- * The "C" and "POSIX" locales are not actually handled by libc, so return
- * NULL.
- *
- * Ensure that no path leaks a locale_t.
- */
-static locale_t
-make_libc_collator(const char *collate, const char *ctype)
-{
-	locale_t	loc = 0;
-
-	if (strcmp(collate, ctype) == 0)
-	{
-		if (strcmp(ctype, "C") != 0 && strcmp(ctype, "POSIX") != 0)
-		{
-			/* Normal case where they're the same */
-			errno = 0;
-#ifndef WIN32
-			loc = newlocale(LC_COLLATE_MASK | LC_CTYPE_MASK, collate,
-							NULL);
-#else
-			loc = _create_locale(LC_ALL, collate);
-#endif
-			if (!loc)
-				report_newlocale_failure(collate);
-		}
-	}
-	else
-	{
-#ifndef WIN32
-		/* We need two newlocale() steps */
-		locale_t	loc1 = 0;
-
-		if (strcmp(collate, "C") != 0 && strcmp(collate, "POSIX") != 0)
-		{
-			errno = 0;
-			loc1 = newlocale(LC_COLLATE_MASK, collate, NULL);
-			if (!loc1)
-				report_newlocale_failure(collate);
-		}
-
-		if (strcmp(ctype, "C") != 0 && strcmp(ctype, "POSIX") != 0)
-		{
-			errno = 0;
-			loc = newlocale(LC_CTYPE_MASK, ctype, loc1);
-			if (!loc)
-			{
-				if (loc1)
-					freelocale(loc1);
-				report_newlocale_failure(ctype);
-			}
-		}
-		else
-			loc = loc1;
-#else
-
-		/*
-		 * XXX The _create_locale() API doesn't appear to support this. Could
-		 * perhaps be worked around by changing pg_locale_t to contain two
-		 * separate fields.
-		 */
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("collations with different collate and ctype values are not supported on this platform")));
-#endif
-	}
-
-	return loc;
-}
-
 /*
  * Initialize default_locale with database locale settings.
  */
@@ -1723,150 +1630,6 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 }
 
 /*
- * strncoll_libc_win32_utf8
- *
- * Win32 does not have UTF-8. Convert UTF8 arguments to wide characters and
- * invoke wcscoll_l().
- *
- * An input string length of -1 means that it's NUL-terminated.
- */
-#ifdef WIN32
-static int
-strncoll_libc_win32_utf8(const char *arg1, ssize_t len1, const char *arg2,
-						 ssize_t len2, pg_locale_t locale)
-{
-	char		sbuf[TEXTBUFLEN];
-	char	   *buf = sbuf;
-	char	   *a1p,
-			   *a2p;
-	int			a1len;
-	int			a2len;
-	int			r;
-	int			result;
-
-	Assert(locale->provider == COLLPROVIDER_LIBC);
-	Assert(GetDatabaseEncoding() == PG_UTF8);
-
-	if (len1 == -1)
-		len1 = strlen(arg1);
-	if (len2 == -1)
-		len2 = strlen(arg2);
-
-	a1len = len1 * 2 + 2;
-	a2len = len2 * 2 + 2;
-
-	if (a1len + a2len > TEXTBUFLEN)
-		buf = palloc(a1len + a2len);
-
-	a1p = buf;
-	a2p = buf + a1len;
-
-	/* API does not work for zero-length input */
-	if (len1 == 0)
-		r = 0;
-	else
-	{
-		r = MultiByteToWideChar(CP_UTF8, 0, arg1, len1,
-								(LPWSTR) a1p, a1len / 2);
-		if (!r)
-			ereport(ERROR,
-					(errmsg("could not convert string to UTF-16: error code %lu",
-							GetLastError())));
-	}
-	((LPWSTR) a1p)[r] = 0;
-
-	if (len2 == 0)
-		r = 0;
-	else
-	{
-		r = MultiByteToWideChar(CP_UTF8, 0, arg2, len2,
-								(LPWSTR) a2p, a2len / 2);
-		if (!r)
-			ereport(ERROR,
-					(errmsg("could not convert string to UTF-16: error code %lu",
-							GetLastError())));
-	}
-	((LPWSTR) a2p)[r] = 0;
-
-	errno = 0;
-	result = wcscoll_l((LPWSTR) a1p, (LPWSTR) a2p, locale->info.lt);
-	if (result == 2147483647)	/* _NLSCMPERROR; missing from mingw headers */
-		ereport(ERROR,
-				(errmsg("could not compare Unicode strings: %m")));
-
-	if (buf != sbuf)
-		pfree(buf);
-
-	return result;
-}
-#endif							/* WIN32 */
-
-/*
- * strncoll_libc
- *
- * NUL-terminate arguments, if necessary, and pass to strcoll_l().
- *
- * An input string length of -1 means that it's already NUL-terminated.
- */
-static int
-strncoll_libc(const char *arg1, ssize_t len1, const char *arg2, ssize_t len2,
-			  pg_locale_t locale)
-{
-	char		sbuf[TEXTBUFLEN];
-	char	   *buf = sbuf;
-	size_t		bufsize1 = (len1 == -1) ? 0 : len1 + 1;
-	size_t		bufsize2 = (len2 == -1) ? 0 : len2 + 1;
-	const char *arg1n;
-	const char *arg2n;
-	int			result;
-
-	Assert(locale->provider == COLLPROVIDER_LIBC);
-
-#ifdef WIN32
-	/* check for this case before doing the work for nul-termination */
-	if (GetDatabaseEncoding() == PG_UTF8)
-		return strncoll_libc_win32_utf8(arg1, len1, arg2, len2, locale);
-#endif							/* WIN32 */
-
-	if (bufsize1 + bufsize2 > TEXTBUFLEN)
-		buf = palloc(bufsize1 + bufsize2);
-
-	/* nul-terminate arguments if necessary */
-	if (len1 == -1)
-	{
-		arg1n = arg1;
-	}
-	else
-	{
-		char	   *buf1 = buf;
-
-		memcpy(buf1, arg1, len1);
-		buf1[len1] = '\0';
-		arg1n = buf1;
-	}
-
-	if (len2 == -1)
-	{
-		arg2n = arg2;
-	}
-	else
-	{
-		char	   *buf2 = buf + bufsize1;
-
-		memcpy(buf2, arg2, len2);
-		buf2[len2] = '\0';
-		arg2n = buf2;
-	}
-
-	result = strcoll_l(arg1n, arg2n, locale->info.lt);
-
-	if (buf != sbuf)
-		pfree(buf);
-
-	return result;
-}
-
-/*
  * pg_strcoll
  *
  * Like pg_strncoll for NUL-terminated input strings.
@@ -1918,45 +1681,6 @@ pg_strncoll(const char *arg1, ssize_t len1, const char *arg2, ssize_t len2,
 	else
 		/* shouldn't happen */
 		PGLOCALE_SUPPORT_ERROR(locale->provider);
-
-	return result;
-}
-
-/*
- * strnxfrm_libc
- *
- * NUL-terminate src, if necessary, and pass to strxfrm_l().
- *
- * A source length of -1 means that it's already NUL-terminated.
- */
-static size_t
-strnxfrm_libc(char *dest, size_t destsize, const char *src, ssize_t srclen,
-			  pg_locale_t locale)
-{
-	char		sbuf[TEXTBUFLEN];
-	char	   *buf = sbuf;
-	size_t		bufsize = srclen + 1;
-	size_t		result;
-
-	Assert(locale->provider == COLLPROVIDER_LIBC);
-
-	if (srclen == -1)
-		return strxfrm_l(dest, src, destsize, locale->info.lt);
-
-	if (bufsize > TEXTBUFLEN)
-		buf = palloc(bufsize);
-
-	/* nul-terminate argument */
-	memcpy(buf, src, srclen);
-	buf[srclen] = '\0';
-
-	result = strxfrm_l(dest, buf, destsize, locale->info.lt);
-
-	if (buf != sbuf)
-		pfree(buf);
-
-	/* if dest is defined, it should be nul-terminated */
-	Assert(result >= destsize || dest[result] == '\0');
 
 	return result;
 }
