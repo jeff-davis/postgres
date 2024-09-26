@@ -58,6 +58,8 @@
 #include "catalog/pg_collation.h"
 #include "catalog/pg_database.h"
 #include "common/hashfn.h"
+#include "common/unicode_case.h"
+#include "common/unicode_category.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "utils/builtins.h"
@@ -169,6 +171,83 @@ static pg_locale_t last_collation_cache_locale = NULL;
 #if defined(WIN32) && defined(LC_MESSAGES)
 static char *IsoLocaleName(const char *);
 #endif
+
+struct WordBoundaryState
+{
+	const char *str;
+	size_t		len;
+	size_t		offset;
+	bool		init;
+	bool		prev_alnum;
+};
+
+/*
+ * Simple word boundary iterator that draws boundaries each time the result of
+ * pg_u_isalnum() changes.
+ */
+static size_t
+initcap_wbnext(void *state)
+{
+	struct WordBoundaryState *wbstate = (struct WordBoundaryState *) state;
+
+	while (wbstate->offset < wbstate->len &&
+		   wbstate->str[wbstate->offset] != '\0')
+	{
+		pg_wchar	u = utf8_to_unicode((unsigned char *) wbstate->str +
+										wbstate->offset);
+		bool		curr_alnum = pg_u_isalnum(u, true);
+
+		if (!wbstate->init || curr_alnum != wbstate->prev_alnum)
+		{
+			size_t		prev_offset = wbstate->offset;
+
+			wbstate->init = true;
+			wbstate->offset += unicode_utf8len(u);
+			wbstate->prev_alnum = curr_alnum;
+			return prev_offset;
+		}
+
+		wbstate->offset += unicode_utf8len(u);
+	}
+
+	return wbstate->len;
+}
+
+static size_t
+strlower_builtin(char *dest, size_t destsize, const char *src, ssize_t srclen,
+				 pg_locale_t locale)
+{
+	return unicode_strlower(dest, destsize, src, srclen);
+}
+
+static size_t
+strtitle_builtin(char *dest, size_t destsize, const char *src, ssize_t srclen,
+				 pg_locale_t locale)
+{
+	struct WordBoundaryState wbstate = {
+		.str = src,
+		.len = srclen,
+		.offset = 0,
+		.init = false,
+		.prev_alnum = false,
+	};
+
+	return unicode_strtitle(dest, destsize, src, srclen,
+							initcap_wbnext, &wbstate);
+}
+
+static size_t
+strupper_builtin(char *dest, size_t destsize, const char *src, ssize_t srclen,
+				 pg_locale_t locale)
+{
+	return unicode_strupper(dest, destsize, src, srclen);
+}
+
+static struct casemap_methods casemap_methods_builtin = {
+	.strlower = strlower_builtin,
+	.strtitle = strtitle_builtin,
+	.strupper = strupper_builtin,
+};
 
 /*
  * POSIX doesn't define _l-variants of these functions, but several systems
@@ -1239,6 +1318,7 @@ dat_create_locale_builtin(HeapTuple dattuple)
 	result->deterministic = true;
 	result->collate_is_c = true;
 	result->ctype_is_c = (strcmp(locstr, "C") == 0);
+	result->casemap = &casemap_methods_builtin;
 
 	return result;
 }
@@ -1265,6 +1345,7 @@ coll_create_locale_builtin(HeapTuple colltuple, MemoryContext context)
 	result->deterministic = collform->collisdeterministic;
 	result->collate_is_c = true;
 	result->ctype_is_c = (strcmp(locstr, "C") == 0);
+	result->casemap = &casemap_methods_builtin;
 
 	return result;
 }
@@ -1535,6 +1616,27 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 	}
 
 	return collversion;
+}
+
+size_t
+pg_strlower(char *dst, size_t dstsize, const char *src, ssize_t srclen,
+			pg_locale_t locale)
+{
+	return locale->casemap->strlower(dst, dstsize, src, srclen, locale);
+}
+
+size_t
+pg_strtitle(char *dst, size_t dstsize, const char *src, ssize_t srclen,
+			pg_locale_t locale)
+{
+	return locale->casemap->strtitle(dst, dstsize, src, srclen, locale);
+}
+
+size_t
+pg_strupper(char *dst, size_t dstsize, const char *src, ssize_t srclen,
+			pg_locale_t locale)
+{
+	return locale->casemap->strupper(dst, dstsize, src, srclen, locale);
 }
 
 /*

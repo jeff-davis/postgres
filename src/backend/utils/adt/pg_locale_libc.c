@@ -11,6 +11,9 @@
 
 #include "postgres.h"
 
+#include <limits.h>
+#include <wctype.h>
+
 #include "access/htup_details.h"
 #include "catalog/pg_database.h"
 #include "catalog/pg_collation.h"
@@ -48,6 +51,16 @@ static int	strncoll_libc_win32_utf8(const char *arg1, ssize_t len1,
 									 pg_locale_t locale);
 #endif
 
+static size_t strlower_libc(char *dest, size_t destsize,
+							const char *src, ssize_t srclen,
+							pg_locale_t locale);
+static size_t strtitle_libc(char *dest, size_t destsize,
+							const char *src, ssize_t srclen,
+							pg_locale_t locale);
+static size_t strupper_libc(char *dest, size_t destsize,
+							const char *src, ssize_t srclen,
+							pg_locale_t locale);
+
 static struct collate_methods collate_methods_libc = {
 	.strncoll = strncoll_libc,
 	.strnxfrm = strnxfrm_libc,
@@ -68,6 +81,208 @@ static struct collate_methods collate_methods_libc = {
 	.strxfrm_is_safe = false,
 #endif
 };
+
+static struct casemap_methods casemap_methods_libc = {
+	.strlower = strlower_libc,
+	.strtitle = strtitle_libc,
+	.strupper = strupper_libc,
+};
+
+static size_t
+strlower_libc(char *dest, size_t destsize, const char *src, ssize_t srclen,
+			  pg_locale_t locale)
+{
+	locale_t	loc = locale->info.lt;
+	size_t		result_size;
+
+	if (pg_database_encoding_max_length() > 1)
+	{
+		wchar_t    *workspace;
+		size_t		curr_char;
+
+		/* Overflow paranoia */
+		if ((srclen + 1) > (INT_MAX / sizeof(wchar_t)))
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("out of memory")));
+
+		/* Output workspace cannot have more codes than input bytes */
+		workspace = (wchar_t *) palloc((srclen + 1) * sizeof(wchar_t));
+
+		char2wchar(workspace, srclen + 1, src, srclen, locale);
+
+		for (curr_char = 0; workspace[curr_char] != 0; curr_char++)
+			workspace[curr_char] = towlower_l(workspace[curr_char], loc);
+
+		/*
+		 * Make result large enough; case change might change number of bytes
+		 */
+		result_size = curr_char * pg_database_encoding_max_length();
+		if (result_size + 1 > destsize)
+			return result_size;
+
+		wchar2char(dest, workspace, result_size + 1, locale);
+		pfree(workspace);
+	}
+	else
+	{
+		char	   *p;
+
+		result_size = srclen;
+		if (result_size + 1 > destsize)
+			return result_size;
+
+		strlcpy(dest, src, result_size + 1);
+
+		/*
+		 * Note: we assume that tolower_l() will not be so broken as to need
+		 * an isupper_l() guard test.  When using the default collation, we
+		 * apply the traditional Postgres behavior that forces ASCII-style
+		 * treatment of I/i, but in non-default collations you get exactly
+		 * what the collation says.
+		 */
+		for (p = dest; *p; p++)
+			*p = tolower_l((unsigned char) *p, loc);
+	}
+
+	result_size = strlen(dest);
+	return result_size;
+}
+
+static size_t
+strtitle_libc(char *dest, size_t destsize, const char *src, ssize_t srclen,
+			  pg_locale_t locale)
+{
+	locale_t	loc = locale->info.lt;
+	int			wasalnum = false;
+	size_t		result_size;
+
+	if (pg_database_encoding_max_length() > 1)
+	{
+		wchar_t    *workspace;
+		size_t		curr_char;
+
+		/* Overflow paranoia */
+		if ((srclen + 1) > (INT_MAX / sizeof(wchar_t)))
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("out of memory")));
+
+		/* Output workspace cannot have more codes than input bytes */
+		workspace = (wchar_t *) palloc((srclen + 1) * sizeof(wchar_t));
+
+		char2wchar(workspace, srclen + 1, src, srclen, locale);
+
+		for (curr_char = 0; workspace[curr_char] != 0; curr_char++)
+		{
+			if (wasalnum)
+				workspace[curr_char] = towlower_l(workspace[curr_char], loc);
+			else
+				workspace[curr_char] = towupper_l(workspace[curr_char], loc);
+			wasalnum = iswalnum_l(workspace[curr_char], loc);
+		}
+
+		/*
+		 * Make result large enough; case change might change number of bytes
+		 */
+		result_size = curr_char * pg_database_encoding_max_length();
+
+		if (result_size + 1 > destsize)
+			return result_size;
+
+		wchar2char(dest, workspace, result_size + 1, locale);
+		pfree(workspace);
+	}
+	else
+	{
+		char	   *p;
+
+		if (srclen + 1 > destsize)
+			return srclen;
+
+		strlcpy(dest, src, srclen + 1);
+
+		/*
+		 * Note: we assume that toupper_l()/tolower_l() will not be so broken
+		 * as to need guard tests.  When using the default collation, we apply
+		 * the traditional Postgres behavior that forces ASCII-style treatment
+		 * of I/i, but in non-default collations you get exactly what the
+		 * collation says.
+		 */
+		for (p = dest; *p; p++)
+		{
+			if (wasalnum)
+				*p = tolower_l((unsigned char) *p, loc);
+			else
+				*p = toupper_l((unsigned char) *p, loc);
+			wasalnum = isalnum_l((unsigned char) *p, loc);
+		}
+	}
+
+	result_size = strlen(dest);
+	return result_size;
+}
+
+static size_t
+strupper_libc(char *dest, size_t destsize, const char *src, ssize_t srclen,
+			  pg_locale_t locale)
+{
+	locale_t	loc = locale->info.lt;
+	size_t		result_size;
+
+	if (pg_database_encoding_max_length() > 1)
+	{
+		wchar_t    *workspace;
+		size_t		curr_char;
+
+		/* Overflow paranoia */
+		if ((srclen + 1) > (INT_MAX / sizeof(wchar_t)))
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("out of memory")));
+
+		/* Output workspace cannot have more codes than input bytes */
+		workspace = (wchar_t *) palloc((srclen + 1) * sizeof(wchar_t));
+
+		char2wchar(workspace, srclen + 1, src, srclen, locale);
+
+		for (curr_char = 0; workspace[curr_char] != 0; curr_char++)
+			workspace[curr_char] = towupper_l(workspace[curr_char], loc);
+
+		/*
+		 * Make result large enough; case change might change number of bytes
+		 */
+		result_size = curr_char * pg_database_encoding_max_length();
+		if (result_size + 1 > destsize)
+			return result_size;
+
+		wchar2char(dest, workspace, result_size + 1, locale);
+		pfree(workspace);
+	}
+	else
+	{
+		char	   *p;
+
+		result_size = srclen;
+		if (result_size + 1 > destsize)
+			return result_size;
+
+		strlcpy(dest, src, srclen + 1);
+
+		/*
+		 * Note: we assume that toupper_l() will not be so broken as to need
+		 * an islower_l() guard test.  When using the default collation, we
+		 * apply the traditional Postgres behavior that forces ASCII-style
+		 * treatment of I/i, but in non-default collations you get exactly
+		 * what the collation says.
+		 */
+		for (p = dest; *p; p++)
+			*p = toupper_l((unsigned char) *p, loc);
+	}
+
+	result_size = strlen(dest);
+	return result_size;
+}
 
 pg_locale_t
 dat_create_locale_libc(HeapTuple dattuple)
@@ -102,6 +317,8 @@ dat_create_locale_libc(HeapTuple dattuple)
 	result->info.lt = loc;
 	if (!result->collate_is_c)
 		result->collate = &collate_methods_libc;
+	if (!result->ctype_is_c)
+		result->casemap = &casemap_methods_libc;
 
 	return result;
 }
@@ -137,6 +354,8 @@ coll_create_locale_libc(HeapTuple colltuple, MemoryContext context)
 	result->info.lt = loc;
 	if (!result->collate_is_c)
 		result->collate = &collate_methods_libc;
+	if (!result->ctype_is_c)
+		result->casemap = &casemap_methods_libc;
 
 	return result;
 }
