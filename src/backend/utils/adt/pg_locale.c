@@ -249,6 +249,50 @@ static struct casemap_methods casemap_methods_builtin = {
 	.strupper = strupper_builtin,
 };
 
+static int
+char_properties_builtin(pg_wchar wc, int mask, pg_locale_t locale)
+{
+	int result = 0;
+
+	if ((mask & PG_ISDIGIT) && pg_u_isdigit(wc, true))
+		result |= PG_ISDIGIT;
+	if ((mask & PG_ISALPHA) && pg_u_isalpha(wc))
+		result |= PG_ISALPHA;
+	if ((mask & PG_ISUPPER) && pg_u_isupper(wc))
+		result |= PG_ISUPPER;
+	if ((mask & PG_ISLOWER) && pg_u_islower(wc))
+		result |= PG_ISLOWER;
+	if ((mask & PG_ISGRAPH) && pg_u_isgraph(wc))
+		result |= PG_ISGRAPH;
+	if ((mask & PG_ISPRINT) && pg_u_isprint(wc))
+		result |= PG_ISPRINT;
+	if ((mask & PG_ISPUNCT) && pg_u_ispunct(wc, true))
+		result |= PG_ISPUNCT;
+	if ((mask & PG_ISSPACE) && pg_u_isspace(wc))
+		result |= PG_ISSPACE;
+
+	return result;
+}
+
+static pg_wchar
+wc_toupper_builtin(pg_wchar wc, pg_locale_t locale)
+{
+	return unicode_uppercase_simple(wc);
+}
+ 
+static pg_wchar
+wc_tolower_builtin(pg_wchar wc, pg_locale_t locale)
+{
+	return unicode_lowercase_simple(wc);
+}
+
+static struct ctype_methods ctype_methods_builtin = {
+	.char_properties = char_properties_builtin,
+	.wc_tolower = wc_tolower_builtin,
+	.wc_toupper = wc_toupper_builtin,
+};
+
+
 /*
  * POSIX doesn't define _l-variants of these functions, but several systems
  * have them.  We provide our own replacements here.
@@ -1319,6 +1363,8 @@ dat_create_locale_builtin(HeapTuple dattuple)
 	result->collate_is_c = true;
 	result->ctype_is_c = (strcmp(locstr, "C") == 0);
 	result->casemap = &casemap_methods_builtin;
+	if (!result->ctype_is_c)
+		result->ctype = &ctype_methods_builtin;
 
 	return result;
 }
@@ -1346,6 +1392,8 @@ coll_create_locale_builtin(HeapTuple colltuple, MemoryContext context)
 	result->collate_is_c = true;
 	result->ctype_is_c = (strcmp(locstr, "C") == 0);
 	result->casemap = &casemap_methods_builtin;
+	if (!result->ctype_is_c)
+		result->ctype = &ctype_methods_builtin;
 
 	return result;
 }
@@ -1771,6 +1819,20 @@ pg_strnxfrm_prefix(char *dest, size_t destsize, const char *src,
 				   ssize_t srclen, pg_locale_t locale)
 {
 	return locale->collate->strnxfrm_prefix(dest, destsize, src, srclen, locale);
+}
+
+/*
+ * char_properties()
+ *
+ * Out of the properties specified in the given mask, return a new mask of the
+ * properties true for the given character.
+ *
+ * XXX: add caching?
+ */
+int
+char_properties(pg_wchar wc, int mask, pg_locale_t locale)
+{
+	return locale->ctype->char_properties(wc, mask, locale);
 }
 
 /*

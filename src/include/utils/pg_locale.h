@@ -12,12 +12,27 @@
 #ifndef _PG_LOCALE_
 #define _PG_LOCALE_
 
+#include "mb/pg_wchar.h"
+
 #if defined(LOCALE_T_IN_XLOCALE) || defined(WCSTOMBS_L_IN_XLOCALE)
 #include <xlocale.h>
 #endif
 #ifdef USE_ICU
 #include <unicode/ucol.h>
 #endif
+
+/*
+ * Character properties for regular expressions.
+ */
+#define PG_ISDIGIT     0x01
+#define PG_ISALPHA     0x02
+#define PG_ISALNUM     (PG_ISDIGIT | PG_ISALPHA)
+#define PG_ISUPPER     0x04
+#define PG_ISLOWER     0x08
+#define PG_ISGRAPH     0x10
+#define PG_ISPRINT     0x20
+#define PG_ISPUNCT     0x40
+#define PG_ISSPACE     0x80
 
 #ifdef USE_ICU
 /*
@@ -107,6 +122,12 @@ struct casemap_methods
 							 pg_locale_t locale);
 };
 
+struct ctype_methods {
+	int (*char_properties) (pg_wchar wc, int mask, pg_locale_t locale);
+	pg_wchar (*wc_toupper) (pg_wchar wc, pg_locale_t locale);
+	pg_wchar (*wc_tolower) (pg_wchar wc, pg_locale_t locale);
+};
+
 /*
  * We use a discriminated union to hold either a locale_t or an ICU collator.
  * pg_locale_t is occasionally checked for truth, so make it a pointer.
@@ -132,6 +153,7 @@ struct pg_locale_struct
 
 	struct collate_methods *collate;	/* NULL if collate_is_c */
 	struct casemap_methods *casemap;	/* NULL if ctype_is_c */
+	struct ctype_methods *ctype;		/* NULL if ctype_is_c */
 
 	union
 	{
@@ -156,6 +178,7 @@ extern void init_database_collation(void);
 extern pg_locale_t pg_newlocale_from_collation(Oid collid);
 
 extern char *get_collation_actual_version(char collprovider, const char *collcollate);
+extern int char_properties(pg_wchar wc, int mask, pg_locale_t locale);
 extern size_t pg_strlower(char *dest, size_t destsize,
 						  const char *src, ssize_t srclen,
 						  pg_locale_t locale);

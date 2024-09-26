@@ -61,6 +61,10 @@ static size_t strupper_libc(char *dest, size_t destsize,
 							const char *src, ssize_t srclen,
 							pg_locale_t locale);
 
+static int char_properties_libc(pg_wchar wc, int mask, pg_locale_t locale);
+static pg_wchar toupper_libc(pg_wchar wc, pg_locale_t locale);
+static pg_wchar tolower_libc(pg_wchar wc, pg_locale_t locale);
+
 static struct collate_methods collate_methods_libc = {
 	.strncoll = strncoll_libc,
 	.strnxfrm = strnxfrm_libc,
@@ -86,6 +90,12 @@ static struct casemap_methods casemap_methods_libc = {
 	.strlower = strlower_libc,
 	.strtitle = strtitle_libc,
 	.strupper = strupper_libc,
+};
+
+static struct ctype_methods ctype_methods_libc = {
+	.char_properties = char_properties_libc,
+	.wc_toupper = toupper_libc,
+	.wc_tolower = tolower_libc,
 };
 
 static size_t
@@ -319,6 +329,8 @@ dat_create_locale_libc(HeapTuple dattuple)
 		result->collate = &collate_methods_libc;
 	if (!result->ctype_is_c)
 		result->casemap = &casemap_methods_libc;
+	if (!result->ctype_is_c)
+		result->ctype = &ctype_methods_libc;
 
 	return result;
 }
@@ -356,6 +368,8 @@ coll_create_locale_libc(HeapTuple colltuple, MemoryContext context)
 		result->collate = &collate_methods_libc;
 	if (!result->ctype_is_c)
 		result->casemap = &casemap_methods_libc;
+	if (!result->ctype_is_c)
+		result->ctype = &ctype_methods_libc;
 
 	return result;
 }
@@ -643,4 +657,159 @@ report_newlocale_failure(const char *localename)
 			 (save_errno == ENOENT ?
 			  errdetail("The operating system could not find any locale data for the locale name \"%s\".",
 						localename) : 0)));
+}
+
+static int
+char_properties_libc(pg_wchar wc, int mask, pg_locale_t locale)
+{
+	int result = 0;
+
+	Assert(!locale->ctype_is_c);
+
+	if (mask & PG_ISDIGIT)
+	{
+		if (GetDatabaseEncoding() == PG_UTF8 &&
+			(sizeof(wchar_t) >= 4 || wc <= (pg_wchar) 0xFFFF))
+		{
+			if (iswdigit_l((wint_t) wc, locale->info.lt))
+				result |= PG_ISDIGIT;
+		}
+		else
+		{
+			if (wc <= (pg_wchar) UCHAR_MAX &&
+				isdigit_l((unsigned char) wc, locale->info.lt))
+				result |= PG_ISDIGIT;
+		}
+	}
+	if (mask & PG_ISALPHA)
+	{
+		if (GetDatabaseEncoding() == PG_UTF8 &&
+			(sizeof(wchar_t) >= 4 || wc <= (pg_wchar) 0xFFFF))
+		{
+			if (iswalpha_l((wint_t) wc, locale->info.lt))
+				result |= PG_ISALPHA;
+		}
+		else
+		{
+			if (wc <= (pg_wchar) UCHAR_MAX &&
+				isalpha_l((unsigned char) wc, locale->info.lt))
+				result |= PG_ISALPHA;
+		}
+	}
+	if (mask & PG_ISUPPER)
+	{
+		if (GetDatabaseEncoding() == PG_UTF8 &&
+			(sizeof(wchar_t) >= 4 || wc <= (pg_wchar) 0xFFFF))
+		{
+			if (iswupper_l((wint_t) wc, locale->info.lt))
+				result |= PG_ISUPPER;
+		}
+		else
+		{
+			if (wc <= (pg_wchar) UCHAR_MAX &&
+				isupper_l((unsigned char) wc, locale->info.lt))
+				result |= PG_ISUPPER;
+		}
+	}
+	if (mask & PG_ISLOWER)
+	{
+		if (GetDatabaseEncoding() == PG_UTF8 &&
+			(sizeof(wchar_t) >= 4 || wc <= (pg_wchar) 0xFFFF))
+		{
+			if (iswlower_l((wint_t) wc, locale->info.lt))
+				result |= PG_ISLOWER;
+		}
+		else
+		{
+			if (wc <= (pg_wchar) UCHAR_MAX &&
+				islower_l((unsigned char) wc, locale->info.lt))
+				result |= PG_ISLOWER;
+		}
+	}
+	if (mask & PG_ISGRAPH)
+	{
+		if (GetDatabaseEncoding() == PG_UTF8 &&
+			(sizeof(wchar_t) >= 4 || wc <= (pg_wchar) 0xFFFF))
+		{
+			if (iswgraph_l((wint_t) wc, locale->info.lt))
+				result |= PG_ISGRAPH;
+		}
+		else
+		{
+			if (wc <= (pg_wchar) UCHAR_MAX &&
+				isgraph_l((unsigned char) wc, locale->info.lt))
+				result |= PG_ISGRAPH;
+		}
+	}
+	if (mask & PG_ISPRINT)
+	{
+		if (GetDatabaseEncoding() == PG_UTF8 &&
+			(sizeof(wchar_t) >= 4 || wc <= (pg_wchar) 0xFFFF))
+		{
+			if (iswprint_l((wint_t) wc, locale->info.lt))
+				result |= PG_ISPRINT;
+		}
+		else
+		{
+			if (wc <= (pg_wchar) UCHAR_MAX &&
+				isprint_l((unsigned char) wc, locale->info.lt))
+				result |= PG_ISPRINT;
+		}
+	}
+	if (mask & PG_ISPUNCT)
+	{
+		if (GetDatabaseEncoding() == PG_UTF8 &&
+			(sizeof(wchar_t) >= 4 || wc <= (pg_wchar) 0xFFFF))
+		{
+			if (iswpunct_l((wint_t) wc, locale->info.lt))
+				result |= PG_ISPUNCT;
+		}
+		else
+		{
+			if (wc <= (pg_wchar) UCHAR_MAX &&
+				ispunct_l((unsigned char) wc, locale->info.lt))
+				result |= PG_ISPUNCT;
+		}
+	}
+	if (mask & PG_ISSPACE)
+	{
+		if (GetDatabaseEncoding() == PG_UTF8 &&
+			(sizeof(wchar_t) >= 4 || wc <= (pg_wchar) 0xFFFF))
+		{
+			if (iswspace_l((wint_t) wc, locale->info.lt))
+				result |= PG_ISSPACE;
+		}
+		else
+		{
+			if (wc <= (pg_wchar) UCHAR_MAX &&
+				isspace_l((unsigned char) wc, locale->info.lt))
+				result |= PG_ISSPACE;
+		}
+	}
+
+	return result;
+}
+
+static pg_wchar
+toupper_libc(pg_wchar wc, pg_locale_t locale)
+{
+	if (GetDatabaseEncoding() == PG_UTF8 &&
+		(sizeof(wchar_t) >= 4 || wc <= (pg_wchar) 0xFFFF))
+		return towupper_l((wint_t) wc, locale->info.lt);
+	else if (wc <= (pg_wchar) UCHAR_MAX)
+		return toupper_l((unsigned char) wc, locale->info.lt);
+	else
+		return wc;
+}
+
+static pg_wchar
+tolower_libc(pg_wchar wc, pg_locale_t locale)
+{
+	if (GetDatabaseEncoding() == PG_UTF8 &&
+		(sizeof(wchar_t) >= 4 || wc <= (pg_wchar) 0xFFFF))
+		return towlower_l((wint_t) wc, locale->info.lt);
+	else if (wc <= (pg_wchar) UCHAR_MAX)
+		return tolower_l((unsigned char) wc, locale->info.lt);
+	else
+		return wc;
 }
