@@ -40,13 +40,14 @@ extern pg_locale_t coll_create_locale_icu(HeapTuple colltuple,
 #ifdef USE_ICU
 
 extern UCollator *pg_ucol_open(const char *loc_str);
-extern int strncoll_icu(const char *arg1, ssize_t len1,
-						const char *arg2, ssize_t len2,
-						pg_locale_t locale);
-extern size_t strnxfrm_icu(char *dest, size_t destsize,
+
+static int	strncoll_icu(const char *arg1, ssize_t len1,
+						 const char *arg2, ssize_t len2,
+						 pg_locale_t locale);
+static size_t strnxfrm_icu(char *dest, size_t destsize,
 						   const char *src, ssize_t srclen,
 						   pg_locale_t locale);
-extern size_t strnxfrm_prefix_icu(char *dest, size_t destsize,
+static size_t strnxfrm_prefix_icu(char *dest, size_t destsize,
 								  const char *src, ssize_t srclen,
 								  pg_locale_t locale);
 
@@ -59,9 +60,9 @@ static UConverter *icu_converter = NULL;
 
 static UCollator *make_icu_collator(const char *iculocstr,
 									const char *icurules);
-static int strncoll_icu_no_utf8(const char *arg1, ssize_t len1,
-								const char *arg2, ssize_t len2,
-								pg_locale_t locale);
+static int	strncoll_icu_no_utf8(const char *arg1, ssize_t len1,
+								 const char *arg2, ssize_t len2,
+								 pg_locale_t locale);
 static size_t strnxfrm_prefix_icu_no_utf8(char *dest, size_t destsize,
 										  const char *src, ssize_t srclen,
 										  pg_locale_t locale);
@@ -73,19 +74,27 @@ static int32_t uchar_convert(UConverter *converter,
 							 const char *src, int32_t srclen);
 static void icu_set_collation_attributes(UCollator *collator, const char *loc,
 										 UErrorCode *status);
+
+static struct collate_methods collate_methods_icu = {
+	.strncoll = strncoll_icu,
+	.strnxfrm = strnxfrm_icu,
+	.strnxfrm_prefix = strnxfrm_prefix_icu,
+	.strxfrm_is_safe = true,
+};
+
 #endif
 
 pg_locale_t
 dat_create_locale_icu(HeapTuple dattuple)
 {
 #ifdef USE_ICU
-	Form_pg_database	 dbform;
-	Datum				 datum;
-	bool				 isnull;
-	const char			*iculocstr;
-	const char			*icurules = NULL;
-	UCollator			*collator;
-	pg_locale_t			 result;
+	Form_pg_database dbform;
+	Datum		datum;
+	bool		isnull;
+	const char *iculocstr;
+	const char *icurules = NULL;
+	UCollator  *collator;
+	pg_locale_t result;
 
 	dbform = (Form_pg_database) GETSTRUCT(dattuple);
 
@@ -108,6 +117,7 @@ dat_create_locale_icu(HeapTuple dattuple)
 	result->deterministic = true;
 	result->collate_is_c = false;
 	result->ctype_is_c = false;
+	result->collate = &collate_methods_icu;
 
 	return result;
 #else
@@ -124,13 +134,13 @@ pg_locale_t
 coll_create_locale_icu(HeapTuple colltuple, MemoryContext context)
 {
 #ifdef USE_ICU
-	Form_pg_collation	 collform;
-	Datum				 datum;
-	bool				 isnull;
-	const char			*iculocstr;
-	const char			*icurules = NULL;
-	UCollator			*collator;
-	pg_locale_t			 result;
+	Form_pg_collation collform;
+	Datum		datum;
+	bool		isnull;
+	const char *iculocstr;
+	const char *icurules = NULL;
+	UCollator  *collator;
+	pg_locale_t result;
 
 	collform = (Form_pg_collation) GETSTRUCT(colltuple);
 
@@ -152,6 +162,7 @@ coll_create_locale_icu(HeapTuple colltuple, MemoryContext context)
 	result->deterministic = collform->collisdeterministic;
 	result->collate_is_c = false;
 	result->ctype_is_c = false;
+	result->collate = &collate_methods_icu;
 
 	return result;
 #else
