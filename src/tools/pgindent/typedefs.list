@@ -1822,7 +1822,6 @@ PGTargetServerType
 PGTernaryBool
 PGTransactionStatusType
 PGVerbosity
-PG_Locale_Strategy
 PG_Lock_Status
 PG_init_t
 PGcancel

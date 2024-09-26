@@ -11,6 +11,9 @@
 
 #include "postgres.h"
 
+#include <limits.h>
+#include <wctype.h>
+
 #include "access/htup_details.h"
 #include "catalog/pg_database.h"
 #include "catalog/pg_collation.h"
@@ -48,6 +51,34 @@ static int	strncoll_libc_win32_utf8(const char *arg1, ssize_t len1,
 									 pg_locale_t locale);
 #endif
 
+static size_t strlower_libc_sb(char *dest, size_t destsize,
+							   const char *src, ssize_t srclen,
+							   pg_locale_t locale);
+static size_t strlower_libc_mb(char *dest, size_t destsize,
+							   const char *src, ssize_t srclen,
+							   pg_locale_t locale);
+static size_t strtitle_libc_sb(char *dest, size_t destsize,
+							   const char *src, ssize_t srclen,
+							   pg_locale_t locale);
+static size_t strtitle_libc_mb(char *dest, size_t destsize,
+							   const char *src, ssize_t srclen,
+							   pg_locale_t locale);
+static size_t strupper_libc_sb(char *dest, size_t destsize,
+							   const char *src, ssize_t srclen,
+							   pg_locale_t locale);
+static size_t strupper_libc_mb(char *dest, size_t destsize,
+							   const char *src, ssize_t srclen,
+							   pg_locale_t locale);
+
+static int	char_properties_libc_sb(pg_wchar wc, int mask,
+									   pg_locale_t locale);
+static int	char_properties_libc_mb(pg_wchar wc, int mask,
+									  pg_locale_t locale);
+static pg_wchar toupper_libc_sb(pg_wchar wc, pg_locale_t locale);
+static pg_wchar toupper_libc_mb(pg_wchar wc, pg_locale_t locale);
+static pg_wchar tolower_libc_sb(pg_wchar wc, pg_locale_t locale);
+static pg_wchar tolower_libc_mb(pg_wchar wc, pg_locale_t locale);
+
 static const struct collate_methods collate_methods_libc = {
 	.strncoll = strncoll_libc,
 	.strnxfrm = strnxfrm_libc,
@@ -68,6 +99,324 @@ static const struct collate_methods collate_methods_libc = {
 	.strxfrm_is_safe = false,
 #endif
 };
+
+#ifdef WIN32
+static const struct collate_methods collate_methods_libc_win32_utf8 = {
+	.strncoll = strncoll_libc_win32_utf8,
+	.strnxfrm = strnxfrm_libc,
+	.strnxfrm_prefix = NULL,
+#ifdef TRUST_STRXFRM
+	.strxfrm_is_safe = true,
+#else
+	.strxfrm_is_safe = false,
+#endif
+};
+#endif
+
+static bool
+char_is_cased_libc(char ch, pg_locale_t locale)
+{
+	bool		is_multibyte = pg_database_encoding_max_length() > 1;
+
+	if (is_multibyte && IS_HIGHBIT_SET(ch))
+		return true;
+	else
+		return isalpha_l((unsigned char) ch, locale->info.lt);
+}
+
+static char
+char_tolower_libc(unsigned char ch, pg_locale_t locale)
+{
+	Assert(pg_database_encoding_max_length() == 1);
+	return tolower_l(ch, locale->info.lt);
+}
+
+static const struct ctype_methods ctype_methods_libc_sb = {
+	.strlower = strlower_libc_sb,
+	.strtitle = strtitle_libc_sb,
+	.strupper = strupper_libc_sb,
+	.char_properties = char_properties_libc_sb,
+	.char_is_cased = char_is_cased_libc,
+	.char_tolower = char_tolower_libc,
+	.wc_toupper = toupper_libc_sb,
+	.wc_tolower = tolower_libc_sb,
+	.max_chr = UCHAR_MAX,
+};
+
+/*
+ * Non-UTF8 multibyte encodings use multibyte semantics for case mapping, but
+ * single-byte semantics for pattern matching.
+ */
+static const struct ctype_methods ctype_methods_libc_other_mb = {
+	.strlower = strlower_libc_mb,
+	.strtitle = strtitle_libc_mb,
+	.strupper = strupper_libc_mb,
+	.char_properties = char_properties_libc_sb,
+	.char_is_cased = char_is_cased_libc,
+	.char_tolower = char_tolower_libc,
+	.wc_toupper = toupper_libc_sb,
+	.wc_tolower = tolower_libc_sb,
+	.max_chr = UCHAR_MAX,
+};
+
+static const struct ctype_methods ctype_methods_libc_utf8 = {
+	.strlower = strlower_libc_mb,
+	.strtitle = strtitle_libc_mb,
+	.strupper = strupper_libc_mb,
+	.char_properties = char_properties_libc_mb,
+	.char_is_cased = char_is_cased_libc,
+	.char_tolower = char_tolower_libc,
+	.wc_toupper = toupper_libc_mb,
+	.wc_tolower = tolower_libc_mb,
+};
+
+static size_t
+strlower_libc_sb(char *dest, size_t destsize, const char *src, ssize_t srclen,
+				 pg_locale_t locale)
+{
+	if (srclen < 0)
+		srclen = strlen(src);
+
+	if (srclen + 1 <= destsize)
+	{
+		locale_t	loc = locale->info.lt;
+		char	   *p;
+
+		if (srclen + 1 > destsize)
+			return srclen;
+
+		memcpy(dest, src, srclen);
+		dest[srclen] = '\0';
+
+		/*
+		 * Note: we assume that tolower_l() will not be so broken as to need
+		 * an isupper_l() guard test.  When using the default collation, we
+		 * apply the traditional Postgres behavior that forces ASCII-style
+		 * treatment of I/i, but in non-default collations you get exactly
+		 * what the collation says.
+		 */
+		for (p = dest; *p; p++)
+			*p = tolower_l((unsigned char) *p, loc);
+	}
+
+	return srclen;
+}
+
+static size_t
+strlower_libc_mb(char *dest, size_t destsize, const char *src, ssize_t srclen,
+				 pg_locale_t locale)
+{
+	locale_t	loc = locale->info.lt;
+	size_t		result_size;
+	wchar_t    *workspace;
+	char	   *result;
+	size_t		curr_char;
+	size_t		max_size;
+
+	if (srclen < 0)
+		srclen = strlen(src);
+
+	/* Overflow paranoia */
+	if ((srclen + 1) > (INT_MAX / sizeof(wchar_t)))
+		ereport(ERROR,
+				(errcode(ERRCODE_OUT_OF_MEMORY),
+				 errmsg("out of memory")));
+
+	/* Output workspace cannot have more codes than input bytes */
+	workspace = (wchar_t *) palloc((srclen + 1) * sizeof(wchar_t));
+
+	char2wchar(workspace, srclen + 1, src, srclen, locale);
+
+	for (curr_char = 0; workspace[curr_char] != 0; curr_char++)
+		workspace[curr_char] = towlower_l(workspace[curr_char], loc);
+
+	/*
+	 * Make result large enough; case change might change number of bytes
+	 */
+	max_size = curr_char * pg_database_encoding_max_length();
+	result = palloc(max_size + 1);
+
+	result_size = wchar2char(result, workspace, max_size + 1, locale);
+
+	if (result_size + 1 > destsize)
+		return result_size;
+
+	memcpy(dest, result, result_size);
+	dest[result_size] = '\0';
+
+	pfree(workspace);
+	pfree(result);
+
+	return result_size;
+}
+
+static size_t
+strtitle_libc_sb(char *dest, size_t destsize, const char *src, ssize_t srclen,
+				 pg_locale_t locale)
+{
+	if (srclen < 0)
+		srclen = strlen(src);
+
+	if (srclen + 1 <= destsize)
+	{
+		locale_t	loc = locale->info.lt;
+		int			wasalnum = false;
+		char	   *p;
+
+		memcpy(dest, src, srclen);
+		dest[srclen] = '\0';
+
+		/*
+		 * Note: we assume that toupper_l()/tolower_l() will not be so broken
+		 * as to need guard tests.  When using the default collation, we apply
+		 * the traditional Postgres behavior that forces ASCII-style treatment
+		 * of I/i, but in non-default collations you get exactly what the
+		 * collation says.
+		 */
+		for (p = dest; *p; p++)
+		{
+			if (wasalnum)
+				*p = tolower_l((unsigned char) *p, loc);
+			else
+				*p = toupper_l((unsigned char) *p, loc);
+			wasalnum = isalnum_l((unsigned char) *p, loc);
+		}
+	}
+
+	return srclen;
+}
+
+static size_t
+strtitle_libc_mb(char *dest, size_t destsize, const char *src, ssize_t srclen,
+				 pg_locale_t locale)
+{
+	locale_t	loc = locale->info.lt;
+	int			wasalnum = false;
+	size_t		result_size;
+	wchar_t    *workspace;
+	char	   *result;
+	size_t		curr_char;
+	size_t		max_size;
+
+	if (srclen < 0)
+		srclen = strlen(src);
+
+	/* Overflow paranoia */
+	if ((srclen + 1) > (INT_MAX / sizeof(wchar_t)))
+		ereport(ERROR,
+				(errcode(ERRCODE_OUT_OF_MEMORY),
+				 errmsg("out of memory")));
+
+	/* Output workspace cannot have more codes than input bytes */
+	workspace = (wchar_t *) palloc((srclen + 1) * sizeof(wchar_t));
+
+	char2wchar(workspace, srclen + 1, src, srclen, locale);
+
+	for (curr_char = 0; workspace[curr_char] != 0; curr_char++)
+	{
+		if (wasalnum)
+			workspace[curr_char] = towlower_l(workspace[curr_char], loc);
+		else
+			workspace[curr_char] = towupper_l(workspace[curr_char], loc);
+		wasalnum = iswalnum_l(workspace[curr_char], loc);
+	}
+
+	/*
+	 * Make result large enough; case change might change number of bytes
+	 */
+	max_size = curr_char * pg_database_encoding_max_length();
+	result = palloc(max_size + 1);
+
+	result_size = wchar2char(result, workspace, max_size + 1, locale);
+
+	if (result_size + 1 > destsize)
+		return result_size;
+
+	memcpy(dest, result, result_size);
+	dest[result_size] = '\0';
+
+	pfree(workspace);
+	pfree(result);
+
+	return result_size;
+}
+
+static size_t
+strupper_libc_sb(char *dest, size_t destsize, const char *src, ssize_t srclen,
+				 pg_locale_t locale)
+{
+	if (srclen < 0)
+		srclen = strlen(src);
+
+	if (srclen + 1 <= destsize)
+	{
+		locale_t	loc = locale->info.lt;
+		char	   *p;
+
+		memcpy(dest, src, srclen);
+		dest[srclen] = '\0';
+
+		/*
+		 * Note: we assume that toupper_l() will not be so broken as to need
+		 * an islower_l() guard test.  When using the default collation, we
+		 * apply the traditional Postgres behavior that forces ASCII-style
+		 * treatment of I/i, but in non-default collations you get exactly
+		 * what the collation says.
+		 */
+		for (p = dest; *p; p++)
+			*p = toupper_l((unsigned char) *p, loc);
+	}
+
+	return srclen;
+}
+
+static size_t
+strupper_libc_mb(char *dest, size_t destsize, const char *src, ssize_t srclen,
+				 pg_locale_t locale)
+{
+	locale_t	loc = locale->info.lt;
+	size_t		result_size;
+	wchar_t    *workspace;
+	char	   *result;
+	size_t		curr_char;
+	size_t		max_size;
+
+	if (srclen < 0)
+		srclen = strlen(src);
+
+	/* Overflow paranoia */
+	if ((srclen + 1) > (INT_MAX / sizeof(wchar_t)))
+		ereport(ERROR,
+				(errcode(ERRCODE_OUT_OF_MEMORY),
+				 errmsg("out of memory")));
+
+	/* Output workspace cannot have more codes than input bytes */
+	workspace = (wchar_t *) palloc((srclen + 1) * sizeof(wchar_t));
+
+	char2wchar(workspace, srclen + 1, src, srclen, locale);
+
+	for (curr_char = 0; workspace[curr_char] != 0; curr_char++)
+		workspace[curr_char] = towupper_l(workspace[curr_char], loc);
+
+	/*
+	 * Make result large enough; case change might change number of bytes
+	 */
+	max_size = curr_char * pg_database_encoding_max_length();
+	result = palloc(max_size + 1);
+
+	result_size = wchar2char(result, workspace, max_size + 1, locale);
+
+	if (result_size + 1 > destsize)
+		return result_size;
+
+	memcpy(dest, result, result_size);
+	dest[result_size] = '\0';
+
+	pfree(workspace);
+	pfree(result);
+
+	return result_size;
+}
 
 pg_locale_t
 create_pg_locale_libc(Oid collid, MemoryContext context)
@@ -132,6 +481,15 @@ create_pg_locale_libc(Oid collid, MemoryContext context)
 		else
 #endif
 			result->collate = &collate_methods_libc;
+	}
+	if (!result->ctype_is_c)
+	{
+		if (GetDatabaseEncoding() == PG_UTF8)
+			result->ctype = &ctype_methods_libc_utf8;
+		else if (pg_database_encoding_max_length() > 1)
+			result->ctype = &ctype_methods_libc_other_mb;
+		else
+			result->ctype = &ctype_methods_libc_sb;
 	}
 
 	return result;
@@ -414,6 +772,113 @@ report_newlocale_failure(const char *localename)
 			 (save_errno == ENOENT ?
 			  errdetail("The operating system could not find any locale data for the locale name \"%s\".",
 						localename) : 0)));
+}
+
+static int
+char_properties_libc_sb(pg_wchar wc, int mask, pg_locale_t locale)
+{
+	int			result = 0;
+
+	Assert(!locale->ctype_is_c);
+	Assert(GetDatabaseEncoding() != PG_UTF8);
+
+	if (wc > (pg_wchar) UCHAR_MAX)
+		return 0;
+
+	if ((mask & PG_ISDIGIT) && isdigit_l((unsigned char) wc, locale->info.lt))
+		result |= PG_ISDIGIT;
+	if ((mask & PG_ISALPHA) && isalpha_l((unsigned char) wc, locale->info.lt))
+		result |= PG_ISALPHA;
+	if ((mask & PG_ISUPPER) && isupper_l((unsigned char) wc, locale->info.lt))
+		result |= PG_ISUPPER;
+	if ((mask & PG_ISLOWER) && islower_l((unsigned char) wc, locale->info.lt))
+		result |= PG_ISLOWER;
+	if ((mask & PG_ISGRAPH) && isgraph_l((unsigned char) wc, locale->info.lt))
+		result |= PG_ISGRAPH;
+	if ((mask & PG_ISPRINT) && isprint_l((unsigned char) wc, locale->info.lt))
+		result |= PG_ISPRINT;
+	if ((mask & PG_ISPUNCT) && ispunct_l((unsigned char) wc, locale->info.lt))
+		result |= PG_ISPUNCT;
+	if ((mask & PG_ISSPACE) && isspace_l((unsigned char) wc, locale->info.lt))
+		result |= PG_ISSPACE;
+
+	return result;
+}
+
+static int
+char_properties_libc_mb(pg_wchar wc, int mask, pg_locale_t locale)
+{
+	int			result = 0;
+
+	Assert(!locale->ctype_is_c);
+	Assert(GetDatabaseEncoding() == PG_UTF8);
+
+	/* if wchar_t cannot represent the value, just return 0 */
+	if (sizeof(wchar_t) < 4 && wc > (pg_wchar) 0xFFFF)
+		return 0;
+
+	if ((mask & PG_ISDIGIT) && iswdigit_l((wint_t) wc, locale->info.lt))
+		result |= PG_ISDIGIT;
+	if ((mask & PG_ISALPHA) && iswalpha_l((wint_t) wc, locale->info.lt))
+		result |= PG_ISALPHA;
+	if ((mask & PG_ISUPPER) && iswupper_l((wint_t) wc, locale->info.lt))
+		result |= PG_ISUPPER;
+	if ((mask & PG_ISLOWER) && iswlower_l((wint_t) wc, locale->info.lt))
+		result |= PG_ISLOWER;
+	if ((mask & PG_ISGRAPH) && iswgraph_l((wint_t) wc, locale->info.lt))
+		result |= PG_ISGRAPH;
+	if ((mask & PG_ISPRINT) && iswprint_l((wint_t) wc, locale->info.lt))
+		result |= PG_ISPRINT;
+	if ((mask & PG_ISPUNCT) && iswpunct_l((wint_t) wc, locale->info.lt))
+		result |= PG_ISPUNCT;
+	if ((mask & PG_ISSPACE) && iswspace_l((wint_t) wc, locale->info.lt))
+		result |= PG_ISSPACE;
+
+	return result;
+}
+
+static pg_wchar
+toupper_libc_sb(pg_wchar wc, pg_locale_t locale)
+{
+	Assert(GetDatabaseEncoding() != PG_UTF8);
+
+	if (wc <= (pg_wchar) UCHAR_MAX)
+		return toupper_l((unsigned char) wc, locale->info.lt);
+	else
+		return wc;
+}
+
+static pg_wchar
+toupper_libc_mb(pg_wchar wc, pg_locale_t locale)
+{
+	Assert(GetDatabaseEncoding() == PG_UTF8);
+
+	if (sizeof(wchar_t) >= 4 || wc <= (pg_wchar) 0xFFFF)
+		return towupper_l((wint_t) wc, locale->info.lt);
+	else
+		return wc;
+}
+
+static pg_wchar
+tolower_libc_sb(pg_wchar wc, pg_locale_t locale)
+{
+	Assert(GetDatabaseEncoding() != PG_UTF8);
+
+	if (wc <= (pg_wchar) UCHAR_MAX)
+		return tolower_l((unsigned char) wc, locale->info.lt);
+	else
+		return wc;
+}
+
+static pg_wchar
+tolower_libc_mb(pg_wchar wc, pg_locale_t locale)
+{
+	Assert(GetDatabaseEncoding() == PG_UTF8);
+
+	if (sizeof(wchar_t) >= 4 || wc <= (pg_wchar) 0xFFFF)
+		return towlower_l((wint_t) wc, locale->info.lt);
+	else
+		return wc;
 }
 
 /*

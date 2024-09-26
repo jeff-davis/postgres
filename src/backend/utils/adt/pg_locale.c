@@ -1227,6 +1227,9 @@ create_pg_locale(Oid collid, MemoryContext context)
 	Assert((result->collate_is_c && result->collate == NULL) ||
 		   (!result->collate_is_c && result->collate != NULL));
 
+	Assert((result->ctype_is_c && result->ctype == NULL) ||
+		   (!result->ctype_is_c && result->ctype != NULL));
+
 	datum = SysCacheGetAttr(COLLOID, tp, Anum_pg_collation_collversion,
 							&isnull);
 	if (!isnull)
@@ -1470,6 +1473,27 @@ get_collation_actual_version(char collprovider, const char *collcollate)
 	return collversion;
 }
 
+size_t
+pg_strlower(char *dst, size_t dstsize, const char *src, ssize_t srclen,
+			pg_locale_t locale)
+{
+	return locale->ctype->strlower(dst, dstsize, src, srclen, locale);
+}
+
+size_t
+pg_strtitle(char *dst, size_t dstsize, const char *src, ssize_t srclen,
+			pg_locale_t locale)
+{
+	return locale->ctype->strtitle(dst, dstsize, src, srclen, locale);
+}
+
+size_t
+pg_strupper(char *dst, size_t dstsize, const char *src, ssize_t srclen,
+			pg_locale_t locale)
+{
+	return locale->ctype->strupper(dst, dstsize, src, srclen, locale);
+}
+
 /*
  * pg_strcoll
  *
@@ -1602,6 +1626,53 @@ pg_strnxfrm_prefix(char *dest, size_t destsize, const char *src,
 				   ssize_t srclen, pg_locale_t locale)
 {
 	return locale->collate->strnxfrm_prefix(dest, destsize, src, srclen, locale);
+}
+
+/*
+ * char_properties()
+ *
+ * Out of the properties specified in the given mask, return a new mask of the
+ * properties true for the given character.
+ */
+int
+char_properties(pg_wchar wc, int mask, pg_locale_t locale)
+{
+	return locale->ctype->char_properties(wc, mask, locale);
+}
+
+/*
+ * char_is_cased()
+ *
+ * Fuzzy test of whether the given char is case-varying or not. The argument
+ * is a single byte, so in a multibyte encoding, just assume any non-ASCII
+ * char is case-varying.
+ */
+bool
+char_is_cased(char ch, pg_locale_t locale)
+{
+	return locale->ctype->char_is_cased(ch, locale);
+}
+
+/*
+ * char_tolower_enabled()
+ *
+ * Does the provider support char_tolower()?
+ */
+bool
+char_tolower_enabled(pg_locale_t locale)
+{
+	return (locale->ctype->char_tolower != NULL);
+}
+
+/*
+ * char_tolower()
+ *
+ * Convert char (single-byte encoding) to lowercase.
+ */
+char
+char_tolower(unsigned char ch, pg_locale_t locale)
+{
+	return locale->ctype->char_tolower(ch, locale);
 }
 
 /*
