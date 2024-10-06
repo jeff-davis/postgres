@@ -305,7 +305,8 @@ static SearchPathCacheEntry *LastSearchPathCacheEntry = NULL;
 static void
 spcache_init(void)
 {
-	Assert(SearchPathCacheContext);
+	if (SearchPathCacheContext == NULL)
+		InitializeSearchPath();
 
 	if (SearchPathCache && searchPathCacheValid &&
 		SearchPathCache->members < SPCACHE_RESET_THRESHOLD)
@@ -4740,7 +4741,7 @@ InitializeSearchPath(void)
 		activeTempCreationPending = baseTempCreationPending;
 		activePathGeneration++; /* pro forma */
 	}
-	else
+	else if (SearchPathCacheContext == NULL)
 	{
 		/* Make the context we'll keep search path cache hashtable in */
 		SearchPathCacheContext = AllocSetContextCreate(TopMemoryContext,
