@@ -26,6 +26,11 @@ extern pg_locale_t create_pg_locale_builtin(Oid collid,
 											MemoryContext context);
 extern char *get_collation_actual_version_builtin(const char *collcollate);
 
+struct builtin_provider
+{
+	const char *locale;
+};
+
 struct WordBoundaryState
 {
 	const char *str;
@@ -192,6 +197,7 @@ pg_locale_t
 create_pg_locale_builtin(Oid collid, MemoryContext context)
 {
 	const char *locstr;
+	struct builtin_provider *builtin;
 	pg_locale_t result;
 
 	if (collid == DEFAULT_COLLATION_OID)
@@ -225,7 +231,10 @@ create_pg_locale_builtin(Oid collid, MemoryContext context)
 
 	result = MemoryContextAllocZero(context, sizeof(struct pg_locale_struct));
 
-	result->info.builtin.locale = MemoryContextStrdup(context, locstr);
+	builtin = MemoryContextAllocZero(context, sizeof(struct builtin_provider));
+	builtin->locale = MemoryContextStrdup(context, locstr);
+	result->provider_data = (void *) builtin;
+
 	result->deterministic = true;
 	result->collate_is_c = true;
 	result->ctype_is_c = (strcmp(locstr, "C") == 0);
