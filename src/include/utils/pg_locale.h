@@ -151,22 +151,7 @@ struct pg_locale_struct
 	const struct collate_methods *collate;	/* NULL if collate_is_c */
 	const struct ctype_methods *ctype;	/* NULL if ctype_is_c */
 
-	union
-	{
-		struct
-		{
-			const char *locale;
-			bool		casemap_full;
-		}			builtin;
-		locale_t	lt;
-#ifdef USE_ICU
-		struct
-		{
-			const char *locale;
-			UCollator  *ucol;
-		}			icu;
-#endif
-	}			info;
+	void	   *provider_data;
 };
 
 extern void init_database_collation(void);
