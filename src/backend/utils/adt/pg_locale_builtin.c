@@ -26,6 +26,12 @@ extern pg_locale_t create_pg_locale_builtin(Oid collid,
 											MemoryContext context);
 extern char *get_collation_actual_version_builtin(const char *collcollate);
 
+struct builtin_provider
+{
+	const char *locale;
+	bool		casemap_full;
+};
+
 struct WordBoundaryState
 {
 	const char *str;
@@ -71,14 +77,19 @@ static size_t
 strlower_builtin(char *dest, size_t destsize, const char *src, ssize_t srclen,
 				 pg_locale_t locale)
 {
+	struct builtin_provider *builtin;
+
+	builtin = (struct builtin_provider *) locale->provider_data;
+
 	return unicode_strlower(dest, destsize, src, srclen,
-							locale->info.builtin.casemap_full);
+							builtin->casemap_full);
 }
 
 static size_t
 strtitle_builtin(char *dest, size_t destsize, const char *src, ssize_t srclen,
 				 pg_locale_t locale)
 {
+	struct builtin_provider *builtin;
 	struct WordBoundaryState wbstate = {
 		.str = src,
 		.len = srclen,
@@ -87,8 +98,10 @@ strtitle_builtin(char *dest, size_t destsize, const char *src, ssize_t srclen,
 		.prev_alnum = false,
 	};
 
+	builtin = (struct builtin_provider *) locale->provider_data;
+
 	return unicode_strtitle(dest, destsize, src, srclen,
-							locale->info.builtin.casemap_full,
+							builtin->casemap_full,
 							initcap_wbnext, &wbstate);
 }
 
@@ -96,22 +109,34 @@ static size_t
 strupper_builtin(char *dest, size_t destsize, const char *src, ssize_t srclen,
 				 pg_locale_t locale)
 {
+	struct builtin_provider *builtin;
+
+	builtin = (struct builtin_provider *) locale->provider_data;
+
 	return unicode_strupper(dest, destsize, src, srclen,
-							locale->info.builtin.casemap_full);
+							builtin->casemap_full);
 }
 
 static size_t
 strfold_builtin(char *dest, size_t destsize, const char *src, ssize_t srclen,
 				pg_locale_t locale)
 {
+	struct builtin_provider *builtin;
+
+	builtin = (struct builtin_provider *) locale->provider_data;
+
 	return unicode_strfold(dest, destsize, src, srclen,
-						   locale->info.builtin.casemap_full);
+						   builtin->casemap_full);
 }
 
 static bool
 wc_isdigit_builtin(pg_wchar wc, pg_locale_t locale)
 {
-	return pg_u_isdigit(wc, !locale->info.builtin.casemap_full);
+	struct builtin_provider *builtin;
+
+	builtin = (struct builtin_provider *) locale->provider_data;
+
+	return pg_u_isdigit(wc, !builtin->casemap_full);
 }
 
 static bool
@@ -123,7 +148,11 @@ wc_isalpha_builtin(pg_wchar wc, pg_locale_t locale)
 static bool
 wc_isalnum_builtin(pg_wchar wc, pg_locale_t locale)
 {
-	return pg_u_isalnum(wc, !locale->info.builtin.casemap_full);
+	struct builtin_provider *builtin;
+
+	builtin = (struct builtin_provider *) locale->provider_data;
+
+	return pg_u_isalnum(wc, !builtin->casemap_full);
 }
 
 static bool
@@ -153,7 +182,11 @@ wc_isprint_builtin(pg_wchar wc, pg_locale_t locale)
 static bool
 wc_ispunct_builtin(pg_wchar wc, pg_locale_t locale)
 {
-	return pg_u_ispunct(wc, !locale->info.builtin.casemap_full);
+	struct builtin_provider *builtin;
+
+	builtin = (struct builtin_provider *) locale->provider_data;
+
+	return pg_u_ispunct(wc, !builtin->casemap_full);
 }
 
 static bool
@@ -204,6 +237,7 @@ pg_locale_t
 create_pg_locale_builtin(Oid collid, MemoryContext context)
 {
 	const char *locstr;
+	struct builtin_provider *builtin;
 	pg_locale_t result;
 
 	if (collid == DEFAULT_COLLATION_OID)
@@ -237,8 +271,11 @@ create_pg_locale_builtin(Oid collid, MemoryContext context)
 
 	result = MemoryContextAllocZero(context, sizeof(struct pg_locale_struct));
 
-	result->info.builtin.locale = MemoryContextStrdup(context, locstr);
-	result->info.builtin.casemap_full = (strcmp(locstr, "PG_UNICODE_FAST") == 0);
+	builtin = MemoryContextAllocZero(context, sizeof(struct builtin_provider));
+	builtin->locale = MemoryContextStrdup(context, locstr);
+	builtin->casemap_full = (strcmp(locstr, "PG_UNICODE_FAST") == 0);
+	result->provider_data = (void *) builtin;
+
 	result->deterministic = true;
 	result->collate_is_c = true;
 	result->ctype_is_c = (strcmp(locstr, "C") == 0);
