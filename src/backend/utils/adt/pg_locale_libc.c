@@ -454,7 +454,6 @@ create_pg_locale_libc(Oid collid, MemoryContext context)
 	loc = make_libc_collator(collate, ctype);
 
 	result = MemoryContextAllocZero(context, sizeof(struct pg_locale_struct));
-	result->provider = COLLPROVIDER_LIBC;
 	result->deterministic = true;
 	result->collate_is_c = (strcmp(collate, "C") == 0) ||
 		(strcmp(collate, "POSIX") == 0);
@@ -579,8 +578,6 @@ strncoll_libc(const char *arg1, ssize_t len1, const char *arg2, ssize_t len2,
 	const char *arg2n;
 	int			result;
 
-	Assert(locale->provider == COLLPROVIDER_LIBC);
-
 	if (bufsize1 + bufsize2 > TEXTBUFLEN)
 		buf = palloc(bufsize1 + bufsize2);
 
@@ -635,8 +632,6 @@ strnxfrm_libc(char *dest, size_t destsize, const char *src, ssize_t srclen,
 	size_t		bufsize = srclen + 1;
 	size_t		result;
 
-	Assert(locale->provider == COLLPROVIDER_LIBC);
-
 	if (srclen == -1)
 		return strxfrm_l(dest, src, destsize, locale->info.lt);
 
@@ -680,7 +675,6 @@ strncoll_libc_win32_utf8(const char *arg1, ssize_t len1, const char *arg2,
 	int			r;
 	int			result;
 
-	Assert(locale->provider == COLLPROVIDER_LIBC);
 	Assert(GetDatabaseEncoding() == PG_UTF8);
 
 	if (len1 == -1)
