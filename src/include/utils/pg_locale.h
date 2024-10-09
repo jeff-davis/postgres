@@ -14,10 +14,6 @@
 
 #include "mb/pg_wchar.h"
 
-#ifdef USE_ICU
-#include <unicode/ucol.h>
-#endif
-
 /* use for libc locale names */
 #define LOCALE_NAME_BUFLEN 128
 

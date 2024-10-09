@@ -13,6 +13,7 @@
 
 #ifdef USE_ICU
 #include <unicode/ucnv.h>
+#include <unicode/ucol.h>
 #include <unicode/ustring.h>
 
 /*
