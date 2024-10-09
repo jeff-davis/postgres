@@ -14,15 +14,6 @@
 
 #include "mb/pg_wchar.h"
 
-#ifdef USE_ICU
-/* only include the C APIs, to avoid errors in cpluspluscheck */
-#undef U_SHOW_CPLUSPLUS_API
-#define U_SHOW_CPLUSPLUS_API 0
-#undef U_SHOW_CPLUSPLUS_HEADER_API
-#define U_SHOW_CPLUSPLUS_HEADER_API 0
-#include <unicode/ucol.h>
-#endif
-
 /* use for libc locale names */
 #define LOCALE_NAME_BUFLEN 128
 
@@ -53,6 +44,11 @@ extern void cache_locale_time(void);
 
 struct pg_locale_struct;
 typedef struct pg_locale_struct *pg_locale_t;
+
+#ifdef USE_ICU
+struct UCollator;
+typedef struct UCollator UCollator;
+#endif
 
 /* methods that define collation behavior */
 struct collate_methods
