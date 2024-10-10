@@ -25,6 +25,15 @@ struct StatsArgInfo
 extern void stats_check_required_arg(FunctionCallInfo fcinfo,
 									 struct StatsArgInfo *arginfo,
 									 int argnum);
+extern bool stats_check_arg_type(const char *argname, Oid argtype,
+								 Oid expectedtype, int elevel);
+extern void stats_check_arg_array(FunctionCallInfo fcinfo,
+								  struct StatsArgInfo *arginfo,
+								  int argnum, int elevel);
+extern void stats_check_arg_pair(FunctionCallInfo fcinfo,
+								 struct StatsArgInfo *arginfo,
+								 int argnum1, int argnum2, int elevel);
+
 extern void stats_lock_check_privileges(Oid reloid);
 
 #endif							/* STATS_UTILS_H */
