@@ -55,10 +55,12 @@ create aggregate sum2(int8,int8) (
 create type aggtype as (a integer, b integer, c text);
 
 create function aggf_trans(aggtype[],integer,integer,text) returns aggtype[]
+  set search_path from current
 as 'select array_append($1,ROW($2,$3,$4)::aggtype)'
 language sql strict immutable;
 
 create function aggfns_trans(aggtype[],integer,integer,text) returns aggtype[]
+  set search_path from current
 as 'select array_append($1,ROW($2,$3,$4)::aggtype)'
 language sql immutable;
 

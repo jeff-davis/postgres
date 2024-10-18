@@ -758,7 +758,8 @@ drop function array_elem_check(int);
 
 create domain di as int;
 
-create function dom_check(int) returns di as $$
+create function dom_check(int) returns di
+  set search_path from current as $$
 declare d di;
 begin
   d := $1::di;
@@ -778,7 +779,8 @@ select dom_check(0);
 
 -- implicit cast during assignment is a separate code path, test that too
 
-create or replace function dom_check(int) returns di as $$
+create or replace function dom_check(int) returns di
+  set search_path from current as $$
 declare d di;
 begin
   d := $1;

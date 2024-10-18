@@ -152,7 +152,8 @@ create type myint (input = myintin, output = myintout, like = int4);
 create cast (int4 as myint) without function;
 create cast (myint as int4) without function;
 
-create function myinteq(myint, myint) returns bool as $$
+create function myinteq(myint, myint) returns bool
+  set search_path from current as $$
 begin
   if $1 is null and $2 is null then
     return true;
@@ -162,7 +163,8 @@ begin
 end;
 $$ language plpgsql immutable;
 
-create function myintne(myint, myint) returns bool as $$
+create function myintne(myint, myint) returns bool
+  set search_path from current as $$
 begin
   return not myinteq($1, $2);
 end;

@@ -1360,7 +1360,7 @@ END;
 $$;
 
 CREATE FUNCTION rwagg_finalfunc(x anyarray) RETURNS anyarray
-LANGUAGE plpgsql STRICT IMMUTABLE AS $$
+LANGUAGE plpgsql STRICT IMMUTABLE SET search_path FROM CURRENT AS $$
 DECLARE
     res x%TYPE;
 BEGIN
