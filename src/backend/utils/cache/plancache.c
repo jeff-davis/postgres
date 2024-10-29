@@ -99,6 +99,8 @@ static dlist_head saved_plan_list = DLIST_STATIC_INIT(saved_plan_list);
  */
 static dlist_head cached_expression_list = DLIST_STATIC_INIT(cached_expression_list);
 
+static MemoryContext PlanCacheContext = NULL;
+
 static void ReleaseGenericPlan(CachedPlanSource *plansource);
 static List *RevalidateCachedQuery(CachedPlanSource *plansource,
 								   QueryEnvironment *queryEnv);
@@ -463,10 +465,19 @@ CompleteCachedPlan(CachedPlanSource *plansource,
 	plansource->is_valid = true;
 }
 
+static void
+CreatePlanCacheContext(void)
+{
+	if (!PlanCacheContext)
+		PlanCacheContext = AllocSetContextCreate(CacheMemoryContext,
+												 "PlanCacheContext",
+												 ALLOCSET_DEFAULT_SIZES);
+}
+
 /*
  * SaveCachedPlan: save a cached plan permanently
  *
- * This function moves the cached plan underneath CacheMemoryContext (making
+ * This function moves the cached plan underneath PlanCacheContext (making
  * it live for the life of the backend, unless explicitly dropped), and adds
  * it to the list of cached plans that are checked for invalidation when an
  * sinval event occurs.
@@ -493,18 +504,21 @@ SaveCachedPlan(CachedPlanSource *plansource)
 	/*
 	 * In typical use, this function would be called before generating any
 	 * plans from the CachedPlanSource.  If there is a generic plan, moving it
-	 * into CacheMemoryContext would be pretty risky since it's unclear
+	 * into PlanCacheContext would be pretty risky since it's unclear
 	 * whether the caller has taken suitable care with making references
 	 * long-lived.  Best thing to do seems to be to discard the plan.
 	 */
 	ReleaseGenericPlan(plansource);
 
+	if (!PlanCacheContext)
+		CreatePlanCacheContext();
+
 	/*
-	 * Reparent the source memory context under CacheMemoryContext so that it
+	 * Reparent the source memory context under PlanCacheContext so that it
 	 * will live indefinitely.  The query_context follows along since it's
 	 * already a child of the other one.
 	 */
-	MemoryContextSetParent(plansource->context, CacheMemoryContext);
+	MemoryContextSetParent(plansource->context, PlanCacheContext);
 
 	/*
 	 * Add the entry to the global list of cached plans.
@@ -1205,8 +1219,8 @@ GetCachedPlan(CachedPlanSource *plansource, ParamListInfo boundParams,
 			/* Immediately reparent into appropriate context */
 			if (plansource->is_saved)
 			{
-				/* saved plans all live under CacheMemoryContext */
-				MemoryContextSetParent(plan->context, CacheMemoryContext);
+				/* saved plans all live under PlanCacheContext */
+				MemoryContextSetParent(plan->context, PlanCacheContext);
 				plan->is_saved = true;
 			}
 			else
@@ -1262,14 +1276,14 @@ GetCachedPlan(CachedPlanSource *plansource, ParamListInfo boundParams,
 		ResourceOwnerRememberPlanCacheRef(owner, plan);
 
 	/*
-	 * Saved plans should be under CacheMemoryContext so they will not go away
+	 * Saved plans should be under PlanCacheContext so they will not go away
 	 * until their reference count goes to zero.  In the generic-plan cases we
 	 * already took care of that, but for a custom plan, do it as soon as we
 	 * have created a reference-counted link.
 	 */
 	if (customplan && plansource->is_saved)
 	{
-		MemoryContextSetParent(plan->context, CacheMemoryContext);
+		MemoryContextSetParent(plan->context, PlanCacheContext);
 		plan->is_saved = true;
 	}
 
@@ -1492,7 +1506,7 @@ CachedPlanIsSimplyValid(CachedPlanSource *plansource, CachedPlan *plan,
  * CachedPlanSetParentContext: move a CachedPlanSource to a new memory context
  *
  * This can only be applied to unsaved plans; once saved, a plan always
- * lives underneath CacheMemoryContext.
+ * lives underneath PlanCacheContext.
  */
 void
 CachedPlanSetParentContext(CachedPlanSource *plansource,
@@ -1713,10 +1727,10 @@ GetCachedExpression(Node *expr)
 	MemoryContextSwitchTo(oldcxt);
 
 	/*
-	 * Reparent the expr's memory context under CacheMemoryContext so that it
+	 * Reparent the expr's memory context under PlanCacheContext so that it
 	 * will live indefinitely.
 	 */
-	MemoryContextSetParent(cexpr_context, CacheMemoryContext);
+	MemoryContextSetParent(cexpr_context, PlanCacheContext);
 
 	/*
 	 * Add the entry to the global list of cached expressions.

@@ -373,7 +373,7 @@ retry:
 	 * We have a fully valid partdesc.  Reparent it so that it has the right
 	 * lifespan.
 	 */
-	MemoryContextSetParent(new_pdcxt, CacheMemoryContext);
+	MemoryContextSetParent(new_pdcxt, RelCacheContext);
 
 	/*
 	 * Store it into relcache.

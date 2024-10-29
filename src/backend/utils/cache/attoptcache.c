@@ -114,8 +114,8 @@ InitializeAttoptCache(void)
 					HASH_ELEM | HASH_FUNCTION);
 
 	/* Make sure we've initialized CacheMemoryContext. */
-	if (!CacheMemoryContext)
-		CreateCacheMemoryContext();
+	if (!RelCacheContext)
+		CreateRelCacheContext();
 
 	/* Watch for invalidation events. */
 	CacheRegisterSyscacheCallback(ATTNUM,
@@ -178,7 +178,7 @@ get_attribute_options(Oid attrelid, int attnum)
 			{
 				bytea	   *bytea_opts = attribute_reloptions(datum, false);
 
-				opts = MemoryContextAlloc(CacheMemoryContext,
+				opts = MemoryContextAlloc(RelCacheContext,
 										  VARSIZE(bytea_opts));
 				memcpy(opts, bytea_opts, VARSIZE(bytea_opts));
 			}

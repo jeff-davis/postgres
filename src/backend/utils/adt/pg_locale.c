@@ -62,6 +62,7 @@
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "utils/builtins.h"
+#include "utils/catcache.h"
 #include "utils/formatting.h"
 #include "utils/guc_hooks.h"
 #include "utils/lsyscache.h"
@@ -1464,7 +1465,10 @@ pg_newlocale_from_collation(Oid collid)
 
 	if (CollationCache == NULL)
 	{
-		CollationCacheContext = AllocSetContextCreate(TopMemoryContext,
+		if (!CacheMemoryContext)
+			CreateCacheMemoryContext();
+
+		CollationCacheContext = AllocSetContextCreate(CacheMemoryContext,
 													  "collation cache",
 													  ALLOCSET_DEFAULT_SIZES);
 		CollationCache = collation_cache_create(CollationCacheContext,

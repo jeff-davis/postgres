@@ -1994,7 +1994,7 @@ RelationBuildTriggers(Relation relation)
 		SetTriggerFlags(trigdesc, &(triggers[i]));
 
 	/* Copy completed trigdesc into cache storage */
-	oldContext = MemoryContextSwitchTo(CacheMemoryContext);
+	oldContext = MemoryContextSwitchTo(RelCacheContext);
 	relation->trigdesc = CopyTriggerDesc(trigdesc);
 	MemoryContextSwitchTo(oldContext);
 
