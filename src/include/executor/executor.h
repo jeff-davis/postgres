@@ -161,7 +161,7 @@ extern TupleHashEntry FindTupleHashEntry(TupleHashTable hashtable,
 										 TupleTableSlot *slot,
 										 ExprState *eqcomp,
 										 FmgrInfo *hashfunctions);
-extern void ResetTupleHashTable(TupleHashTable hashtable);
+extern void ResetTupleHashTable(TupleHashTable hashtable, long nbuckets);
 
 /*
  * prototypes from functions in execJunk.c

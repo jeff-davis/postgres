@@ -279,13 +279,27 @@ BuildTupleHashTable(PlanState *parent,
 
 /*
  * Reset contents of the hashtable to be empty, preserving all the non-content
- * state. Note that the tablecxt passed to BuildTupleHashTableExt() should
- * also be reset, otherwise there will be leaks.
+ * state. If nbuckets is -1, or if the bucket array is already the right size,
+ * then preserve it; otherwise rebuild it. Note that the tablecxt passed to
+ * BuildTupleHashTableExt() should also be reset, otherwise there will be
+ * leaks.
  */
 void
-ResetTupleHashTable(TupleHashTable hashtable)
+ResetTupleHashTable(TupleHashTable hashtable, long nbuckets)
 {
-	tuplehash_reset(hashtable->hashtab);
+	tuplehash_hash *hashtab = hashtable->hashtab;
+
+	if (nbuckets < 0 || nbuckets == hashtable->hashtab->size)
+	{
+		tuplehash_reset(hashtab);
+	}
+	else
+	{
+		MemoryContext metacxt = hashtab->ctx;
+
+		tuplehash_destroy(hashtab);
+		hashtable->hashtab = tuplehash_create(metacxt, nbuckets, hashtable);
+	}
 }
 
 /*

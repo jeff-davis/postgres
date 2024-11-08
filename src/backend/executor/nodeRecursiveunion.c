@@ -328,7 +328,7 @@ ExecReScanRecursiveUnion(RecursiveUnionState *node)
 
 	/* Empty hashtable if needed */
 	if (plan->numCols > 0)
-		ResetTupleHashTable(node->hashtable);
+		ResetTupleHashTable(node->hashtable, -1);
 
 	/* reset processing state */
 	node->recursing = false;

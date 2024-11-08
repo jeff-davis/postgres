@@ -636,7 +636,7 @@ ExecReScanSetOp(SetOpState *node)
 	/* And rebuild empty hashtable if needed */
 	if (((SetOp *) node->ps.plan)->strategy == SETOP_HASHED)
 	{
-		ResetTupleHashTable(node->hashtable);
+		ResetTupleHashTable(node->hashtable, -1);
 		node->table_filled = false;
 	}
 

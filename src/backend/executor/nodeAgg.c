@@ -1477,7 +1477,7 @@ build_hash_tables(AggState *aggstate)
 
 		if (perhash->hashtable != NULL)
 		{
-			ResetTupleHashTable(perhash->hashtable);
+			ResetTupleHashTable(perhash->hashtable, -1);
 			continue;
 		}
 
@@ -2623,7 +2623,33 @@ agg_refill_hash_table(AggState *aggstate)
 	/* free memory and reset hash tables */
 	ReScanExprContext(aggstate->hashcontext);
 	for (int setno = 0; setno < aggstate->num_hashes; setno++)
-		ResetTupleHashTable(aggstate->perhash[setno].hashtable);
+	{
+		TupleHashTable hashtable = aggstate->perhash[setno].hashtable;
+
+		if (setno == batch->setno)
+		{
+			/*
+			 * Recalculate nbuckets for this batch. This is important when a
+			 * previous iteration caused the number of buckets to grow to an
+			 * unexpectedly large value, crowding out space for the tuples.
+			 */
+			long		nbuckets;
+
+			nbuckets = hash_choose_num_buckets(aggstate->hashentrysize,
+											   batch->input_card,
+											   aggstate->hash_mem_limit);
+
+			ResetTupleHashTable(hashtable, nbuckets);
+		}
+		else
+		{
+			/*
+			 * Free memory but leave metadata intact by setting nbuckets to
+			 * minimal value.
+			 */
+			ResetTupleHashTable(hashtable, 1);
+		}
+	}
 
 	aggstate->hash_ngroups_current = 0;
 

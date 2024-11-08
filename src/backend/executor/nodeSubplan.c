@@ -529,7 +529,7 @@ buildSubPlanHash(SubPlanState *node, ExprContext *econtext)
 		nbuckets = 1;
 
 	if (node->hashtable)
-		ResetTupleHashTable(node->hashtable);
+		ResetTupleHashTable(node->hashtable, -1);
 	else
 		node->hashtable = BuildTupleHashTableExt(node->parent,
 												 node->descRight,
@@ -557,7 +557,7 @@ buildSubPlanHash(SubPlanState *node, ExprContext *econtext)
 		}
 
 		if (node->hashnulls)
-			ResetTupleHashTable(node->hashnulls);
+			ResetTupleHashTable(node->hashnulls, -1);
 		else
 			node->hashnulls = BuildTupleHashTableExt(node->parent,
 													 node->descRight,
