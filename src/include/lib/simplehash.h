@@ -124,6 +124,7 @@
 #define SH_RESET SH_MAKE_NAME(reset)
 #define SH_INSERT SH_MAKE_NAME(insert)
 #define SH_INSERT_HASH SH_MAKE_NAME(insert_hash)
+#define SH_INSERT_EXT SH_MAKE_NAME(insert_ext)
 #define SH_DELETE_ITEM SH_MAKE_NAME(delete_item)
 #define SH_DELETE SH_MAKE_NAME(delete)
 #define SH_LOOKUP SH_MAKE_NAME(lookup)
@@ -144,7 +145,7 @@
 #define SH_DISTANCE_FROM_OPTIMAL SH_MAKE_NAME(distance)
 #define SH_INITIAL_BUCKET SH_MAKE_NAME(initial_bucket)
 #define SH_ENTRY_HASH SH_MAKE_NAME(entry_hash)
-#define SH_INSERT_HASH_INTERNAL SH_MAKE_NAME(insert_hash_internal)
+#define SH_INSERT_EXT_INTERNAL SH_MAKE_NAME(insert_ext_internal)
 #define SH_LOOKUP_HASH_INTERNAL SH_MAKE_NAME(lookup_hash_internal)
 
 /* generate forward declarations necessary to use the hash table */
@@ -225,6 +226,13 @@ SH_SCOPE	SH_ELEMENT_TYPE *SH_INSERT(SH_TYPE * tb, SH_KEY_TYPE key, bool *found);
  */
 SH_SCOPE	SH_ELEMENT_TYPE *SH_INSERT_HASH(SH_TYPE * tb, SH_KEY_TYPE key,
 											uint32 hash, bool *found);
+
+/*
+ * <element> *<prefix>_insert_ext(<prefix>_hash *tb, <key> key, uint32 hash,
+ * 								  bool grow_ok, bool *found)
+ */
+SH_SCOPE	SH_ELEMENT_TYPE *SH_INSERT_EXT(SH_TYPE * tb, SH_KEY_TYPE key,
+										   uint32 hash, bool grow_ok, bool *found);
 
 /* <element> *<prefix>_lookup(<prefix>_hash *tb, <key> key) */
 SH_SCOPE	SH_ELEMENT_TYPE *SH_LOOKUP(SH_TYPE * tb, SH_KEY_TYPE key);
@@ -627,7 +635,8 @@ SH_GROW(SH_TYPE * tb, uint64 newsize)
  * into its wrapper functions even if SH_SCOPE is extern.
  */
 static inline SH_ELEMENT_TYPE *
-SH_INSERT_HASH_INTERNAL(SH_TYPE * tb, SH_KEY_TYPE key, uint32 hash, bool *found)
+SH_INSERT_EXT_INTERNAL(SH_TYPE * tb, SH_KEY_TYPE key, uint32 hash, bool grow_ok,
+					   bool *found)
 {
 	uint32		startelem;
 	uint32		curelem;
@@ -645,7 +654,7 @@ restart:
 	 * Note that this also reached when resizing the table due to
 	 * SH_GROW_MAX_DIB / SH_GROW_MAX_MOVE.
 	 */
-	if (unlikely(tb->members >= tb->grow_threshold))
+	if (unlikely(grow_ok && tb->members >= tb->grow_threshold))
 	{
 		if (unlikely(tb->size == SH_MAX_SIZE))
 			sh_error("hash table size exceeded");
@@ -672,6 +681,9 @@ restart:
 		/* any empty bucket can directly be used */
 		if (SH_ENTRY_IS_EMPTY(tb, entry))
 		{
+			if (unlikely(!grow_ok && tb->members >= tb->grow_threshold))
+				return NULL;
+
 			tb->members++;
 			entry->SH_KEY = key;
 #ifdef SH_STORE_HASH
@@ -707,6 +719,9 @@ restart:
 			uint32		emptyelem = curelem;
 			uint32		moveelem;
 			int32		emptydist = 0;
+
+			if (unlikely(!grow_ok && tb->members >= tb->grow_threshold))
+				return NULL;
 
 			/* find next empty bucket */
 			while (true)
@@ -799,7 +814,7 @@ SH_INSERT(SH_TYPE * tb, SH_KEY_TYPE key, bool *found)
 {
 	uint32		hash = SH_HASH_KEY(tb, key);
 
-	return SH_INSERT_HASH_INTERNAL(tb, key, hash, found);
+	return SH_INSERT_EXT_INTERNAL(tb, key, hash, true, found);
 }
 
 /*
@@ -810,7 +825,20 @@ SH_INSERT(SH_TYPE * tb, SH_KEY_TYPE key, bool *found)
 SH_SCOPE	SH_ELEMENT_TYPE *
 SH_INSERT_HASH(SH_TYPE * tb, SH_KEY_TYPE key, uint32 hash, bool *found)
 {
-	return SH_INSERT_HASH_INTERNAL(tb, key, hash, found);
+	return SH_INSERT_EXT_INTERNAL(tb, key, hash, true, found);
+}
+
+/*
+ * Insert the key into the hash-table using an already-calculated hash. Set
+ * *found to true if the key already exists, false otherwise. If growing is
+ * necessary, and and !grow_ok, return NULL; otherwise returns the hash-table
+ * entry.
+ */
+SH_SCOPE	SH_ELEMENT_TYPE *
+SH_INSERT_EXT(SH_TYPE * tb, SH_KEY_TYPE key, uint32 hash, bool grow_ok,
+			  bool *found)
+{
+	return SH_INSERT_EXT_INTERNAL(tb, key, hash, grow_ok, found);
 }
 
 /*
@@ -1224,5 +1252,5 @@ SH_STAT(SH_TYPE * tb)
 #undef SH_PREV
 #undef SH_DISTANCE_FROM_OPTIMAL
 #undef SH_ENTRY_HASH
-#undef SH_INSERT_HASH_INTERNAL
+#undef SH_INSERT_EXT_INTERNAL
 #undef SH_LOOKUP_HASH_INTERNAL
