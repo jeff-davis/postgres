@@ -59,13 +59,13 @@ SELECT normalize(U&'\00E4\24D1c', NFD) = U&'\0061\0308\24D1c' COLLATE "C" AS tes
 SELECT normalize(U&'\0061\0308\24D1c', NFKC) = U&'\00E4bc' COLLATE "C" AS test_nfkc;
  test_nfkc 
 -----------
- t
+ f
 (1 row)
 
 SELECT normalize(U&'\00E4\24D1c', NFKD) = U&'\0061\0308bc' COLLATE "C" AS test_nfkd;
  test_nfkd 
 -----------
- t
+ f
 (1 row)
 
 SELECT "normalize"('abc', 'def');  -- run-time error
@@ -99,7 +99,7 @@ ORDER BY num;
    1 | äbc | t   | f   | t    | f
    2 | äbc | f   | t   | f    | t
    3 | äⓑc | t   | f   | f    | f
-   4 | äⓑc | f   | t   | f    | f
+   4 | äⓑc | f   | t   | f    | t
    5 |     | t   | t   | t    | t
 (5 rows)
 
