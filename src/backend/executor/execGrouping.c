@@ -35,7 +35,8 @@ static inline uint32 TupleHashTableHash_internal(struct tuplehash_hash *tb,
 												 const MinimalTuple tuple);
 static inline TupleHashEntry LookupTupleHashEntry_internal(TupleHashTable hashtable,
 														   TupleTableSlot *slot,
-														   bool *isnew, uint32 hash);
+														   bool grow_ok, bool *isnew,
+														   uint32 hash);
 
 /*
  * Create a dummy pointer used to mean the input slot. The pointer will only
@@ -350,7 +351,42 @@ LookupTupleHashEntry(TupleHashTable hashtable, TupleTableSlot *slot,
 	hashtable->cur_eq_func = hashtable->tab_eq_func;
 
 	local_hash = TupleHashTableHash_internal(hashtable->hashtab, FIRSTTUPLE_INPUTSLOT);
-	entry = LookupTupleHashEntry_internal(hashtable, slot, isnew, local_hash);
+	entry = LookupTupleHashEntry_internal(hashtable, slot, true, isnew,
+										  local_hash);
+
+	if (hash != NULL)
+		*hash = local_hash;
+
+	Assert(entry == NULL || entry->hash == local_hash);
+
+	MemoryContextSwitchTo(oldContext);
+
+	return entry;
+}
+
+/*
+ * Like LookupTupleHashEntry, but allows specifying grow_ok to false, which
+ * prevents a new entry from growing the internal bucket array.
+ */
+TupleHashEntry
+LookupTupleHashEntryExt(TupleHashTable hashtable, TupleTableSlot *slot,
+						bool grow_ok, bool *isnew, uint32 *hash)
+{
+	TupleHashEntry entry;
+	MemoryContext oldContext;
+	uint32		local_hash;
+
+	/* Need to run the hash functions in short-lived context */
+	oldContext = MemoryContextSwitchTo(hashtable->tempcxt);
+
+	/* set up data needed by hash and match functions */
+	hashtable->inputslot = slot;
+	hashtable->in_hash_funcs = hashtable->tab_hash_funcs;
+	hashtable->cur_eq_func = hashtable->tab_eq_func;
+
+	local_hash = TupleHashTableHash_internal(hashtable->hashtab, FIRSTTUPLE_INPUTSLOT);
+	entry = LookupTupleHashEntry_internal(hashtable, slot, grow_ok, isnew,
+										  local_hash);
 
 	if (hash != NULL)
 		*hash = local_hash;
@@ -411,11 +447,12 @@ TupleHashEntrySetAdditional(TupleHashEntry entry, void *additional)
 
 /*
  * A variant of LookupTupleHashEntry for callers that have already computed
- * the hash value.
+ * the hash value. Also allows specifying grow_ok to false, which prevents a
+ * new entry from growing the internal bucket array.
  */
 TupleHashEntry
-LookupTupleHashEntryHash(TupleHashTable hashtable, TupleTableSlot *slot,
-						 bool *isnew, uint32 hash)
+LookupTupleHashEntryHashExt(TupleHashTable hashtable, TupleTableSlot *slot,
+							bool grow_ok, bool *isnew, uint32 hash)
 {
 	TupleHashEntry entry;
 	MemoryContext oldContext;
@@ -428,7 +465,8 @@ LookupTupleHashEntryHash(TupleHashTable hashtable, TupleTableSlot *slot,
 	hashtable->in_hash_funcs = hashtable->tab_hash_funcs;
 	hashtable->cur_eq_func = hashtable->tab_eq_func;
 
-	entry = LookupTupleHashEntry_internal(hashtable, slot, isnew, hash);
+	entry = LookupTupleHashEntry_internal(hashtable, slot, grow_ok, isnew,
+										  hash);
 	Assert(entry == NULL || entry->hash == hash);
 
 	MemoryContextSwitchTo(oldContext);
@@ -545,12 +583,15 @@ TupleHashTableHash_internal(struct tuplehash_hash *tb,
  * so that we can avoid switching the memory context multiple times for
  * LookupTupleHashEntry.
  *
+ * If grow_ok is false, returns NULL if adding a new entry would cause the
+ * internal tuplehash bucket array to grow (that is, to double in size).
+ *
  * NB: This function may or may not change the memory context. Caller is
  * expected to change it back.
  */
 static inline TupleHashEntry
 LookupTupleHashEntry_internal(TupleHashTable hashtable, TupleTableSlot *slot,
-							  bool *isnew, uint32 hash)
+							  bool grow_ok, bool *isnew, uint32 hash)
 {
 	struct TupleHashEntryData *entry;
 	bool		found;
@@ -560,11 +601,11 @@ LookupTupleHashEntry_internal(TupleHashTable hashtable, TupleTableSlot *slot,
 
 	if (isnew)
 	{
-		entry = tuplehash_insert_hash(hashtable->hashtab, key, hash, &found);
+		entry = tuplehash_insert_ext(hashtable->hashtab, key, hash, grow_ok,
+									 &found);
 
-		if (found)
+		if (entry == NULL || found)
 		{
-			/* found pre-existing entry */
 			*isnew = false;
 		}
 		else
