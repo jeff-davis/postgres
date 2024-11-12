@@ -1494,6 +1494,7 @@ build_hash_tables(AggState *aggstate)
 	}
 
 	aggstate->hash_ngroups_current = 0;
+	aggstate->hash_grow_ok = true;
 }
 
 /*
@@ -1861,6 +1862,9 @@ hash_agg_check_limits(AggState *aggstate)
 	Size		hashkey_mem = MemoryContextMemAllocated(aggstate->hashcontext->ecxt_per_tuple_memory,
 														true);
 
+	if (meta_mem * 2 + hashkey_mem > aggstate->hash_mem_limit)
+		aggstate->hash_grow_ok = false;
+
 	/*
 	 * Don't spill unless there's at least one group in the hash table so we
 	 * can be sure to make progress even in edge cases.
@@ -2103,7 +2107,7 @@ lookup_hash_entries(AggState *aggstate)
 		AggStatePerHash perhash = &aggstate->perhash[setno];
 		TupleHashTable hashtable = perhash->hashtable;
 		TupleTableSlot *hashslot = perhash->hashslot;
-		TupleHashEntry entry;
+		TupleHashEntry entry = NULL;
 		uint32		hash;
 		bool		isnew = false;
 		bool	   *p_isnew;
@@ -2116,16 +2120,21 @@ lookup_hash_entries(AggState *aggstate)
 						  outerslot,
 						  hashslot);
 
-		entry = LookupTupleHashEntry(hashtable, hashslot,
-									 p_isnew, &hash);
-
-		if (entry != NULL)
+		entry = LookupTupleHashEntryExt(hashtable, hashslot,
+										aggstate->hash_grow_ok,
+										p_isnew, &hash);
+		if (entry)
 		{
 			if (isnew)
 				initialize_hash_entry(aggstate, hashtable, entry);
 			pergroup[setno] = entry->additional;
 		}
-		else
+		else if (!aggstate->hash_spill_mode)
+		{
+			hash_agg_enter_spill_mode(aggstate);
+		}
+
+		if (!entry)
 		{
 			HashAggSpill *spill = &aggstate->hash_spills[setno];
 			TupleTableSlot *slot = aggstate->tmpcontext->ecxt_outertuple;
@@ -2626,6 +2635,7 @@ agg_refill_hash_table(AggState *aggstate)
 		ResetTupleHashTable(aggstate->perhash[setno].hashtable);
 
 	aggstate->hash_ngroups_current = 0;
+	aggstate->hash_grow_ok = true;
 
 	/*
 	 * In AGG_MIXED mode, hash aggregation happens in phase 1 and the output
@@ -2656,7 +2666,7 @@ agg_refill_hash_table(AggState *aggstate)
 	{
 		TupleTableSlot *spillslot = aggstate->hash_spill_rslot;
 		TupleTableSlot *hashslot = perhash->hashslot;
-		TupleHashEntry entry;
+		TupleHashEntry entry = NULL;
 		MinimalTuple tuple;
 		uint32		hash;
 		bool		isnew = false;
@@ -2674,17 +2684,24 @@ agg_refill_hash_table(AggState *aggstate)
 		prepare_hash_slot(perhash,
 						  aggstate->tmpcontext->ecxt_outertuple,
 						  hashslot);
-		entry = LookupTupleHashEntryHash(perhash->hashtable, hashslot,
-										 p_isnew, hash);
 
-		if (entry != NULL)
+		entry = LookupTupleHashEntryHashExt(perhash->hashtable, hashslot,
+											true, p_isnew,
+											hash);
+
+		if (entry)
 		{
 			if (isnew)
 				initialize_hash_entry(aggstate, perhash->hashtable, entry);
 			aggstate->hash_pergroup[batch->setno] = entry->additional;
 			advance_aggregates(aggstate);
 		}
-		else
+		else if (!aggstate->hash_spill_mode)
+		{
+			hash_agg_enter_spill_mode(aggstate);
+		}
+
+		if (!entry)
 		{
 			if (!spill_initialized)
 			{
@@ -2723,6 +2740,7 @@ agg_refill_hash_table(AggState *aggstate)
 	else
 		hash_agg_update_metrics(aggstate, true, 0);
 
+	aggstate->hash_grow_ok = true;
 	aggstate->hash_spill_mode = false;
 
 	/* prepare to walk the first hash table */
@@ -3082,6 +3100,7 @@ hashagg_finish_initial_spills(AggState *aggstate)
 
 	hash_agg_update_metrics(aggstate, false, total_npartitions);
 	aggstate->hash_spill_mode = false;
+	aggstate->hash_grow_ok = true;
 }
 
 /*
@@ -3225,6 +3244,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	aggstate->grp_firstTuple = NULL;
 	aggstate->sort_in = NULL;
 	aggstate->sort_out = NULL;
+	aggstate->hash_grow_ok = true;
 
 	/*
 	 * phases[0] always exists, but is dummy in sorted/plain mode
@@ -4449,6 +4469,7 @@ ExecReScanAgg(AggState *node)
 	{
 		hashagg_reset_spill_state(node);
 
+		node->hash_grow_ok = true;
 		node->hash_ever_spilled = false;
 		node->hash_spill_mode = false;
 		node->hash_ngroups_current = 0;

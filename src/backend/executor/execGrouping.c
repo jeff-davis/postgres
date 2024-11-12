@@ -25,7 +25,8 @@ static inline uint32 TupleHashTableHash_internal(struct tuplehash_hash *tb,
 												 const MinimalTuple tuple);
 static inline TupleHashEntry LookupTupleHashEntry_internal(TupleHashTable hashtable,
 														   TupleTableSlot *slot,
-														   bool *isnew, uint32 hash);
+														   bool grow_ok, bool *isnew,
+														   uint32 hash);
 
 /*
  * Define parameters for tuple hash table code generation. The interface is
@@ -320,7 +321,38 @@ LookupTupleHashEntry(TupleHashTable hashtable, TupleTableSlot *slot,
 	hashtable->cur_eq_func = hashtable->tab_eq_func;
 
 	local_hash = TupleHashTableHash_internal(hashtable->hashtab, NULL);
-	entry = LookupTupleHashEntry_internal(hashtable, slot, isnew, local_hash);
+	entry = LookupTupleHashEntry_internal(hashtable, slot, true, isnew,
+										  local_hash);
+
+	if (hash != NULL)
+		*hash = local_hash;
+
+	Assert(entry == NULL || entry->hash == local_hash);
+
+	MemoryContextSwitchTo(oldContext);
+
+	return entry;
+}
+
+TupleHashEntry
+LookupTupleHashEntryExt(TupleHashTable hashtable, TupleTableSlot *slot,
+						bool grow_ok, bool *isnew, uint32 *hash)
+{
+	TupleHashEntry entry;
+	MemoryContext oldContext;
+	uint32		local_hash;
+
+	/* Need to run the hash functions in short-lived context */
+	oldContext = MemoryContextSwitchTo(hashtable->tempcxt);
+
+	/* set up data needed by hash and match functions */
+	hashtable->inputslot = slot;
+	hashtable->in_hash_funcs = hashtable->tab_hash_funcs;
+	hashtable->cur_eq_func = hashtable->tab_eq_func;
+
+	local_hash = TupleHashTableHash_internal(hashtable->hashtab, NULL);
+	entry = LookupTupleHashEntry_internal(hashtable, slot, grow_ok, isnew,
+										  local_hash);
 
 	if (hash != NULL)
 		*hash = local_hash;
@@ -359,8 +391,8 @@ TupleHashTableHash(TupleHashTable hashtable, TupleTableSlot *slot)
  * the hash value.
  */
 TupleHashEntry
-LookupTupleHashEntryHash(TupleHashTable hashtable, TupleTableSlot *slot,
-						 bool *isnew, uint32 hash)
+LookupTupleHashEntryHashExt(TupleHashTable hashtable, TupleTableSlot *slot,
+							bool grow_ok, bool *isnew, uint32 hash)
 {
 	TupleHashEntry entry;
 	MemoryContext oldContext;
@@ -373,7 +405,8 @@ LookupTupleHashEntryHash(TupleHashTable hashtable, TupleTableSlot *slot,
 	hashtable->in_hash_funcs = hashtable->tab_hash_funcs;
 	hashtable->cur_eq_func = hashtable->tab_eq_func;
 
-	entry = LookupTupleHashEntry_internal(hashtable, slot, isnew, hash);
+	entry = LookupTupleHashEntry_internal(hashtable, slot, grow_ok, isnew,
+										  hash);
 	Assert(entry == NULL || entry->hash == hash);
 
 	MemoryContextSwitchTo(oldContext);
@@ -495,7 +528,7 @@ TupleHashTableHash_internal(struct tuplehash_hash *tb,
  */
 static inline TupleHashEntry
 LookupTupleHashEntry_internal(TupleHashTable hashtable, TupleTableSlot *slot,
-							  bool *isnew, uint32 hash)
+							  bool grow_ok, bool *isnew, uint32 hash)
 {
 	TupleHashEntryData *entry;
 	bool		found;
@@ -505,11 +538,11 @@ LookupTupleHashEntry_internal(TupleHashTable hashtable, TupleTableSlot *slot,
 
 	if (isnew)
 	{
-		entry = tuplehash_insert_hash(hashtable->hashtab, key, hash, &found);
+		entry = tuplehash_insert_ext(hashtable->hashtab, key, hash, grow_ok,
+									 &found);
 
-		if (found)
+		if (entry == NULL || found)
 		{
-			/* found pre-existing entry */
 			*isnew = false;
 		}
 		else
