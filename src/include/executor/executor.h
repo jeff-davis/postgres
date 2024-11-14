@@ -154,9 +154,13 @@ extern TupleHashEntry LookupTupleHashEntry(TupleHashTable hashtable,
 										   bool *isnew, uint32 *hash);
 extern uint32 TupleHashTableHash(TupleHashTable hashtable,
 								 TupleTableSlot *slot);
+extern size_t TupleHashEntrySize(void);
 extern TupleHashEntry LookupTupleHashEntryHash(TupleHashTable hashtable,
 											   TupleTableSlot *slot,
 											   bool *isnew, uint32 hash);
+extern MinimalTuple TupleHashEntryGetTuple(TupleHashEntry entry);
+extern void *TupleHashEntryGetAdditional(TupleHashEntry entry);
+extern void TupleHashEntrySetAdditional(TupleHashEntry entry, void *additional);
 extern TupleHashEntry FindTupleHashEntry(TupleHashTable hashtable,
 										 TupleTableSlot *slot,
 										 ExprState *eqcomp,

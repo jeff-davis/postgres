@@ -20,6 +20,14 @@
 #include "miscadmin.h"
 #include "utils/lsyscache.h"
 
+struct TupleHashEntryData
+{
+	MinimalTuple firstTuple;	/* copy of first tuple in this group */
+	void	   *additional;		/* user data */
+	uint32		status;			/* hash status */
+	uint32		hash;			/* hash value (cached) */
+};
+
 static int	TupleHashTableMatch(struct tuplehash_hash *tb, const MinimalTuple tuple1, const MinimalTuple tuple2);
 static inline uint32 TupleHashTableHash_internal(struct tuplehash_hash *tb,
 												 const MinimalTuple tuple);
@@ -33,7 +41,7 @@ static inline TupleHashEntry LookupTupleHashEntry_internal(TupleHashTable hashta
  * visible).
  */
 #define SH_PREFIX tuplehash
-#define SH_ELEMENT_TYPE TupleHashEntryData
+#define SH_ELEMENT_TYPE struct TupleHashEntryData
 #define SH_KEY_TYPE MinimalTuple
 #define SH_KEY firstTuple
 #define SH_HASH_KEY(tb, key) TupleHashTableHash_internal(tb, key)
@@ -165,7 +173,7 @@ BuildTupleHashTableExt(PlanState *parent,
 					   bool use_variable_hash_iv)
 {
 	TupleHashTable hashtable;
-	Size		entrysize = sizeof(TupleHashEntryData) + additionalsize;
+	Size		entrysize = sizeof(struct TupleHashEntryData) + additionalsize;
 	Size		hash_mem_limit;
 	MemoryContext oldcontext;
 	bool		allow_jit;
@@ -289,6 +297,15 @@ ResetTupleHashTable(TupleHashTable hashtable)
 }
 
 /*
+ * Return size of the hash bucket. Useful for estimating memory usage.
+ */
+size_t
+TupleHashEntrySize(void)
+{
+	return sizeof(struct TupleHashEntryData);
+}
+
+/*
  * Find or create a hashtable entry for the tuple group containing the
  * given tuple.  The tuple must be the same type as the hashtable entries.
  *
@@ -352,6 +369,24 @@ TupleHashTableHash(TupleHashTable hashtable, TupleTableSlot *slot)
 	MemoryContextSwitchTo(oldContext);
 
 	return hash;
+}
+
+MinimalTuple
+TupleHashEntryGetTuple(TupleHashEntry entry)
+{
+	return entry->firstTuple;
+}
+
+void *
+TupleHashEntryGetAdditional(TupleHashEntry entry)
+{
+	return entry->additional;
+}
+
+void
+TupleHashEntrySetAdditional(TupleHashEntry entry, void *additional)
+{
+	entry->additional = additional;
 }
 
 /*
@@ -497,7 +532,7 @@ static inline TupleHashEntry
 LookupTupleHashEntry_internal(TupleHashTable hashtable, TupleTableSlot *slot,
 							  bool *isnew, uint32 hash)
 {
-	TupleHashEntryData *entry;
+	struct TupleHashEntryData *entry;
 	bool		found;
 	MinimalTuple key;
 
