@@ -364,7 +364,7 @@ setop_fill_hash_table(SetOpState *setopstate)
 	{
 		TupleTableSlot *outerslot;
 		int			flag;
-		TupleHashEntryData *entry;
+		TupleHashEntry entry;
 		bool		isnew;
 
 		outerslot = ExecProcNode(outerPlan);
@@ -386,14 +386,14 @@ setop_fill_hash_table(SetOpState *setopstate)
 			/* If new tuple group, initialize counts */
 			if (isnew)
 			{
-				entry->additional = (SetOpStatePerGroup)
-					MemoryContextAlloc(setopstate->hashtable->tablecxt,
-									   sizeof(SetOpStatePerGroupData));
-				initialize_counts((SetOpStatePerGroup) entry->additional);
+				TupleHashEntrySetAdditional(entry, (SetOpStatePerGroup)
+											MemoryContextAlloc(setopstate->hashtable->tablecxt,
+															   sizeof(SetOpStatePerGroupData)));
+				initialize_counts((SetOpStatePerGroup) TupleHashEntryGetAdditional(entry));
 			}
 
 			/* Advance the counts */
-			advance_counts((SetOpStatePerGroup) entry->additional, flag);
+			advance_counts((SetOpStatePerGroup) TupleHashEntryGetAdditional(entry), flag);
 		}
 		else
 		{
@@ -406,7 +406,7 @@ setop_fill_hash_table(SetOpState *setopstate)
 
 			/* Advance the counts if entry is already present */
 			if (entry)
-				advance_counts((SetOpStatePerGroup) entry->additional, flag);
+				advance_counts((SetOpStatePerGroup) TupleHashEntryGetAdditional(entry), flag);
 		}
 
 		/* Must reset expression context after each hashtable lookup */
@@ -424,7 +424,7 @@ setop_fill_hash_table(SetOpState *setopstate)
 static TupleTableSlot *
 setop_retrieve_hash_table(SetOpState *setopstate)
 {
-	TupleHashEntryData *entry;
+	TupleHashEntry entry;
 	TupleTableSlot *resultTupleSlot;
 
 	/*
@@ -454,12 +454,12 @@ setop_retrieve_hash_table(SetOpState *setopstate)
 		 * See if we should emit any copies of this tuple, and if so return
 		 * the first copy.
 		 */
-		set_output_count(setopstate, (SetOpStatePerGroup) entry->additional);
+		set_output_count(setopstate, (SetOpStatePerGroup) TupleHashEntryGetAdditional(entry));
 
 		if (setopstate->numOutput > 0)
 		{
 			setopstate->numOutput--;
-			return ExecStoreMinimalTuple(entry->firstTuple,
+			return ExecStoreMinimalTuple(TupleHashEntryGetTuple(entry),
 										 resultTupleSlot,
 										 false);
 		}

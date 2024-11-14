@@ -806,20 +806,13 @@ typedef struct ExecAuxRowMark
  * tab_eq_func respectively.
  * ----------------------------------------------------------------
  */
+struct TupleHashEntryData;
 typedef struct TupleHashEntryData *TupleHashEntry;
 typedef struct TupleHashTableData *TupleHashTable;
 
-typedef struct TupleHashEntryData
-{
-	MinimalTuple firstTuple;	/* copy of first tuple in this group */
-	void	   *additional;		/* user data */
-	uint32		status;			/* hash status */
-	uint32		hash;			/* hash value (cached) */
-} TupleHashEntryData;
-
 /* define parameters necessary to generate the tuple hash table interface */
 #define SH_PREFIX tuplehash
-#define SH_ELEMENT_TYPE TupleHashEntryData
+#define SH_ELEMENT_TYPE struct TupleHashEntryData
 #define SH_KEY_TYPE MinimalTuple
 #define SH_SCOPE extern
 #define SH_DECLARE
