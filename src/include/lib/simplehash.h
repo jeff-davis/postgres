@@ -50,9 +50,18 @@
  *	  - SH_HASH_KEY(table, key) - generate hash for the key
  *	  - SH_STORE_HASH - if defined the hash is stored in the elements
  *	  - SH_GET_HASH(tb, a) - return the field to store the hash in
+ *	  - SH_ENTRY_IS_EMPTY(tb, a) - return true if the entry is empty
+ *	  - SH_ENTRY_SET_EMPTY(tb, a) - set entry to empty
+ *	  - SH_ENTRY_SET_IN_USE(tb, a) - set entry to "in use"
  *
  *	  The element type is required to contain a "status" member that can store
- *	  the range of values defined in the SH_STATUS enum.
+ *	  the range of values defined in the SH_STATUS enum. Alternatively,
+ *	  callers may define all of SH_ENTRY_IS_EMPTY, SH_ENTRY_SET_EMPTY,
+ *	  SH_ENTRY_SET_IN_USE to allow for a more compact entry size. For example,
+ *	  if the SH_ELEMENT_TYPE contains a pointer, the caller may decide that
+ *	  the entry is empty if the pointer is NULL and "in use" if the pointer is
+ *	  non-NULL. NB: if the entire entry is zero, then SH_ENTRY_IS_EMPTY()
+ *	  *must* evaluate to true.
  *
  *	  While SH_STORE_HASH (and subsequently SH_GET_HASH) are optional, because
  *	  the hash table implementation needs to compare hashes to move elements
@@ -275,6 +284,18 @@ SH_SCOPE void SH_STAT(SH_TYPE * tb);
 #ifndef SH_GROW_MIN_FILLFACTOR
 /* but do not grow due to SH_GROW_MAX_* if below */
 #define SH_GROW_MIN_FILLFACTOR 0.1
+#endif
+
+#ifndef SH_ENTRY_IS_EMPTY
+#define SH_ENTRY_IS_EMPTY(tb, a) ((a)->status == SH_STATUS_EMPTY)
+#endif
+
+#ifndef SH_ENTRY_SET_EMPTY
+#define SH_ENTRY_SET_EMPTY(tb, a) do { (a)->status = SH_STATUS_EMPTY; } while (0)
+#endif
+
+#ifndef SH_ENTRY_SET_IN_USE
+#define SH_ENTRY_SET_IN_USE(tb, a) do { (a)->status = SH_STATUS_IN_USE; } while (0)
 #endif
 
 #ifdef SH_STORE_HASH
@@ -540,7 +561,7 @@ SH_GROW(SH_TYPE * tb, uint64 newsize)
 		uint32		hash;
 		uint32		optimal;
 
-		if (oldentry->status != SH_STATUS_IN_USE)
+		if (SH_ENTRY_IS_EMPTY(tb, oldentry))
 		{
 			startelem = i;
 			break;
@@ -562,7 +583,7 @@ SH_GROW(SH_TYPE * tb, uint64 newsize)
 	{
 		SH_ELEMENT_TYPE *oldentry = &olddata[copyelem];
 
-		if (oldentry->status == SH_STATUS_IN_USE)
+		if (!SH_ENTRY_IS_EMPTY(tb, oldentry))
 		{
 			uint32		hash;
 			uint32		startelem2;
@@ -578,7 +599,7 @@ SH_GROW(SH_TYPE * tb, uint64 newsize)
 			{
 				newentry = &newdata[curelem];
 
-				if (newentry->status == SH_STATUS_EMPTY)
+				if (SH_ENTRY_IS_EMPTY(tb, newentry))
 				{
 					break;
 				}
@@ -649,14 +670,14 @@ restart:
 		SH_ELEMENT_TYPE *entry = &data[curelem];
 
 		/* any empty bucket can directly be used */
-		if (entry->status == SH_STATUS_EMPTY)
+		if (SH_ENTRY_IS_EMPTY(tb, entry))
 		{
 			tb->members++;
 			entry->SH_KEY = key;
 #ifdef SH_STORE_HASH
 			SH_GET_HASH(tb, entry) = hash;
 #endif
-			entry->status = SH_STATUS_IN_USE;
+			SH_ENTRY_SET_IN_USE(tb, entry);
 			*found = false;
 			return entry;
 		}
@@ -671,7 +692,7 @@ restart:
 
 		if (SH_COMPARE_KEYS(tb, hash, key, entry))
 		{
-			Assert(entry->status == SH_STATUS_IN_USE);
+			Assert(!SH_ENTRY_IS_EMPTY(tb, entry));
 			*found = true;
 			return entry;
 		}
@@ -695,7 +716,7 @@ restart:
 				emptyelem = SH_NEXT(tb, emptyelem, startelem);
 				emptyentry = &data[emptyelem];
 
-				if (emptyentry->status == SH_STATUS_EMPTY)
+				if (SH_ENTRY_IS_EMPTY(tb, emptyentry))
 				{
 					lastentry = emptyentry;
 					break;
@@ -744,7 +765,7 @@ restart:
 #ifdef SH_STORE_HASH
 			SH_GET_HASH(tb, entry) = hash;
 #endif
-			entry->status = SH_STATUS_IN_USE;
+			SH_ENTRY_SET_IN_USE(tb, entry);
 			*found = false;
 			return entry;
 		}
@@ -806,12 +827,10 @@ SH_LOOKUP_HASH_INTERNAL(SH_TYPE * tb, SH_KEY_TYPE key, uint32 hash)
 	{
 		SH_ELEMENT_TYPE *entry = &tb->data[curelem];
 
-		if (entry->status == SH_STATUS_EMPTY)
+		if (SH_ENTRY_IS_EMPTY(tb, entry))
 		{
 			return NULL;
 		}
-
-		Assert(entry->status == SH_STATUS_IN_USE);
 
 		if (SH_COMPARE_KEYS(tb, hash, key, entry))
 			return entry;
@@ -864,10 +883,10 @@ SH_DELETE(SH_TYPE * tb, SH_KEY_TYPE key)
 	{
 		SH_ELEMENT_TYPE *entry = &tb->data[curelem];
 
-		if (entry->status == SH_STATUS_EMPTY)
+		if (SH_ENTRY_IS_EMPTY(tb, entry))
 			return false;
 
-		if (entry->status == SH_STATUS_IN_USE &&
+		if (!SH_ENTRY_IS_EMPTY(tb, entry) &&
 			SH_COMPARE_KEYS(tb, hash, key, entry))
 		{
 			SH_ELEMENT_TYPE *lastentry = entry;
@@ -890,9 +909,9 @@ SH_DELETE(SH_TYPE * tb, SH_KEY_TYPE key)
 				curelem = SH_NEXT(tb, curelem, startelem);
 				curentry = &tb->data[curelem];
 
-				if (curentry->status != SH_STATUS_IN_USE)
+				if (SH_ENTRY_IS_EMPTY(tb, curentry))
 				{
-					lastentry->status = SH_STATUS_EMPTY;
+					SH_ENTRY_SET_EMPTY(tb, lastentry);
 					break;
 				}
 
@@ -902,7 +921,7 @@ SH_DELETE(SH_TYPE * tb, SH_KEY_TYPE key)
 				/* current is at optimal position, done */
 				if (curoptimal == curelem)
 				{
-					lastentry->status = SH_STATUS_EMPTY;
+					SH_ENTRY_SET_EMPTY(tb, lastentry);
 					break;
 				}
 
@@ -953,9 +972,9 @@ SH_DELETE_ITEM(SH_TYPE * tb, SH_ELEMENT_TYPE * entry)
 		curelem = SH_NEXT(tb, curelem, startelem);
 		curentry = &tb->data[curelem];
 
-		if (curentry->status != SH_STATUS_IN_USE)
+		if (SH_ENTRY_IS_EMPTY(tb, curentry))
 		{
-			lastentry->status = SH_STATUS_EMPTY;
+			SH_ENTRY_SET_EMPTY(tb, lastentry);
 			break;
 		}
 
@@ -965,7 +984,7 @@ SH_DELETE_ITEM(SH_TYPE * tb, SH_ELEMENT_TYPE * entry)
 		/* current is at optimal position, done */
 		if (curoptimal == curelem)
 		{
-			lastentry->status = SH_STATUS_EMPTY;
+			SH_ENTRY_SET_EMPTY(tb, lastentry);
 			break;
 		}
 
@@ -993,7 +1012,7 @@ SH_START_ITERATE(SH_TYPE * tb, SH_ITERATOR * iter)
 	{
 		SH_ELEMENT_TYPE *entry = &tb->data[i];
 
-		if (entry->status != SH_STATUS_IN_USE)
+		if (SH_ENTRY_IS_EMPTY(tb, entry))
 		{
 			startelem = i;
 			break;
@@ -1055,7 +1074,7 @@ SH_ITERATE(SH_TYPE * tb, SH_ITERATOR * iter)
 
 		if ((iter->cur & tb->sizemask) == (iter->end & tb->sizemask))
 			iter->done = true;
-		if (elem->status == SH_STATUS_IN_USE)
+		if (!SH_ENTRY_IS_EMPTY(tb, elem))
 		{
 			return elem;
 		}
@@ -1091,7 +1110,7 @@ SH_STAT(SH_TYPE * tb)
 
 		elem = &tb->data[i];
 
-		if (elem->status != SH_STATUS_IN_USE)
+		if (SH_ENTRY_IS_EMPTY(tb, elem))
 			continue;
 
 		hash = SH_ENTRY_HASH(tb, elem);
@@ -1149,6 +1168,9 @@ SH_STAT(SH_TYPE * tb)
 #undef SH_KEY
 #undef SH_ELEMENT_TYPE
 #undef SH_HASH_KEY
+#undef SH_ENTRY_IS_EMPTY
+#undef SH_ENTRY_SET_EMPTY
+#undef SH_ENTRY_SET_IN_USE
 #undef SH_SCOPE
 #undef SH_DECLARE
 #undef SH_DEFINE
