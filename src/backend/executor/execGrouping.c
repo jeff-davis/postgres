@@ -23,7 +23,6 @@
 struct TupleHashEntryData
 {
 	MinimalTuple firstTuple;	/* copy of first tuple in this group */
-	uint32		status;			/* hash status */
 	uint32		hash;			/* hash value (cached) */
 } TupleHashEntryData;
 
@@ -33,6 +32,14 @@ static inline uint32 TupleHashTableHash_internal(struct tuplehash_hash *tb,
 static inline TupleHashEntry LookupTupleHashEntry_internal(TupleHashTable hashtable,
 														   TupleTableSlot *slot,
 														   bool *isnew, uint32 hash);
+
+/*
+ * Create a dummy pointer used to mean the input slot. The pointer will only
+ * be used for comparison and never dereferenced, and must not be equal to a
+ * valid pointer. Distinct from NULL, because NULL means that the hash entry
+ * itself is empty.
+ */
+const static MinimalTuple FIRSTTUPLE_INPUTSLOT = (MinimalTuple) 0x1;
 
 /*
  * Define parameters for tuple hash table code generation. The interface is
@@ -48,6 +55,9 @@ static inline TupleHashEntry LookupTupleHashEntry_internal(TupleHashTable hashta
 #define SH_SCOPE extern
 #define SH_STORE_HASH
 #define SH_GET_HASH(tb, a) a->hash
+#define SH_ENTRY_IS_EMPTY(tb, a) ((a)->firstTuple == NULL)
+#define SH_ENTRY_SET_EMPTY(tb, a) do { (a)->firstTuple = NULL; } while (0)
+#define SH_ENTRY_SET_IN_USE(tb, a) Assert((a)->firstTuple != NULL)
 #define SH_DEFINE
 #include "lib/simplehash.h"
 
@@ -335,7 +345,7 @@ LookupTupleHashEntry(TupleHashTable hashtable, TupleTableSlot *slot,
 	hashtable->in_hash_funcs = hashtable->tab_hash_funcs;
 	hashtable->cur_eq_func = hashtable->tab_eq_func;
 
-	local_hash = TupleHashTableHash_internal(hashtable->hashtab, NULL);
+	local_hash = TupleHashTableHash_internal(hashtable->hashtab, FIRSTTUPLE_INPUTSLOT);
 	entry = LookupTupleHashEntry_internal(hashtable, slot, isnew, local_hash);
 
 	if (hash != NULL)
@@ -363,7 +373,8 @@ TupleHashTableHash(TupleHashTable hashtable, TupleTableSlot *slot)
 	/* Need to run the hash functions in short-lived context */
 	oldContext = MemoryContextSwitchTo(hashtable->tempcxt);
 
-	hash = TupleHashTableHash_internal(hashtable->hashtab, NULL);
+	hash = TupleHashTableHash_internal(hashtable->hashtab,
+									   FIRSTTUPLE_INPUTSLOT);
 
 	MemoryContextSwitchTo(oldContext);
 
@@ -448,7 +459,7 @@ FindTupleHashEntry(TupleHashTable hashtable, TupleTableSlot *slot,
 	hashtable->cur_eq_func = eqcomp;
 
 	/* Search the hash table */
-	key = NULL;					/* flag to reference inputslot */
+	key = FIRSTTUPLE_INPUTSLOT;
 	entry = tuplehash_lookup(hashtable->hashtab, key);
 	MemoryContextSwitchTo(oldContext);
 
@@ -456,9 +467,9 @@ FindTupleHashEntry(TupleHashTable hashtable, TupleTableSlot *slot,
 }
 
 /*
- * If tuple is NULL, use the input slot instead. This convention avoids the
- * need to materialize virtual input tuples unless they actually need to get
- * copied into the table.
+ * If tuple is FIRSTTUPLE_INPUTSLOT, use the input slot instead. This
+ * convention avoids the need to materialize virtual input tuples unless they
+ * actually need to get copied into the table.
  *
  * Also, the caller must select an appropriate memory context for running
  * the hash functions. (dynahash.c doesn't change CurrentMemoryContext.)
@@ -475,7 +486,7 @@ TupleHashTableHash_internal(struct tuplehash_hash *tb,
 	FmgrInfo   *hashfunctions;
 	int			i;
 
-	if (tuple == NULL)
+	if (tuple == FIRSTTUPLE_INPUTSLOT)
 	{
 		/* Process the current input tuple for the table */
 		slot = hashtable->inputslot;
@@ -541,7 +552,7 @@ LookupTupleHashEntry_internal(TupleHashTable hashtable, TupleTableSlot *slot,
 	bool		found;
 	MinimalTuple key;
 
-	key = NULL;					/* flag to reference inputslot */
+	key = FIRSTTUPLE_INPUTSLOT;
 
 	if (isnew)
 	{
@@ -589,10 +600,10 @@ TupleHashTableMatch(struct tuplehash_hash *tb, const MinimalTuple tuple1, const 
 	 * LookupTupleHashEntry's dummy TupleHashEntryData.  The other direction
 	 * could be supported too, but is not currently required.
 	 */
-	Assert(tuple1 != NULL);
+	Assert(tuple1 && tuple1 != FIRSTTUPLE_INPUTSLOT);
 	slot1 = hashtable->tableslot;
 	ExecStoreMinimalTuple(tuple1, slot1, false);
-	Assert(tuple2 == NULL);
+	Assert(tuple2 == FIRSTTUPLE_INPUTSLOT);
 	slot2 = hashtable->inputslot;
 
 	/* For crosstype comparisons, the inputslot must be first */
