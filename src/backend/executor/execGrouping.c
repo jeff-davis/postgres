@@ -23,7 +23,6 @@
 struct TupleHashEntryData
 {
 	MinimalTuple firstTuple;	/* copy of first tuple in this group */
-	void	   *additional;		/* user data */
 	uint32		status;			/* hash status */
 	uint32		hash;			/* hash value (cached) */
 } TupleHashEntryData;
@@ -380,13 +379,19 @@ TupleHashEntryGetTuple(TupleHashEntry entry)
 void *
 TupleHashEntryGetAdditional(TupleHashEntry entry)
 {
-	return entry->additional;
+	char	   *ptr = (char *) entry->firstTuple;
+	void	   *additional;
+
+	memcpy(&additional, ptr + entry->firstTuple->t_len, sizeof(void *));
+	return additional;
 }
 
 void
 TupleHashEntrySetAdditional(TupleHashEntry entry, void *additional)
 {
-	entry->additional = additional;
+	char	   *ptr = (char *) entry->firstTuple;
+
+	memcpy(ptr + entry->firstTuple->t_len, &additional, sizeof(void *));
 }
 
 /*
@@ -552,10 +557,11 @@ LookupTupleHashEntry_internal(TupleHashTable hashtable, TupleTableSlot *slot,
 			/* created new entry */
 			*isnew = true;
 			/* zero caller data */
-			entry->additional = NULL;
 			MemoryContextSwitchTo(hashtable->tablecxt);
 			/* Copy the first tuple into the table context */
 			entry->firstTuple = ExecCopySlotMinimalTuple(slot);
+			entry->firstTuple = repalloc(entry->firstTuple, entry->firstTuple->t_len + sizeof(void *));
+			memset((char *) entry->firstTuple + entry->firstTuple->t_len, 0, sizeof(void *));
 		}
 	}
 	else
