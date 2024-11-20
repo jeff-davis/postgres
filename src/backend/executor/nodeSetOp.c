@@ -134,7 +134,7 @@ build_hash_table(SetOpState *setopstate)
 												   setopstate->hashfunctions,
 												   node->dupCollations,
 												   node->numGroups,
-												   0,
+												   sizeof(SetOpStatePerGroupData),
 												   setopstate->ps.state->es_query_cxt,
 												   setopstate->tableContext,
 												   econtext->ecxt_per_tuple_memory,
