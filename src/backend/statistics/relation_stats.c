@@ -87,7 +87,7 @@ relation_statistics_update(FunctionCallInfo fcinfo, int elevel)
 	crel = table_open(RelationRelationId, RowExclusiveLock);
 
 	tupdesc = RelationGetDescr(crel);
-	ctup = SearchSysCacheCopy1(RELOID, ObjectIdGetDatum(reloid));
+	ctup = SearchSysCache1(RELOID, ObjectIdGetDatum(reloid));
 	if (!HeapTupleIsValid(ctup))
 	{
 		ereport(elevel,
@@ -173,6 +173,8 @@ relation_statistics_update(FunctionCallInfo fcinfo, int elevel)
 		CatalogTupleUpdate(crel, &newtup->t_self, newtup);
 		heap_freetuple(newtup);
 	}
+
+	ReleaseSysCache(ctup);
 
 	/* release the lock, consistent with vac_update_relstats() */
 	table_close(crel, RowExclusiveLock);
