@@ -467,7 +467,7 @@ explain (costs off)
          count(*)
     from tenk1 group by grouping sets (unique1,hundred,ten,four,two);
 
-set work_mem = '384kB';
+set work_mem = '256kB';
 explain (costs off)
   select unique1,
          count(two), count(four), count(ten),

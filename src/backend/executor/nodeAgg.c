@@ -406,6 +406,7 @@ static void build_hash_tables(AggState *aggstate);
 static void build_hash_table(AggState *aggstate, int setno, long nbuckets);
 static void hashagg_recompile_expressions(AggState *aggstate, bool minslot,
 										  bool nullcheck);
+static void hash_create_memory(AggState *aggstate);
 static long hash_choose_num_buckets(double hashentrysize,
 									long ngroups, Size memory);
 static int	hash_choose_num_partitions(double input_groups,
@@ -1512,7 +1513,7 @@ build_hash_table(AggState *aggstate, int setno, long nbuckets)
 {
 	AggStatePerHash perhash = &aggstate->perhash[setno];
 	MemoryContext metacxt = aggstate->hash_metacxt;
-	MemoryContext hashcxt = aggstate->hashcontext->ecxt_per_tuple_memory;
+	MemoryContext tablecxt = aggstate->hash_tablecxt;
 	MemoryContext tmpcxt = aggstate->tmpcontext->ecxt_per_tuple_memory;
 	Size		additionalsize;
 
@@ -1538,7 +1539,7 @@ build_hash_table(AggState *aggstate, int setno, long nbuckets)
 											 nbuckets,
 											 additionalsize,
 											 metacxt,
-											 hashcxt,
+											 tablecxt,
 											 tmpcxt,
 											 DO_AGGSPLIT_SKIPFINAL(aggstate->aggsplit));
 }
@@ -1709,15 +1710,24 @@ hash_agg_entry_size(int numTrans, Size tupleWidth, Size transitionSpace)
 							 tupleWidth);
 	Size		pergroupSize = numTrans * sizeof(AggStatePerGroupData);
 
-	tupleChunkSize = CHUNKHDRSZ + tupleSize;
+	/*
+	 * Entries use the Bump allocator, so the chunk sizes are the same as the
+	 * requested sizes.
+	 */
+	tupleChunkSize = tupleSize;
+	pergroupChunkSize = pergroupSize;
 
-	if (pergroupSize > 0)
-		pergroupChunkSize = CHUNKHDRSZ + pergroupSize;
-	else
-		pergroupChunkSize = 0;
-
+	/*
+	 * Transition values use AllocSet, which has a chunk header and also uses
+	 * power-of-two allocations.
+	 */
 	if (transitionSpace > 0)
-		transitionChunkSize = CHUNKHDRSZ + transitionSpace;
+	{
+		Size		pow2 = (Size) 1 << my_log2(transitionSpace);
+
+		/* use Max to protect against overflow */
+		transitionChunkSize = Max(CHUNKHDRSZ + pow2, transitionSpace);
+	}
 	else
 		transitionChunkSize = 0;
 
@@ -1867,8 +1877,11 @@ hash_agg_check_limits(AggState *aggstate)
 	uint64		ngroups = aggstate->hash_ngroups_current;
 	Size		meta_mem = MemoryContextMemAllocated(aggstate->hash_metacxt,
 													 true);
-	Size		hashkey_mem = MemoryContextMemAllocated(aggstate->hashcontext->ecxt_per_tuple_memory,
-														true);
+	Size		entry_mem = MemoryContextMemAllocated(aggstate->hash_tablecxt,
+													  true);
+	Size		tval_mem = MemoryContextMemAllocated(aggstate->hashcontext->ecxt_per_tuple_memory,
+													 true);
+	Size		total_mem = meta_mem + entry_mem + tval_mem;
 	bool		do_spill = false;
 
 #ifdef USE_INJECTION_POINTS
@@ -1887,7 +1900,7 @@ hash_agg_check_limits(AggState *aggstate)
 	 * can be sure to make progress even in edge cases.
 	 */
 	if (aggstate->hash_ngroups_current > 0 &&
-		(meta_mem + hashkey_mem > aggstate->hash_mem_limit ||
+		(total_mem > aggstate->hash_mem_limit ||
 		 ngroups > aggstate->hash_ngroups_limit))
 	{
 		do_spill = true;
@@ -1942,6 +1955,7 @@ static void
 hash_agg_update_metrics(AggState *aggstate, bool from_tape, int npartitions)
 {
 	Size		meta_mem;
+	Size		entry_mem;
 	Size		hashkey_mem;
 	Size		buffer_mem;
 	Size		total_mem;
@@ -1953,7 +1967,10 @@ hash_agg_update_metrics(AggState *aggstate, bool from_tape, int npartitions)
 	/* memory for the hash table itself */
 	meta_mem = MemoryContextMemAllocated(aggstate->hash_metacxt, true);
 
-	/* memory for the group keys and transition states */
+	/* memory for hash entries */
+	entry_mem = MemoryContextMemAllocated(aggstate->hash_tablecxt, true);
+
+	/* memory for byref transition states */
 	hashkey_mem = MemoryContextMemAllocated(aggstate->hashcontext->ecxt_per_tuple_memory, true);
 
 	/* memory for read/write tape buffers, if spilled */
@@ -1962,7 +1979,7 @@ hash_agg_update_metrics(AggState *aggstate, bool from_tape, int npartitions)
 		buffer_mem += HASHAGG_READ_BUFFER_SIZE;
 
 	/* update peak mem */
-	total_mem = meta_mem + hashkey_mem + buffer_mem;
+	total_mem = meta_mem + entry_mem + hashkey_mem + buffer_mem;
 	if (total_mem > aggstate->hash_mem_peak)
 		aggstate->hash_mem_peak = total_mem;
 
@@ -1982,6 +1999,58 @@ hash_agg_update_metrics(AggState *aggstate, bool from_tape, int npartitions)
 			sizeof(TupleHashEntryData) +
 			(hashkey_mem / (double) aggstate->hash_ngroups_current);
 	}
+}
+
+/*
+ * Create memory contexts used for hash aggregation.
+ */
+static void
+hash_create_memory(AggState *aggstate)
+{
+	Size		minContextSize = ALLOCSET_DEFAULT_MINSIZE;
+	Size		initBlockSize = ALLOCSET_DEFAULT_INITSIZE;
+	Size		maxBlockSize = ALLOCSET_DEFAULT_MAXSIZE;
+
+	/*
+	 * The hashcontext's per-tuple memory will be used for byref transition
+	 * values and returned by AggCheckCallContext().
+	 */
+	aggstate->hashcontext = CreateWorkExprContext(aggstate->ss.ps.state);
+
+	/*
+	 * The meta context will be used for the bucket array of
+	 * TupleHashEntryData (or arrays, in the case of grouping sets). As the
+	 * hash table grows, the bucket array will double in size and the old one
+	 * will be freed, so an AllocSet is appropriate. For large bucket arrays,
+	 * the large allocation path will be used, so it's not worth worrying
+	 * about wasting space due to power-of-two allocations.
+	 */
+	aggstate->hash_metacxt = AllocSetContextCreate(aggstate->ss.ps.state->es_query_cxt,
+												   "HashAgg meta context",
+												   ALLOCSET_DEFAULT_SIZES);
+
+	/*
+	 * The hash entries themselves, which include the grouping key
+	 * (firstTuple) and pergroup data, are stored in the table context. The
+	 * bump allocator can be used because the entries are not freed until the
+	 * entire hash table is reset. The bump allocator is faster for
+	 * allocations and avoids wasting space on the chunk header or
+	 * power-of-two allocations.
+	 *
+	 * Like CreateWorkExprContext(), use smaller sizings for smaller work_mem,
+	 * to avoid large jumps in memory usage.
+	 */
+	while (16 * maxBlockSize > work_mem * 1024L)
+		maxBlockSize >>= 1;
+
+	if (maxBlockSize < ALLOCSET_DEFAULT_INITSIZE)
+		maxBlockSize = ALLOCSET_DEFAULT_INITSIZE;
+
+	aggstate->hash_tablecxt = BumpContextCreate(aggstate->ss.ps.state->es_query_cxt,
+												"HashAgg table context",
+												minContextSize, initBlockSize,
+												maxBlockSize);
+
 }
 
 /*
@@ -2647,6 +2716,7 @@ agg_refill_hash_table(AggState *aggstate)
 
 	/* free memory and reset hash tables */
 	ReScanExprContext(aggstate->hashcontext);
+	MemoryContextReset(aggstate->hash_tablecxt);
 	for (int setno = 0; setno < aggstate->num_hashes; setno++)
 		ResetTupleHashTable(aggstate->perhash[setno].hashtable);
 
@@ -3331,7 +3401,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	}
 
 	if (use_hashing)
-		aggstate->hashcontext = CreateWorkExprContext(estate);
+		hash_create_memory(aggstate);
 
 	ExecAssignExprContext(estate, &aggstate->ss.ps);
 
@@ -3626,9 +3696,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		Plan	   *outerplan = outerPlan(node);
 		uint64		totalGroups = 0;
 
-		aggstate->hash_metacxt = AllocSetContextCreate(aggstate->ss.ps.state->es_query_cxt,
-													   "HashAgg meta context",
-													   ALLOCSET_DEFAULT_SIZES);
 		aggstate->hash_spill_rslot = ExecInitExtraTupleSlot(estate, scanDesc,
 															&TTSOpsMinimalTuple);
 		aggstate->hash_spill_wslot = ExecInitExtraTupleSlot(estate, scanDesc,
@@ -4373,6 +4440,12 @@ ExecEndAgg(AggState *node)
 		MemoryContextDelete(node->hash_metacxt);
 		node->hash_metacxt = NULL;
 	}
+	if (node->hash_tablecxt != NULL)
+	{
+		MemoryContextDelete(node->hash_tablecxt);
+		node->hash_tablecxt = NULL;
+	}
+
 
 	for (transno = 0; transno < node->numtrans; transno++)
 	{
@@ -4489,6 +4562,7 @@ ExecReScanAgg(AggState *node)
 		node->hash_ngroups_current = 0;
 
 		ReScanExprContext(node->hashcontext);
+		MemoryContextReset(node->hash_tablecxt);
 		/* Rebuild an empty hash table */
 		build_hash_tables(node);
 		node->table_filled = false;

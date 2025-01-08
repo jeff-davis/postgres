@@ -1711,7 +1711,7 @@ explain (costs off)
          ->  Seq Scan on tenk1
 (9 rows)
 
-set work_mem = '384kB';
+set work_mem = '256kB';
 explain (costs off)
   select unique1,
          count(two), count(four), count(ten),
