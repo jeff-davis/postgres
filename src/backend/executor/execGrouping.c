@@ -512,27 +512,32 @@ LookupTupleHashEntry_internal(TupleHashTable hashtable, TupleTableSlot *slot,
 		}
 		else
 		{
+			MinimalTuple mtup;
 			MinimalTuple firstTuple;
 			size_t totalsize; /* including alignment and additionalsize */
 
 			/* created new entry */
 			*isnew = true;
-			/* zero caller data */
-			MemoryContextSwitchTo(hashtable->tablecxt);
-
-			/* Copy the first tuple into the table context */
-			firstTuple = ExecCopySlotMinimalTuple(slot);
 
 			/*
-			 * Allocate additional space right after the MinimalTuple of size
-			 * additionalsize. The caller can get a pointer to this data with
-			 * TupleHashEntryGetAdditional(), and store arbitrary data there.
+			 * Extract the minimal tuple into the temp context, then copy it
+			 * into the table context.
+			 */
+			MemoryContextSwitchTo(hashtable->tempcxt);
+			mtup = ExecCopySlotMinimalTuple(slot);
+
+			/*
+			 * Allocate space for the MinimalTuple followed by empty space of
+			 * size additionalsize. The caller can get a maxaligned pointer to
+			 * this data with TupleHashEntryGetAdditional(), and store
+			 * arbitrary data there.
 			 *
 			 * This avoids the need to store an extra pointer or allocate an
 			 * additional chunk, which would waste memory.
 			 */
-			totalsize = MAXALIGN(firstTuple->t_len) + hashtable->additionalsize;
-			firstTuple = repalloc(firstTuple, totalsize);
+			totalsize = MAXALIGN(mtup->t_len) + hashtable->additionalsize;
+			firstTuple = MemoryContextAlloc(hashtable->tablecxt, totalsize);
+			memcpy(firstTuple, mtup, mtup->t_len);
 			memset((char *) firstTuple + firstTuple->t_len, 0,
 				   totalsize - firstTuple->t_len);
 
