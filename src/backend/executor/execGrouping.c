@@ -20,6 +20,14 @@
 #include "miscadmin.h"
 #include "utils/lsyscache.h"
 
+struct TupleHashEntryData
+{
+	MinimalTuple firstTuple;	/* copy of first tuple in this group */
+	void	   *additional;		/* user data */
+	uint32		status;			/* hash status */
+	uint32		hash;			/* hash value (cached) */
+};
+
 static int	TupleHashTableMatch(struct tuplehash_hash *tb, const MinimalTuple tuple1, const MinimalTuple tuple2);
 static inline uint32 TupleHashTableHash_internal(struct tuplehash_hash *tb,
 												 const MinimalTuple tuple);
@@ -196,6 +204,7 @@ BuildTupleHashTable(PlanState *parent,
 	hashtable->tab_collations = collations;
 	hashtable->tablecxt = tablecxt;
 	hashtable->tempcxt = tempcxt;
+	hashtable->additionalsize = additionalsize;
 	hashtable->tableslot = NULL;	/* will be made on first lookup */
 	hashtable->inputslot = NULL;
 	hashtable->in_hash_expr = NULL;
@@ -271,6 +280,37 @@ void
 ResetTupleHashTable(TupleHashTable hashtable)
 {
 	tuplehash_reset(hashtable->hashtab);
+}
+
+/*
+ * Return size of the hash bucket. Useful for estimating memory usage.
+ */
+size_t
+TupleHashEntrySize(void)
+{
+	return sizeof(TupleHashEntryData);
+}
+
+/*
+ * Return tuple from hash entry.
+ */
+MinimalTuple
+TupleHashEntryGetTuple(TupleHashEntry entry)
+{
+	return entry->firstTuple;
+}
+
+/*
+ * Get a pointer into the additional space allocated for this entry. The
+ * amount of space available is the additionalsize specified to
+ * BuildTupleHashTable(). If additionalsize was specified as zero, no
+ * additional space is available and this function should not be called.
+ */
+void *
+TupleHashEntryGetAdditional(TupleHashEntry entry)
+{
+	Assert(entry->additional != NULL);
+	return entry->additional;
 }
 
 /*
@@ -479,11 +519,16 @@ LookupTupleHashEntry_internal(TupleHashTable hashtable, TupleTableSlot *slot,
 		{
 			/* created new entry */
 			*isnew = true;
-			/* zero caller data */
-			entry->additional = NULL;
+
 			MemoryContextSwitchTo(hashtable->tablecxt);
+
 			/* Copy the first tuple into the table context */
 			entry->firstTuple = ExecCopySlotMinimalTuple(slot);
+
+			if (hashtable->additionalsize > 0)
+				entry->additional = palloc0(hashtable->additionalsize);
+			else
+				entry->additional = NULL;
 		}
 	}
 	else
