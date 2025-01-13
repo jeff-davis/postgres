@@ -424,7 +424,9 @@ setop_fill_hash_table(SetOpState *setopstate)
 	for (;;)
 	{
 		TupleTableSlot *outerslot;
+		TupleHashTable hashtable = setopstate->hashtable;
 		TupleHashEntryData *entry;
+		SetOpStatePerGroup pergroup;
 		bool		isnew;
 
 		outerslot = ExecProcNode(outerPlan);
@@ -433,20 +435,20 @@ setop_fill_hash_table(SetOpState *setopstate)
 		have_tuples = true;
 
 		/* Find or build hashtable entry for this tuple's group */
-		entry = LookupTupleHashEntry(setopstate->hashtable,
+		entry = LookupTupleHashEntry(hashtable,
 									 outerslot,
 									 &isnew, NULL);
 
+		pergroup = TupleHashEntryGetAdditional(hashtable, entry);
 		/* If new tuple group, initialize counts to zero */
 		if (isnew)
 		{
-			entry->additional = (SetOpStatePerGroup)
-				MemoryContextAllocZero(setopstate->hashtable->tablecxt,
-									   sizeof(SetOpStatePerGroupData));
+			pergroup->numLeft = 0;
+			pergroup->numRight = 0;
 		}
 
 		/* Advance the counts */
-		((SetOpStatePerGroup) entry->additional)->numLeft++;
+		pergroup->numLeft++;
 
 		/* Must reset expression context after each hashtable lookup */
 		ResetExprContext(econtext);
@@ -464,6 +466,7 @@ setop_fill_hash_table(SetOpState *setopstate)
 		 */
 		for (;;)
 		{
+			TupleHashTable hashtable = setopstate->hashtable;
 			TupleTableSlot *innerslot;
 			TupleHashEntryData *entry;
 
@@ -472,13 +475,13 @@ setop_fill_hash_table(SetOpState *setopstate)
 				break;
 
 			/* For tuples not seen previously, do not make hashtable entry */
-			entry = LookupTupleHashEntry(setopstate->hashtable,
+			entry = LookupTupleHashEntry(hashtable,
 										 innerslot,
 										 NULL, NULL);
 
 			/* Advance the counts if entry is already present */
 			if (entry)
-				((SetOpStatePerGroup) entry->additional)->numRight++;
+				((SetOpStatePerGroup) TupleHashEntryGetAdditional(hashtable, entry))->numRight++;
 
 			/* Must reset expression context after each hashtable lookup */
 			ResetExprContext(econtext);
@@ -496,7 +499,7 @@ setop_fill_hash_table(SetOpState *setopstate)
 static TupleTableSlot *
 setop_retrieve_hash_table(SetOpState *setopstate)
 {
-	TupleHashEntryData *entry;
+	TupleHashEntry entry;
 	TupleTableSlot *resultTupleSlot;
 
 	/*
@@ -526,12 +529,12 @@ setop_retrieve_hash_table(SetOpState *setopstate)
 		 * See if we should emit any copies of this tuple, and if so return
 		 * the first copy.
 		 */
-		set_output_count(setopstate, (SetOpStatePerGroup) entry->additional);
+		set_output_count(setopstate, (SetOpStatePerGroup) TupleHashEntryGetAdditional(setopstate->hashtable, entry));
 
 		if (setopstate->numOutput > 0)
 		{
 			setopstate->numOutput--;
-			return ExecStoreMinimalTuple(entry->firstTuple,
+			return ExecStoreMinimalTuple(TupleHashEntryGetTuple(entry),
 										 resultTupleSlot,
 										 false);
 		}

@@ -196,6 +196,7 @@ BuildTupleHashTable(PlanState *parent,
 	hashtable->tab_collations = collations;
 	hashtable->tablecxt = tablecxt;
 	hashtable->tempcxt = tempcxt;
+	hashtable->additionalsize = additionalsize;
 	hashtable->tableslot = NULL;	/* will be made on first lookup */
 	hashtable->inputslot = NULL;
 	hashtable->in_hash_expr = NULL;
@@ -479,11 +480,13 @@ LookupTupleHashEntry_internal(TupleHashTable hashtable, TupleTableSlot *slot,
 		{
 			/* created new entry */
 			*isnew = true;
-			/* zero caller data */
-			entry->additional = NULL;
+
 			MemoryContextSwitchTo(hashtable->tablecxt);
+
 			/* Copy the first tuple into the table context */
 			entry->firstTuple = ExecCopySlotMinimalTuple(slot);
+
+			entry->additional = palloc0(hashtable->additionalsize);
 		}
 	}
 	else
