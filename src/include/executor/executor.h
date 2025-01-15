@@ -178,15 +178,16 @@ TupleHashEntryGetTuple(TupleHashEntry entry)
 
 /*
  * Get a pointer into the additional space allocated for this entry. The
- * amount of space available is the additionalsize specified to
- * BuildTupleHashTable(). If additionalsize was specified as zero, no
+ * memory will be maxaligned and zeroed.
+ *
+ * The amount of space available is the additionalsize requested in the call
+ * to BuildTupleHashTable(). If additionalsize was specified as zero, no
  * additional space is available and this function should not be called.
  */
 static inline void *
 TupleHashEntryGetAdditional(TupleHashTable hashtable, TupleHashEntry entry)
 {
-	Assert(entry->additional != NULL);
-	return entry->additional;
+	return (char *) entry->firstTuple - hashtable->additionalsize;
 }
 #endif
 

@@ -196,7 +196,7 @@ BuildTupleHashTable(PlanState *parent,
 	hashtable->tab_collations = collations;
 	hashtable->tablecxt = tablecxt;
 	hashtable->tempcxt = tempcxt;
-	hashtable->additionalsize = additionalsize;
+	hashtable->additionalsize = MAXALIGN(additionalsize);
 	hashtable->tableslot = NULL;	/* will be made on first lookup */
 	hashtable->inputslot = NULL;
 	hashtable->in_hash_expr = NULL;
@@ -478,15 +478,34 @@ LookupTupleHashEntry_internal(TupleHashTable hashtable, TupleTableSlot *slot,
 		}
 		else
 		{
+			char	   *data;
+			MinimalTuple tmpTuple;
+			Size		totalsize;
+
 			/* created new entry */
 			*isnew = true;
 
-			MemoryContextSwitchTo(hashtable->tablecxt);
+			/* get minimal tuple in temp context */
+			MemoryContextSwitchTo(hashtable->tempcxt);
+			tmpTuple = ExecCopySlotMinimalTuple(slot);
 
-			/* Copy the first tuple into the table context */
-			entry->firstTuple = ExecCopySlotMinimalTuple(slot);
+			/*
+			 * Allocate space for additionalsize followed by the MinimalTuple
+			 * in the table context, and copy the tuple. A single allocation
+			 * avoids the need to store two pointers in TupleHashEntryData.
+			 */
+			totalsize = hashtable->additionalsize + tmpTuple->t_len;
+			data = MemoryContextAlloc(hashtable->tablecxt, totalsize);
+			memset(data, 0, hashtable->additionalsize);
 
-			entry->additional = palloc0(hashtable->additionalsize);
+			/*
+			 * firstTuple points in the middle of the allocated space. The
+			 * additional data pointer can be computed by subtracting
+			 * additionalsize from firstTuple.
+			 */
+			data += hashtable->additionalsize;
+			entry->firstTuple = (MinimalTuple) data;
+			memcpy(entry->firstTuple, tmpTuple, tmpTuple->t_len);
 		}
 	}
 	else
