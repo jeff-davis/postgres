@@ -23,7 +23,6 @@
 struct TupleHashEntryData
 {
 	MinimalTuple firstTuple;	/* copy of first tuple in this group */
-	void	   *additional;		/* user data */
 	uint32		status;			/* hash status */
 	uint32		hash;			/* hash value (cached) */
 };
@@ -302,15 +301,16 @@ TupleHashEntryGetTuple(TupleHashEntry entry)
 
 /*
  * Get a pointer into the additional space allocated for this entry. The
- * amount of space available is the additionalsize specified to
- * BuildTupleHashTable(). If additionalsize was specified as zero, no
+ * memory will be maxaligned and zeroed.
+ *
+ * The amount of space available is the additionalsize requested in the call
+ * to BuildTupleHashTable(). If additionalsize was specified as zero, no
  * additional space is available and this function should not be called.
  */
 void *
 TupleHashEntryGetAdditional(TupleHashEntry entry)
 {
-	Assert(entry->additional != NULL);
-	return entry->additional;
+	return (char *) entry->firstTuple + MAXALIGN(entry->firstTuple->t_len);
 }
 
 /*
@@ -522,13 +522,17 @@ LookupTupleHashEntry_internal(TupleHashTable hashtable, TupleTableSlot *slot,
 
 			MemoryContextSwitchTo(hashtable->tablecxt);
 
-			/* Copy the first tuple into the table context */
-			entry->firstTuple = ExecCopySlotMinimalTuple(slot);
-
-			if (hashtable->additionalsize > 0)
-				entry->additional = palloc0(hashtable->additionalsize);
-			else
-				entry->additional = NULL;
+			/*
+			 * Copy the first tuple into the table context, and request
+			 * additionalsize extra bytes at the end of the allocation.
+			 *
+			 * The caller can get a pointer to this data with
+			 * TupleHashEntryGetAdditional(), and store arbitrary data there.
+			 * This avoids the need to store an extra pointer or allocate an
+			 * additional chunk, which would waste memory.
+			 */
+			entry->firstTuple = ExecCopySlotMinimalTupleExtra(slot,
+															  hashtable->additionalsize);
 		}
 	}
 	else
