@@ -269,6 +269,7 @@
 #include "utils/datum.h"
 #include "utils/dynahash.h"
 #include "utils/expandeddatum.h"
+#include "utils/injection_point.h"
 #include "utils/logtape.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
@@ -1489,6 +1490,14 @@ build_hash_tables(AggState *aggstate)
 										   perhash->aggnode->numGroups,
 										   memory);
 
+#ifdef USE_INJECTION_POINTS
+		if (IS_INJECTION_POINT_ATTACHED("hash-aggregate-oversize-table"))
+		{
+			nbuckets = memory / sizeof(TupleHashEntryData);
+			INJECTION_POINT_CACHED("hash-aggregate-oversize-table");
+		}
+#endif
+
 		build_hash_table(aggstate, setno, nbuckets);
 	}
 
@@ -1881,6 +1890,7 @@ hash_agg_check_limits(AggState *aggstate)
 static void
 hash_agg_enter_spill_mode(AggState *aggstate)
 {
+	INJECTION_POINT("hash-aggregate-enter-spill-mode");
 	aggstate->hash_spill_mode = true;
 	hashagg_recompile_expressions(aggstate, aggstate->table_filled, true);
 
@@ -2652,6 +2662,7 @@ agg_refill_hash_table(AggState *aggstate)
 	 */
 	hashagg_recompile_expressions(aggstate, true, true);
 
+	INJECTION_POINT("hash-aggregate-process-batch");
 	for (;;)
 	{
 		TupleTableSlot *spillslot = aggstate->hash_spill_rslot;
@@ -2900,6 +2911,15 @@ hashagg_spill_init(HashAggSpill *spill, LogicalTapeSet *tapeset, int used_bits,
 	npartitions = hash_choose_num_partitions(input_groups, hashentrysize,
 											 used_bits, &partition_bits);
 
+#ifdef USE_INJECTION_POINTS
+	if (IS_INJECTION_POINT_ATTACHED("hash-aggregate-single-partition"))
+	{
+		npartitions = 1;
+		partition_bits = 0;
+		INJECTION_POINT_CACHED("hash-aggregate-single-partition");
+	}
+#endif
+
 	spill->partitions = palloc0(sizeof(LogicalTape *) * npartitions);
 	spill->ntuples = palloc0(sizeof(int64) * npartitions);
 	spill->hll_card = palloc0(sizeof(hyperLogLogState) * npartitions);
@@ -2957,7 +2977,11 @@ hashagg_spill_tuple(AggState *aggstate, HashAggSpill *spill,
 
 	tuple = ExecFetchSlotMinimalTuple(spillslot, &shouldFree);
 
-	partition = (hash & spill->mask) >> spill->shift;
+	if (spill->shift == 32)
+		partition = 0;
+	else
+		partition = (hash & spill->mask) >> spill->shift;
+
 	spill->ntuples[partition]++;
 
 	/*
