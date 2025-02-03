@@ -1809,8 +1809,8 @@ hash_agg_set_limits(double hashentrysize, double input_groups, int used_bits,
 					int *num_partitions)
 {
 	int			npartitions;
-	Size		partition_mem;
-	Size		hash_mem_limit = get_hash_memory_limit();
+	ssize_t		partition_mem;
+	ssize_t		hash_mem_limit = get_hash_memory_limit();
 
 	/* if not expected to spill, use all of hash_mem */
 	if (input_groups * hashentrysize <= hash_mem_limit)
@@ -1818,7 +1818,7 @@ hash_agg_set_limits(double hashentrysize, double input_groups, int used_bits,
 		if (num_partitions != NULL)
 			*num_partitions = 0;
 		*mem_limit = hash_mem_limit;
-		*ngroups_limit = hash_mem_limit / hashentrysize;
+		*ngroups_limit = Max(*mem_limit / hashentrysize, 1);
 		return;
 	}
 
@@ -1841,17 +1841,11 @@ hash_agg_set_limits(double hashentrysize, double input_groups, int used_bits,
 	/*
 	 * Don't set the limit below 3/4 of hash_mem. In that case, we are at the
 	 * minimum number of partitions, so we aren't going to dramatically exceed
-	 * work mem anyway.
+	 * work mem anyway. Use ssize_t to avoid underflow during subtraction.
 	 */
-	if (hash_mem_limit > 4 * partition_mem)
-		*mem_limit = hash_mem_limit - partition_mem;
-	else
-		*mem_limit = hash_mem_limit * 0.75;
+	*mem_limit = Max(hash_mem_limit - partition_mem, hash_mem_limit * 0.75);
 
-	if (*mem_limit > hashentrysize)
-		*ngroups_limit = *mem_limit / hashentrysize;
-	else
-		*ngroups_limit = 1;
+	*ngroups_limit = Max(*mem_limit / hashentrysize, 1);
 }
 
 /*
