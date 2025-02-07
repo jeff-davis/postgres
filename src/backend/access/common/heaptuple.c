@@ -1452,7 +1452,8 @@ heap_freetuple(HeapTuple htup)
 MinimalTuple
 heap_form_minimal_tuple(TupleDesc tupleDescriptor,
 						const Datum *values,
-						const bool *isnull)
+						const bool *isnull,
+						Size extra)
 {
 	MinimalTuple tuple;			/* return tuple */
 	Size		len,
@@ -1497,7 +1498,10 @@ heap_form_minimal_tuple(TupleDesc tupleDescriptor,
 	/*
 	 * Allocate and zero the space needed.
 	 */
-	tuple = (MinimalTuple) palloc0(len);
+	if (extra == 0)
+		tuple = (MinimalTuple) palloc0(len);
+	else
+		tuple = (MinimalTuple) palloc0(MAXALIGN(len) + extra);
 
 	/*
 	 * And fill in the information.
@@ -1533,12 +1537,23 @@ heap_free_minimal_tuple(MinimalTuple mtup)
  * The result is allocated in the current memory context.
  */
 MinimalTuple
-heap_copy_minimal_tuple(MinimalTuple mtup)
+heap_copy_minimal_tuple(MinimalTuple mtup, Size extra)
 {
 	MinimalTuple result;
 
-	result = (MinimalTuple) palloc(mtup->t_len);
-	memcpy(result, mtup, mtup->t_len);
+	if (extra == 0)
+	{
+		result = (MinimalTuple) palloc(mtup->t_len);
+		memcpy(result, mtup, mtup->t_len);
+	}
+	else
+	{
+		Size		totalsize = MAXALIGN(mtup->t_len) + extra;
+
+		result = (MinimalTuple) palloc(totalsize);
+		memcpy(result, mtup, mtup->t_len);
+		memset((char *) result + mtup->t_len, 0, totalsize - mtup->t_len);
+	}
 	return result;
 }
 
@@ -1574,15 +1589,27 @@ heap_tuple_from_minimal_tuple(MinimalTuple mtup)
  * The result is allocated in the current memory context.
  */
 MinimalTuple
-minimal_tuple_from_heap_tuple(HeapTuple htup)
+minimal_tuple_from_heap_tuple(HeapTuple htup, Size extra)
 {
 	MinimalTuple result;
 	uint32		len;
 
 	Assert(htup->t_len > MINIMAL_TUPLE_OFFSET);
 	len = htup->t_len - MINIMAL_TUPLE_OFFSET;
-	result = (MinimalTuple) palloc(len);
-	memcpy(result, (char *) htup->t_data + MINIMAL_TUPLE_OFFSET, len);
+	if (extra == 0)
+	{
+		result = (MinimalTuple) palloc(len);
+		memcpy(result, (char *) htup->t_data + MINIMAL_TUPLE_OFFSET, len);
+	}
+	else
+	{
+		Size		totalsize = MAXALIGN(len) + extra;
+
+		result = (MinimalTuple) palloc(totalsize);
+		memcpy(result, (char *) htup->t_data + MINIMAL_TUPLE_OFFSET, len);
+		memset((char *) result + len, 0, totalsize - len);
+	}
+
 	result->t_len = len;
 	return result;
 }

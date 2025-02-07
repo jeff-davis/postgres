@@ -218,8 +218,12 @@ struct TupleTableSlotOps
 	 * meaningful "system columns" in the copy. The copy is not be "owned" by
 	 * the slot i.e. the caller has to take responsibility to free memory
 	 * consumed by the slot.
+	 *
+	 * The copy has "extra" bytes (maxaligned and zeroed) available at the
+	 * end, which is useful so that some callers may store extra data along
+	 * with the minimal tuple without the need for an additional allocation.
 	 */
-	MinimalTuple (*copy_minimal_tuple) (TupleTableSlot *slot);
+	MinimalTuple (*copy_minimal_tuple) (TupleTableSlot *slot, Size extra);
 };
 
 /*
@@ -491,7 +495,18 @@ ExecCopySlotHeapTuple(TupleTableSlot *slot)
 static inline MinimalTuple
 ExecCopySlotMinimalTuple(TupleTableSlot *slot)
 {
-	return slot->tts_ops->copy_minimal_tuple(slot);
+	return slot->tts_ops->copy_minimal_tuple(slot, 0);
+}
+
+/*
+ * ExecCopySlotMinimalTupleExtra - return MinimalTuple allocated in caller's
+ * context, with extra bytes (maxaligned and zeroed) after the end of the
+ * tuple.
+ */
+static inline MinimalTuple
+ExecCopySlotMinimalTupleExtra(TupleTableSlot *slot, Size extra)
+{
+	return slot->tts_ops->copy_minimal_tuple(slot, extra);
 }
 
 /*
