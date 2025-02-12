@@ -481,13 +481,14 @@ LookupTupleHashEntry_internal(TupleHashTable hashtable, TupleTableSlot *slot,
 			char	   *data;
 			MinimalTuple tmpTuple;
 			Size		totalsize;
+			bool		shouldFree;
 
 			/* created new entry */
 			*isnew = true;
 
 			/* get minimal tuple in temp context */
 			MemoryContextSwitchTo(hashtable->tempcxt);
-			tmpTuple = ExecCopySlotMinimalTuple(slot);
+			tmpTuple = ExecFetchSlotMinimalTuple(slot, &shouldFree);
 
 			/*
 			 * Allocate space for additionalsize followed by the MinimalTuple
