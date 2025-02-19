@@ -278,6 +278,9 @@ push @initdb_params, ('--locale-provider', 'libc');
 $node_params{extra} = \@initdb_params;
 $newnode->init(%node_params);
 
+# Stabilize stats for comparison.
+$newnode->append_conf('postgresql.conf', 'autovacuum = off');
+
 my $newbindir = $newnode->config_data('--bindir');
 my $oldbindir = $oldnode->config_data('--bindir');
 
