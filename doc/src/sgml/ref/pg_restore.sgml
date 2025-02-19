@@ -601,7 +601,6 @@ PostgreSQL documentation
      </varlistentry>
 
      <varlistentry>
-      <term><option>-X</option></term>
       <term><option>--statistics-only</option></term>
       <listitem>
        <para>

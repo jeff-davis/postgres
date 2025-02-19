@@ -194,9 +194,6 @@ dumpOptionsFromRestoreOptions(RestoreOptions *ropt)
 	dopt->no_publications = ropt->no_publications;
 	dopt->no_security_labels = ropt->no_security_labels;
 	dopt->no_subscriptions = ropt->no_subscriptions;
-	dopt->no_data = ropt->no_data;
-	dopt->no_schema = ropt->no_schema;
-	dopt->no_statistics = ropt->no_statistics;
 	dopt->lockWaitTimeout = ropt->lockWaitTimeout;
 	dopt->include_everything = ropt->include_everything;
 	dopt->enable_row_security = ropt->enable_row_security;

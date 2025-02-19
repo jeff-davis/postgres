@@ -113,6 +113,7 @@ static int	no_role_passwords = 0;
 static int	server_version;
 static int	load_via_partition_root = 0;
 static int	on_conflict_do_nothing = 0;
+static int	statistics_only = 0;
 
 static char role_catalog[10];
 #define PG_AUTHID "pg_authid"
@@ -142,7 +143,6 @@ main(int argc, char *argv[])
 		{"port", required_argument, NULL, 'p'},
 		{"roles-only", no_argument, NULL, 'r'},
 		{"schema-only", no_argument, NULL, 's'},
-		{"statistics-only", no_argument, NULL, 'X'},
 		{"superuser", required_argument, NULL, 'S'},
 		{"tablespaces-only", no_argument, NULL, 't'},
 		{"username", required_argument, NULL, 'U'},
@@ -184,6 +184,7 @@ main(int argc, char *argv[])
 		{"no-unlogged-table-data", no_argument, &no_unlogged_table_data, 1},
 		{"on-conflict-do-nothing", no_argument, &on_conflict_do_nothing, 1},
 		{"rows-per-insert", required_argument, NULL, 7},
+		{"statistics-only", no_argument, &statistics_only, 1},
 		{"filter", required_argument, NULL, 8},
 
 		{NULL, 0, NULL, 0}
@@ -335,10 +336,6 @@ main(int argc, char *argv[])
 				appendPQExpBufferStr(pgdumpopts, " -x");
 				break;
 
-			case 'X':
-				appendPQExpBufferStr(pgdumpopts, " -X");
-				break;
-
 			case 0:
 				break;
 
@@ -476,6 +473,8 @@ main(int argc, char *argv[])
 		appendPQExpBufferStr(pgdumpopts, " --no-unlogged-table-data");
 	if (on_conflict_do_nothing)
 		appendPQExpBufferStr(pgdumpopts, " --on-conflict-do-nothing");
+	if (statistics_only)
+		appendPQExpBufferStr(pgdumpopts, " --statistics-only");
 
 	/*
 	 * If there was a database specified on the command line, use that,
@@ -660,13 +659,13 @@ help(void)
 	printf(_("  --lock-wait-timeout=TIMEOUT  fail after waiting TIMEOUT for a table lock\n"));
 	printf(_("  -?, --help                   show this help, then exit\n"));
 	printf(_("\nOptions controlling the output content:\n"));
-	printf(_("  -a, --data-only              dump only the data, not the schema\n"));
+	printf(_("  -a, --data-only              dump only the data, not the schema or statistics\n"));
 	printf(_("  -c, --clean                  clean (drop) databases before recreating\n"));
 	printf(_("  -E, --encoding=ENCODING      dump the data in encoding ENCODING\n"));
 	printf(_("  -g, --globals-only           dump only global objects, no databases\n"));
 	printf(_("  -O, --no-owner               skip restoration of object ownership\n"));
 	printf(_("  -r, --roles-only             dump only roles, no databases or tablespaces\n"));
-	printf(_("  -s, --schema-only            dump only the schema, no data\n"));
+	printf(_("  -s, --schema-only            dump only the schema, no data or statistics\n"));
 	printf(_("  -S, --superuser=NAME         superuser user name to use in the dump\n"));
 	printf(_("  -t, --tablespaces-only       dump only tablespaces, no databases or roles\n"));
 	printf(_("  -x, --no-privileges          do not dump privileges (grant/revoke)\n"));
@@ -681,8 +680,10 @@ help(void)
 	printf(_("  --inserts                    dump data as INSERT commands, rather than COPY\n"));
 	printf(_("  --load-via-partition-root    load partitions via the root table\n"));
 	printf(_("  --no-comments                do not dump comment commands\n"));
+	printf(_("  --no-data                    do not dump data\n"));
 	printf(_("  --no-publications            do not dump publications\n"));
 	printf(_("  --no-role-passwords          do not dump passwords for roles\n"));
+	printf(_("  --no-schema                  do not dump schema\n"));
 	printf(_("  --no-security-labels         do not dump security label assignments\n"));
 	printf(_("  --no-statistics              do not dump statistics\n"));
 	printf(_("  --no-subscriptions           do not dump subscriptions\n"));
@@ -694,6 +695,7 @@ help(void)
 	printf(_("  --on-conflict-do-nothing     add ON CONFLICT DO NOTHING to INSERT commands\n"));
 	printf(_("  --quote-all-identifiers      quote all identifiers, even if not key words\n"));
 	printf(_("  --rows-per-insert=NROWS      number of rows per INSERT; implies --inserts\n"));
+	printf(_("  --statistics-only            dump only the statistics, not schema or data\n"));
 	printf(_("  --use-set-session-authorization\n"
 			 "                               use SET SESSION AUTHORIZATION commands instead of\n"
 			 "                               ALTER OWNER commands to set ownership\n"));

@@ -65,7 +65,6 @@ main(int argc, char **argv)
 	char	   *inputFileSpec;
 	bool		data_only = false;
 	bool		schema_only = false;
-	bool		statistics_only = false;
 	static int	disable_triggers = 0;
 	static int	enable_row_security = 0;
 	static int	if_exists = 0;
@@ -81,6 +80,7 @@ main(int argc, char **argv)
 	static int	no_statistics = 0;
 	static int	no_subscriptions = 0;
 	static int	strict_names = 0;
+	static int	statistics_only = 0;
 
 	struct option cmdopts[] = {
 		{"clean", 0, NULL, 'c'},
@@ -112,7 +112,6 @@ main(int argc, char **argv)
 		{"username", 1, NULL, 'U'},
 		{"verbose", 0, NULL, 'v'},
 		{"single-transaction", 0, NULL, '1'},
-		{"statistics-only", no_argument, NULL, 'X'},
 
 		/*
 		 * the following options don't have an equivalent short option letter
@@ -135,6 +134,7 @@ main(int argc, char **argv)
 		{"no-security-labels", no_argument, &no_security_labels, 1},
 		{"no-subscriptions", no_argument, &no_subscriptions, 1},
 		{"no-statistics", no_argument, &no_statistics, 1},
+		{"statistics-only", no_argument, &statistics_only, 1},
 		{"filter", required_argument, NULL, 4},
 
 		{NULL, 0, NULL, 0}
@@ -279,10 +279,6 @@ main(int argc, char **argv)
 				opts->aclsSkip = 1;
 				break;
 
-			case 'X':			/* Restore statistics only */
-				statistics_only = true;
-				break;
-
 			case '1':			/* Restore data in a single transaction */
 				opts->single_txn = true;
 				opts->exit_on_error = true;
@@ -356,9 +352,9 @@ main(int argc, char **argv)
 	if (data_only && schema_only)
 		pg_fatal("options -s/--schema-only and -a/--data-only cannot be used together");
 	if (data_only && statistics_only)
-		pg_fatal("options -a/--data-only and -X/--statistics-only cannot be used together");
+		pg_fatal("options -a/--data-only and --statistics-only cannot be used together");
 	if (schema_only && statistics_only)
-		pg_fatal("options -s/--schema-only and -X/--statistics-only cannot be used together");
+		pg_fatal("options -s/--schema-only and --statistics-only cannot be used together");
 
 	if (data_only && opts->dropSchema)
 		pg_fatal("options -c/--clean and -a/--data-only cannot be used together");
@@ -392,8 +388,6 @@ main(int argc, char **argv)
 	opts->no_publications = no_publications;
 	opts->no_security_labels = no_security_labels;
 	opts->no_subscriptions = no_subscriptions;
-	opts->no_statistics = no_statistics;
-	opts->no_data = no_data;
 
 	if (if_exists && !opts->dropSchema)
 		pg_fatal("option --if-exists requires option -c/--clean");
@@ -501,7 +495,6 @@ usage(const char *progname)
 	printf(_("  -t, --table=NAME             restore named relation (table, view, etc.)\n"));
 	printf(_("  -T, --trigger=NAME           restore named trigger\n"));
 	printf(_("  -x, --no-privileges          skip restoration of access privileges (grant/revoke)\n"));
-	printf(_("  -X, --statistics-only        restore only the statistics, not schema or data\n"));
 	printf(_("  -1, --single-transaction     restore as a single transaction\n"));
 	printf(_("  --disable-triggers           disable triggers during data-only restore\n"));
 	printf(_("  --enable-row-security        enable row security\n"));
@@ -520,6 +513,7 @@ usage(const char *progname)
 	printf(_("  --no-table-access-method     do not restore table access methods\n"));
 	printf(_("  --no-tablespaces             do not restore tablespace assignments\n"));
 	printf(_("  --section=SECTION            restore named section (pre-data, data, or post-data)\n"));
+	printf(_("  --statistics-only            restore only the statistics, not schema or data\n"));
 	printf(_("  --strict-names               require table and/or schema include patterns to\n"
 			 "                               match at least one entity each\n"));
 	printf(_("  --transaction-size=N         commit after every N objects\n"));

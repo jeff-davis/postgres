@@ -142,10 +142,14 @@ PostgreSQL documentation
        <para>
         Include large objects in the dump.  This is the default behavior
         except when <option>--schema</option>, <option>--table</option>,
-        <option>--schema-only</option>, or <option>--statistics-only</option>, or
+        <option>--schema-only</option>, <option>--statistics-only</option>, or
         <option>--no-data</option> is specified.  The <option>-b</option>
         switch is therefore only useful to add large objects to dumps where a
-        specific schema or table has been requested.
+        specific schema or table has been requested.  Note that large objects
+        are considered data and therefore will be included when
+        <option>--data-only</option> is used, but not when
+        <option>--schema-only</option> or <option>--statistics-only</option>
+        is.
        </para>
       </listitem>
      </varlistentry>
@@ -652,7 +656,6 @@ PostgreSQL documentation
      </varlistentry>
 
      <varlistentry>
-      <term><option>-X</option></term>
       <term><option>--statistics-only</option></term>
       <listitem>
        <para>
@@ -836,13 +839,13 @@ PostgreSQL documentation
       <term><option>--exclude-table-data=<replaceable class="parameter">pattern</replaceable></option></term>
       <listitem>
        <para>
-        Do not dump data or statistics for any tables matching <replaceable
+        Do not dump data for any tables matching <replaceable
         class="parameter">pattern</replaceable>. The pattern is
         interpreted according to the same rules as for <option>-t</option>.
         <option>--exclude-table-data</option> can be given more than once to
-        exclude tables matching any of several patterns. This option is useful
-        when you need the definition of a particular table even though you do
-        not need the data in it.
+        exclude tables matching any of several patterns. This option is
+        useful when you need the definition of a particular table even
+        though you do not need the data in it.
        </para>
        <para>
         To exclude data for all tables in the database, see <option>--schema-only</option>

@@ -432,6 +432,9 @@ main(int argc, char **argv)
 	bool		data_only = false;
 	bool		schema_only = false;
 	bool		statistics_only = false;
+	bool		no_data = false;
+	bool		no_schema = false;
+	bool		no_statistics = false;
 
 	static DumpOptions dopt;
 
@@ -468,7 +471,6 @@ main(int argc, char **argv)
 		{"encoding", required_argument, NULL, 'E'},
 		{"help", no_argument, NULL, '?'},
 		{"version", no_argument, NULL, 'V'},
-		{"statistics-only", no_argument, NULL, 'X'},
 
 		/*
 		 * the following options don't have an equivalent short option letter
@@ -492,14 +494,15 @@ main(int argc, char **argv)
 		{"section", required_argument, NULL, 5},
 		{"serializable-deferrable", no_argument, &dopt.serializable_deferrable, 1},
 		{"snapshot", required_argument, NULL, 6},
+		{"statistics-only", no_argument, NULL, 18},
 		{"strict-names", no_argument, &strict_names, 1},
 		{"use-set-session-authorization", no_argument, &dopt.use_setsessauth, 1},
 		{"no-comments", no_argument, &dopt.no_comments, 1},
-		{"no-data", no_argument, &dopt.no_data, 1},
+		{"no-data", no_argument, NULL, 19},
 		{"no-publications", no_argument, &dopt.no_publications, 1},
-		{"no-schema", no_argument, &dopt.no_schema, 1},
+		{"no-schema", no_argument, NULL, 20},
 		{"no-security-labels", no_argument, &dopt.no_security_labels, 1},
-		{"no-statistics", no_argument, &dopt.no_statistics, 1},
+		{"no-statistics", no_argument, NULL, 21},
 		{"no-subscriptions", no_argument, &dopt.no_subscriptions, 1},
 		{"no-toast-compression", no_argument, &dopt.no_toast_compression, 1},
 		{"no-unlogged-table-data", no_argument, &dopt.no_unlogged_table_data, 1},
@@ -617,10 +620,6 @@ main(int argc, char **argv)
 
 			case 'p':			/* server port */
 				dopt.cparams.pgport = pg_strdup(optarg);
-				break;
-
-			case 'X':			/* Dump statistics only */
-				statistics_only = true;
 				break;
 
 			case 'R':
@@ -757,6 +756,22 @@ main(int argc, char **argv)
 										  optarg);
 				break;
 
+			case 18:
+				statistics_only = true;
+				break;
+
+			case 19:
+				no_data = true;
+				break;
+
+			case 20:
+				no_schema = true;
+				break;
+
+			case 21:
+				no_statistics = true;
+				break;
+
 			default:
 				/* getopt_long already emitted a complaint */
 				pg_log_error_hint("Try \"%s --help\" for more information.", progname);
@@ -795,16 +810,16 @@ main(int argc, char **argv)
 	if (data_only && schema_only)
 		pg_fatal("options -s/--schema-only and -a/--data-only cannot be used together");
 	if (schema_only && statistics_only)
-		pg_fatal("options -s/--schema-only and -X/--statistics-only cannot be used together");
+		pg_fatal("options -s/--schema-only and --statistics-only cannot be used together");
 	if (data_only && statistics_only)
-		pg_fatal("options -a/--data-only and -X/--statistics-only cannot be used together");
+		pg_fatal("options -a/--data-only and --statistics-only cannot be used together");
 
-	if (data_only && dopt.no_data)
+	if (data_only && no_data)
 		pg_fatal("options -a/--data-only and --no-data cannot be used together");
-	if (schema_only && dopt.no_schema)
+	if (schema_only && no_schema)
 		pg_fatal("options -s/--schema-only and --no-schema cannot be used together");
-	if (statistics_only && dopt.no_statistics)
-		pg_fatal("options -X/--statistics-only and --no-statistics cannot be used together");
+	if (statistics_only && no_statistics)
+		pg_fatal("options --statistics-only and --no-statistics cannot be used together");
 
 	if (schema_only && foreign_servers_include_patterns.head != NULL)
 		pg_fatal("options -s/--schema-only and --include-foreign-data cannot be used together");
@@ -819,9 +834,9 @@ main(int argc, char **argv)
 		pg_fatal("option --if-exists requires option -c/--clean");
 
 	/* set derivative flags */
-	dopt.dumpData = data_only || (!schema_only && !statistics_only && !dopt.no_data);
-	dopt.dumpSchema = schema_only || (!data_only && !statistics_only && !dopt.no_schema);
-	dopt.dumpStatistics = statistics_only || (!data_only && !schema_only && !dopt.no_statistics);
+	dopt.dumpData = data_only || (!schema_only && !statistics_only && !no_data);
+	dopt.dumpSchema = schema_only || (!data_only && !statistics_only && !no_schema);
+	dopt.dumpStatistics = statistics_only || (!data_only && !schema_only && !no_statistics);
 
 	/*
 	 * --inserts are already implied above if --column-inserts or
@@ -1218,7 +1233,6 @@ help(const char *progname)
 	printf(_("  -t, --table=PATTERN          dump only the specified table(s)\n"));
 	printf(_("  -T, --exclude-table=PATTERN  do NOT dump the specified table(s)\n"));
 	printf(_("  -x, --no-privileges          do not dump privileges (grant/revoke)\n"));
-	printf(_("  -X, --statistics-only        dump only the statistics, not schema or data\n"));
 	printf(_("  --binary-upgrade             for use by upgrade utilities only\n"));
 	printf(_("  --column-inserts             dump data as INSERT commands with column names\n"));
 	printf(_("  --disable-dollar-quoting     disable dollar quoting, use SQL standard quoting\n"));
@@ -1259,6 +1273,7 @@ help(const char *progname)
 	printf(_("  --section=SECTION            dump named section (pre-data, data, or post-data)\n"));
 	printf(_("  --serializable-deferrable    wait until the dump can run without anomalies\n"));
 	printf(_("  --snapshot=SNAPSHOT          use given snapshot for the dump\n"));
+	printf(_("  --statistics-only            dump only the statistics, not schema or data\n"));
 	printf(_("  --strict-names               require table and/or schema include patterns to\n"
 			 "                               match at least one entity each\n"));
 	printf(_("  --table-and-children=PATTERN dump only the specified table(s), including\n"

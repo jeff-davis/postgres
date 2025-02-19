@@ -266,7 +266,6 @@ exclude database <replaceable class="parameter">PATTERN</replaceable>
      </varlistentry>
 
      <varlistentry>
-      <term><option>-X</option></term>
       <term><option>--statistics-only</option></term>
       <listitem>
        <para>
