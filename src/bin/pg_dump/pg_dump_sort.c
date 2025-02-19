@@ -803,9 +803,10 @@ repairMatViewBoundaryMultiLoop(DumpableObject *boundaryobj,
 {
 	/* remove boundary's dependency on object after it in loop */
 	removeObjectDependency(boundaryobj, nextobj->dumpId);
+
 	/*
-	 * If that object is a matview or matview status, mark it as postponed into
-	 * post-data.
+	 * If that object is a matview or matview status, mark it as postponed
+	 * into post-data.
 	 */
 	if (nextobj->objType == DO_TABLE)
 	{

@@ -6821,8 +6821,8 @@ getRelationStatistics(Archive *fout, DumpableObject *rel, char relkind)
 		(relkind == RELKIND_PARTITIONED_INDEX) ||
 		(relkind == RELKIND_MATVIEW))
 	{
-		RelStatsInfo	   *info = pg_malloc0(sizeof(RelStatsInfo));
-		DumpableObject	   *dobj = &info->dobj;
+		RelStatsInfo *info = pg_malloc0(sizeof(RelStatsInfo));
+		DumpableObject *dobj = &info->dobj;
 
 		dobj->objType = DO_REL_STATS;
 		dobj->catId.tableoid = 0;
@@ -7718,7 +7718,7 @@ getIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
 		{
 			char		contype;
 			char		indexkind;
-			RelStatsInfo   *relstats;
+			RelStatsInfo *relstats;
 
 			indxinfo[j].dobj.objType = DO_INDEX;
 			indxinfo[j].dobj.catId.tableoid = atooid(PQgetvalue(res, j, i_tableoid));
@@ -10605,7 +10605,7 @@ statisticsDumpSection(const RelStatsInfo *rsinfo)
 					 rsinfo->relkind);
 	}
 
-	return 0;				/* keep compiler quiet */
+	return 0;					/* keep compiler quiet */
 }
 
 /*
@@ -10616,13 +10616,13 @@ statisticsDumpSection(const RelStatsInfo *rsinfo)
 static void
 dumpRelationStats(Archive *fout, const RelStatsInfo *rsinfo)
 {
-	PGresult	   *res;
-	PQExpBuffer		query;
-	PQExpBuffer		out;
-	PQExpBuffer		tag;
+	PGresult   *res;
+	PQExpBuffer query;
+	PQExpBuffer out;
+	PQExpBuffer tag;
 	DumpableObject *dobj = (DumpableObject *) &rsinfo->dobj;
-	DumpId		   *deps = NULL;
-	int				ndeps = 0;
+	DumpId	   *deps = NULL;
+	int			ndeps = 0;
 
 	/* nothing to do if we are not dumping statistics */
 	if (!fout->dopt->dumpStatistics)
@@ -10658,7 +10658,7 @@ dumpRelationStats(Archive *fout, const RelStatsInfo *rsinfo)
 							  .namespace = dobj->namespace->dobj.name,
 							  .description = "STATISTICS DATA",
 							  .section = rsinfo->postponed_def ?
-								SECTION_POST_DATA :  statisticsDumpSection(rsinfo),
+							  SECTION_POST_DATA : statisticsDumpSection(rsinfo),
 							  .createStmt = out->data,
 							  .deps = deps,
 							  .nDeps = ndeps));

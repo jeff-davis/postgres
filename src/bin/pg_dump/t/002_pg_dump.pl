@@ -714,33 +714,28 @@ my %pgdump_runs = (
 	no_statistics => {
 		dump_cmd => [
 			'pg_dump', '--no-sync',
-			"--file=$tempdir/no_statistics.sql",
-			'--no-statistics',
+			"--file=$tempdir/no_statistics.sql", '--no-statistics',
 			'postgres',
 		],
 	},
 	no_data_no_schema => {
 		dump_cmd => [
 			'pg_dump', '--no-sync',
-			"--file=$tempdir/no_data_no_schema.sql",
-			'--no-data',
-			'--no-schema',
-			'postgres',
+			"--file=$tempdir/no_data_no_schema.sql", '--no-data',
+			'--no-schema', 'postgres',
 		],
 	},
 	statistics_only => {
 		dump_cmd => [
 			'pg_dump', '--no-sync',
-			"--file=$tempdir/statistics_only.sql",
-			'--statistics-only',
+			"--file=$tempdir/statistics_only.sql", '--statistics-only',
 			'postgres',
 		],
 	},
 	no_schema => {
 		dump_cmd => [
 			'pg_dump', '--no-sync',
-			"--file=$tempdir/no_schema.sql",
-			'--no-schema',
+			"--file=$tempdir/no_schema.sql", '--no-schema',
 			'postgres',
 		],
 	},);

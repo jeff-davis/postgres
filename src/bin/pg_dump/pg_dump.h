@@ -436,9 +436,9 @@ typedef struct _indexAttachInfo
 
 typedef struct _relStatsInfo
 {
-	DumpableObject	dobj;
-	char			relkind;		/* 'r', 'm', 'i', etc */
-	bool			postponed_def;  /* stats must be postponed into post-data */
+	DumpableObject dobj;
+	char		relkind;		/* 'r', 'm', 'i', etc */
+	bool		postponed_def;	/* stats must be postponed into post-data */
 } RelStatsInfo;
 
 typedef struct _statsExtInfo

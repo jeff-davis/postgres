@@ -110,12 +110,12 @@ typedef struct _restoreOptions
 	int			column_inserts;
 	int			if_exists;
 	int			no_comments;	/* Skip comments */
-	int			no_data;			/* Skip data */
+	int			no_data;		/* Skip data */
 	int			no_publications;	/* Skip publication entries */
-	int			no_schema;			/* Skip schema generation */
+	int			no_schema;		/* Skip schema generation */
 	int			no_security_labels; /* Skip security label entries */
 	int			no_subscriptions;	/* Skip subscription entries */
-	int			no_statistics;		/* Skip statistics import */
+	int			no_statistics;	/* Skip statistics import */
 	int			strict_names;
 
 	const char *filename;

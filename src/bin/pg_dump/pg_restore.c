@@ -78,7 +78,7 @@ main(int argc, char **argv)
 	static int	no_publications = 0;
 	static int	no_schema = 0;
 	static int	no_security_labels = 0;
-	static int  no_statistics = 0;
+	static int	no_statistics = 0;
 	static int	no_subscriptions = 0;
 	static int	strict_names = 0;
 
