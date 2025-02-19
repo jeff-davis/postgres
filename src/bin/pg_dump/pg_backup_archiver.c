@@ -423,10 +423,10 @@ RestoreArchive(Archive *AHX)
 	}
 
 	/*
-	 * Work out if we have an schema-less restore. This can happen if the dump
-	 * was data-only or statistics-only or no-schema or if the user has used a
-	 * toc list to exclude all of the schema data. All we do is look for
-	 * schema entries - if none are found then we unset the dumpSchema flag.
+	 * Work out if we have an implied schema-less restore. This can happen if
+	 * the dump excluded the schema or the user has used a toc list to exclude
+	 * all of the schema data. All we do is look for schema entries - if none
+	 * are found then we unset the dumpSchema flag.
 	 *
 	 * We could scan for wanted TABLE entries, but that is not the same as
 	 * data-only. At this stage, it seems unnecessary (6-Mar-2001).
@@ -2916,8 +2916,9 @@ StrictNamesCheck(RestoreOptions *ropt)
  * Determine whether we want to restore this TOC entry.
  *
  * Returns 0 if entry should be skipped, or some combination of the
- * REQ_SCHEMA and REQ_DATA bits if we want to restore schema and/or data
- * portions of this TOC entry, or REQ_SPECIAL if it's a special entry.
+ * REQ_SCHEMA, REQ_DATA, and REQ_STATS bits if we want to restore schema, data
+ * and/or statistics portions of this TOC entry, or REQ_SPECIAL if it's a
+ * special entry.
  */
 static int
 _tocEntryRequired(TocEntry *te, teSection curSection, ArchiveHandle *AH)

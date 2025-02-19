@@ -21,8 +21,8 @@ generate_old_dump(void)
 
 	/* run new pg_dumpall binary for globals */
 	exec_prog(UTILITY_LOG_FILE, NULL, true, true,
-			  "\"%s/pg_dumpall\" %s %s --globals-only --quote-all-identifiers "
-			  "--binary-upgrade --no-sync -f \"%s/%s\"",
+			  "\"%s/pg_dumpall\" %s --globals-only --quote-all-identifiers "
+			  "--binary-upgrade %s --no-sync -f \"%s/%s\"",
 			  new_cluster.bindir, cluster_conn_opts(&old_cluster),
 			  log_opts.verbose ? "--verbose" : "",
 			  log_opts.dumpdir,
