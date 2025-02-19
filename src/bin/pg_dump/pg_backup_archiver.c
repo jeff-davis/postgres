@@ -46,12 +46,9 @@
 #define TEXT_DUMP_HEADER "--\n-- PostgreSQL database dump\n--\n\n"
 #define TEXT_DUMPALL_HEADER "--\n-- PostgreSQL database cluster dump\n--\n\n"
 
-typedef enum TocEntryType
-{
-	DEFAULT_TOC_ENTRY,
-	DATA_TOC_ENTRY,
-	STATS_TOC_ENTRY
-}			TocEntryType;
+#define TOC_PREFIX_NONE		""
+#define TOC_PREFIX_DATA		"Data for "
+#define TOC_PREFIX_STATS	"Statistics for "
 
 static ArchiveHandle *_allocAH(const char *FileSpec, const ArchiveFormat fmt,
 							   const pg_compress_specification compression_spec,
@@ -59,7 +56,7 @@ static ArchiveHandle *_allocAH(const char *FileSpec, const ArchiveFormat fmt,
 							   SetupWorkerPtrType setupWorkerPtr,
 							   DataDirSyncMethod sync_method);
 static void _getObjectDescription(PQExpBuffer buf, const TocEntry *te);
-static void _printTocEntry(ArchiveHandle *AH, TocEntry *te, TocEntryType entry_type);
+static void _printTocEntry(ArchiveHandle *AH, TocEntry *te, const char *pfx);
 static char *sanitize_line(const char *str, bool want_hyphen);
 static void _doSetFixedOutputState(ArchiveHandle *AH);
 static void _doSetSessionAuth(ArchiveHandle *AH, const char *user);
@@ -877,7 +874,7 @@ restore_toc_entry(ArchiveHandle *AH, TocEntry *te, bool is_parallel)
 			pg_log_info("creating %s \"%s\"",
 						te->desc, te->tag);
 
-		_printTocEntry(AH, te, DEFAULT_TOC_ENTRY);
+		_printTocEntry(AH, te, TOC_PREFIX_NONE);
 		defnDumped = true;
 
 		if (strcmp(te->desc, "TABLE") == 0)
@@ -946,7 +943,7 @@ restore_toc_entry(ArchiveHandle *AH, TocEntry *te, bool is_parallel)
 			 */
 			if (AH->PrintTocDataPtr != NULL)
 			{
-				_printTocEntry(AH, te, DATA_TOC_ENTRY);
+				_printTocEntry(AH, te, TOC_PREFIX_DATA);
 
 				if (strcmp(te->desc, "BLOBS") == 0 ||
 					strcmp(te->desc, "BLOB COMMENTS") == 0)
@@ -1044,7 +1041,7 @@ restore_toc_entry(ArchiveHandle *AH, TocEntry *te, bool is_parallel)
 		{
 			/* If we haven't already dumped the defn part, do so now */
 			pg_log_info("executing %s %s", te->desc, te->tag);
-			_printTocEntry(AH, te, DEFAULT_TOC_ENTRY);
+			_printTocEntry(AH, te, TOC_PREFIX_NONE);
 		}
 	}
 
@@ -1052,7 +1049,7 @@ restore_toc_entry(ArchiveHandle *AH, TocEntry *te, bool is_parallel)
 	 * If it has a statistics component that we want, then process that
 	 */
 	if ((reqs & REQ_STATS) != 0)
-		_printTocEntry(AH, te, STATS_TOC_ENTRY);
+		_printTocEntry(AH, te, TOC_PREFIX_STATS);
 
 	/*
 	 * If we emitted anything for this TOC entry, that counts as one action
@@ -3759,7 +3756,7 @@ _getObjectDescription(PQExpBuffer buf, const TocEntry *te)
  * will remain at default, until the matching ACL TOC entry is restored.
  */
 static void
-_printTocEntry(ArchiveHandle *AH, TocEntry *te, TocEntryType entry_type)
+_printTocEntry(ArchiveHandle *AH, TocEntry *te, const char *pfx)
 {
 	RestoreOptions *ropt = AH->public.ropt;
 
@@ -3778,22 +3775,9 @@ _printTocEntry(ArchiveHandle *AH, TocEntry *te, TocEntryType entry_type)
 	/* Emit header comment for item */
 	if (!AH->noTocComments)
 	{
-		const char *pfx;
 		char	   *sanitized_name;
 		char	   *sanitized_schema;
 		char	   *sanitized_owner;
-
-		switch (entry_type)
-		{
-			case DATA_TOC_ENTRY:
-				pfx = "Data for ";
-				break;
-			case STATS_TOC_ENTRY:
-				pfx = "Statistics for ";
-				break;
-			default:
-				pfx = "";
-		}
 
 		ahprintf(AH, "--\n");
 		if (AH->public.verbose)
