@@ -317,6 +317,10 @@ if (defined($ENV{oldinstall}))
 	}
 }
 
+# Stabilize stats before pg_dumpall.
+$oldnode->append_conf('postgresql.conf', 'autovacuum = off');
+$oldnode->restart;
+
 # Take a dump before performing the upgrade as a base comparison. Note
 # that we need to use pg_dumpall from the new node here.
 my @dump_command = (
