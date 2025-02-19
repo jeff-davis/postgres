@@ -146,15 +146,6 @@ PostgreSQL documentation
      </varlistentry>
 
      <varlistentry>
-      <term><option>--with-statistics</option></term>
-      <listitem>
-       <para>
-        Restore statistics from the old cluster into the new cluster.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry>
       <term><option>--no-statistics</option></term>
       <listitem>
        <para>

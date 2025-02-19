@@ -60,8 +60,7 @@ parseCommandLine(int argc, char *argv[])
 		{"copy", no_argument, NULL, 2},
 		{"copy-file-range", no_argument, NULL, 3},
 		{"sync-method", required_argument, NULL, 4},
-		{"with-statistics", no_argument, NULL, 5},
-		{"no-statistics", no_argument, NULL, 6},
+		{"no-statistics", no_argument, NULL, 5},
 
 		{NULL, 0, NULL, 0}
 	};
@@ -216,9 +215,6 @@ parseCommandLine(int argc, char *argv[])
 				break;
 
 			case 5:
-				user_opts.do_statistics = true;
-				break;
-			case 6:
 				user_opts.do_statistics = false;
 				break;
 
@@ -318,7 +314,6 @@ usage(void)
 	printf(_("  --copy-file-range             copy files to new cluster with copy_file_range\n"));
 	printf(_("  --no-statistics               do not import statistics from old cluster\n"));
 	printf(_("  --sync-method=METHOD          set method for syncing files to disk\n"));
-	printf(_("  --with-statistics             import statistics from old cluster (default)\n"));
 	printf(_("  -?, --help                    show this help, then exit\n"));
 	printf(_("\n"
 			 "Before running pg_upgrade you must:\n"
