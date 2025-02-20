@@ -6830,6 +6830,9 @@ getFuncs(Archive *fout)
 static RelStatsInfo *
 getRelationStatistics(Archive *fout, DumpableObject *rel, char relkind)
 {
+	if (!fout->dopt->dumpStatistics)
+		return NULL;
+
 	if ((relkind == RELKIND_RELATION) ||
 		(relkind == RELKIND_PARTITIONED_TABLE) ||
 		(relkind == RELKIND_INDEX) ||
@@ -6848,7 +6851,6 @@ getRelationStatistics(Archive *fout, DumpableObject *rel, char relkind)
 		dobj->nDeps = 1;
 		dobj->allocDeps = 1;
 		dobj->components |= DUMP_COMPONENT_STATISTICS;
-		dobj->dump = rel->dump;
 		dobj->name = pg_strdup(rel->name);
 		dobj->namespace = rel->namespace;
 		info->relkind = relkind;
@@ -7218,8 +7220,8 @@ getTables(Archive *fout, int *numTables)
 
 		/*
 		 * Now, consider the table "interesting" if we need to dump its
-		 * definition or its data.  Later on, we'll skip a lot of data
-		 * collection for uninteresting tables.
+		 * definition, data or its statistics.  Later on, we'll skip a lot of
+		 * data collection for uninteresting tables.
 		 *
 		 * Note: the "interesting" flag will also be set by flagInhTables for
 		 * parents of interesting tables, so that we collect necessary
@@ -7229,7 +7231,8 @@ getTables(Archive *fout, int *numTables)
 		 */
 		tblinfo[i].interesting = (tblinfo[i].dobj.dump &
 								  (DUMP_COMPONENT_DEFINITION |
-								   DUMP_COMPONENT_DATA)) != 0;
+								   DUMP_COMPONENT_DATA |
+								   DUMP_COMPONENT_STATISTICS)) != 0;
 
 		tblinfo[i].dummy_view = false;	/* might get set during sort */
 		tblinfo[i].postponed_def = false;	/* might get set during sort */
@@ -7241,6 +7244,10 @@ getTables(Archive *fout, int *numTables)
 		if (!PQgetisnull(res, i, i_relacl))
 			tblinfo[i].dobj.components |= DUMP_COMPONENT_ACL;
 		tblinfo[i].hascolumnACLs = false;	/* may get set later */
+
+		/* Add statistics */
+		if (tblinfo[i].interesting)
+			getRelationStatistics(fout, &tblinfo[i].dobj, tblinfo[i].relkind);
 
 		/*
 		 * Read-lock target tables to make sure they aren't DROPPED or altered
@@ -7284,8 +7291,6 @@ getTables(Archive *fout, int *numTables)
 				}
 			}
 		}
-		if (tblinfo[i].interesting || dopt->dumpStatistics)
-			getRelationStatistics(fout, &tblinfo[i].dobj, tblinfo[i].relkind);
 	}
 
 	if (query->len != 0)
@@ -7739,7 +7744,6 @@ getIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
 			indxinfo[j].dobj.catId.tableoid = atooid(PQgetvalue(res, j, i_tableoid));
 			indxinfo[j].dobj.catId.oid = atooid(PQgetvalue(res, j, i_oid));
 			AssignDumpId(&indxinfo[j].dobj);
-			indxinfo[j].dobj.components |= DUMP_COMPONENT_STATISTICS;
 			indxinfo[j].dobj.dump = tbinfo->dobj.dump;
 			indxinfo[j].dobj.name = pg_strdup(PQgetvalue(res, j, i_indexname));
 			indxinfo[j].dobj.namespace = tbinfo->dobj.namespace;
