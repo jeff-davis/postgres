@@ -132,28 +132,18 @@ stats_lock_check_privileges(Oid reloid)
 	Relation	table;
 	Oid			table_oid = reloid;
 	Oid			index_oid = InvalidOid;
-	LOCKMODE	index_lockmode = NoLock;
 
 	/*
-	 * For indexes, we follow the locking behavior in do_analyze_rel() and
-	 * check_inplace_rel_lock(), which is to lock the table first in
-	 * ShareUpdateExclusive mode and then the index in AccessShare mode.
-	 *
-	 * Partitioned indexes are treated differently than normal indexes in
-	 * check_inplace_rel_lock(), so we take a ShareUpdateExclusive lock on
-	 * both the partitioned table and the partitioned index.
+	 * For indexes, we follow the locking behavior in do_analyze_rel(), which
+	 * is to lock the table first in ShareUpdateExclusive mode and then the
+	 * index in AccessShare mode.
 	 */
 	switch (get_rel_relkind(reloid))
 	{
 		case RELKIND_INDEX:
-			index_oid = reloid;
-			table_oid = IndexGetRelation(index_oid, false);
-			index_lockmode = AccessShareLock;
-			break;
 		case RELKIND_PARTITIONED_INDEX:
 			index_oid = reloid;
 			table_oid = IndexGetRelation(index_oid, false);
-			index_lockmode = ShareUpdateExclusiveLock;
 			break;
 		default:
 			break;
@@ -181,8 +171,7 @@ stats_lock_check_privileges(Oid reloid)
 	{
 		Relation	index;
 
-		Assert(index_lockmode != NoLock);
-		index = relation_open(index_oid, index_lockmode);
+		index = relation_open(index_oid, AccessShareLock);
 
 		Assert(index->rd_index && index->rd_index->indrelid == table_oid);
 
