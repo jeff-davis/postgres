@@ -2833,11 +2833,7 @@ index_update_stats(Relation rel,
 	if (reltuples == 0 && rel->rd_rel->reltuples < 0)
 		reltuples = -1;
 
-	/*
-	 * Don't update statistics during binary upgrade, because the indexes are
-	 * created before the data is moved into place.
-	 */
-	update_stats = reltuples >= 0 && !IsBinaryUpgrade;
+	update_stats = reltuples >= 0;
 
 	/*
 	 * Finish I/O and visibility map buffer locks before
@@ -2850,7 +2846,16 @@ index_update_stats(Relation rel,
 	{
 		relpages = RelationGetNumberOfBlocks(rel);
 
-		if (rel->rd_rel->relkind != RELKIND_INDEX)
+		/*
+		 * Don't update statistics when the relation is completely empty. This
+		 * is important during binary upgrade, because at the time the schema
+		 * is loaded, the data has not yet been moved into place. It's also
+		 * useful when restoring a dump containing only schema and statistics.
+		 */
+		if (relpages == 0)
+			update_stats = false;
+
+		if (update_stats && rel->rd_rel->relkind != RELKIND_INDEX)
 			visibilitymap_count(rel, &relallvisible, NULL);
 	}
 
