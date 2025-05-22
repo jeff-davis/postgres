@@ -567,7 +567,7 @@ exclude database <replaceable class="parameter">PATTERN</replaceable>
       <term><option>--no-statistics</option></term>
       <listitem>
        <para>
-        Do not dump statistics.
+        Do not dump statistics. This is the default.
        </para>
       </listitem>
      </varlistentry>
@@ -741,7 +741,7 @@ exclude database <replaceable class="parameter">PATTERN</replaceable>
       <term><option>--with-statistics</option></term>
       <listitem>
        <para>
-        Dump statistics. This is the default.
+        Dump statistics.
        </para>
       </listitem>
      </varlistentry>

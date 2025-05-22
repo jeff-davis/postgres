@@ -1134,7 +1134,7 @@ PostgreSQL documentation
       <term><option>--no-statistics</option></term>
       <listitem>
        <para>
-        Do not dump statistics.
+        Do not dump statistics. This is the default.
        </para>
       </listitem>
      </varlistentry>
@@ -1461,7 +1461,7 @@ PostgreSQL documentation
       <term><option>--with-statistics</option></term>
       <listitem>
        <para>
-        Dump statistics. This is the default.
+        Dump statistics.
        </para>
       </listitem>
      </varlistentry>
