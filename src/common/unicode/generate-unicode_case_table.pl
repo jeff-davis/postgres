@@ -14,6 +14,7 @@ use Getopt::Long;
 
 use FindBin;
 use lib "$FindBin::RealBin/../../tools/";
+use Ranges;
 
 my $output_path = '.';
 
@@ -466,11 +467,11 @@ foreach my $entry (@{ $map{special} })
 
 print $OT "\n};\n";
 
+my $case_table_name = "case_map";
 my @codepoints = keys %simple;
-my $range = make_ranges(\@codepoints, 500);
-my @case_map_lines = range_tables($range);
-my $case_map_length = scalar @case_map_lines;
-my $case_map_table = join "\n", @case_map_lines;
+my $range = Ranges::make(\@codepoints, 500);
+my $case_map_table = Ranges::tables($range, $case_table_name,
+	sub { $simple{ $_[0] }{Index} || 0 });
 
 print $OT <<"EOS";
 
@@ -479,10 +480,7 @@ print $OT <<"EOS";
  * of the following arrays: case_map_lower, case_map_title, case_map_upper,
  * case_map_fold.
  */
-static const uint16 case_map[$case_map_length] =
-{
 $case_map_table
-};
 
 
 EOS
@@ -507,12 +505,12 @@ case_index(pg_wchar cp)
 	/* Fast path for codepoints < $fastpath_limit */
 	if (cp < $fastpath_limit)
 	{
-		return case_map[cp];
+		return $case_table_name\[cp];
 	}
 
 EOS
 
-print $OT join("\n", @{ branch($range, 0, $#$range, 1) });
+print $OT Ranges::branch_as_text($range, 0, $#$range, 1, $case_table_name);
 
 print $OT <<"EOS";
 
@@ -522,146 +520,3 @@ print $OT <<"EOS";
 EOS
 
 close $OT;
-
-# The function generates C code with a series of nested if-else conditions
-# to search for the matching interval.
-sub branch
-{
-	my ($range, $from, $to, $indent) = @_;
-	my ($idx, $space, $entry, $table, @result);
-
-	$idx = ($from + int(($to - $from) / 2));
-	return \@result unless exists $range->[$idx];
-
-	$space = "\t" x $indent;
-
-	$entry = $range->[$idx];
-
-	# IF state
-	if ($idx == $from)
-	{
-		if ($idx == 0)
-		{
-			push @result,
-			  sprintf("%sif (cp >= 0x%04X && cp < 0x%04X)\n%s{",
-				$space, $entry->{Start}, $entry->{End}, $space);
-		}
-		else
-		{
-			push @result,
-			  sprintf("%sif (cp < 0x%04X)\n%s{",
-				$space, $entry->{End}, $space);
-		}
-
-		push @result,
-		  sprintf("%s\treturn case_map[cp - 0x%04X + %d];",
-			$space, $entry->{Start}, $entry->{Offset});
-	}
-	else
-	{
-		push @result,
-		  sprintf("%sif (cp < 0x%04X)\n%s{", $space, $entry->{End}, $space);
-		push @result, @{ branch($range, $from, $idx - 1, $indent + 1) };
-	}
-
-	push @result, $space . "}";
-
-	# return now if it's the last range
-	return \@result if $idx == (scalar @$range) - 1;
-
-	# ELSE looks ahead to the next range to avoid adding an
-	# unnecessary level of branching.
-	$entry = @$range[ $idx + 1 ];
-
-	# ELSE state
-	push @result,
-	  sprintf("%selse if (cp >= 0x%04X)\n%s{",
-		$space, $entry->{Start}, $space);
-
-	if ($idx == $to)
-	{
-		push @result,
-		  sprintf("%s\treturn case_map\[cp - 0x%04X + %d];",
-			$space, $entry->{Start}, $entry->{Offset});
-	}
-	else
-	{
-		push @result, @{ branch($range, $idx + 1, $to, $indent + 1) };
-	}
-
-	push @result, $space . "}";
-
-	return \@result;
-}
-
-# Group numbers into ranges where the difference between neighboring
-# elements does not exceed $limit. If the difference is greater, a new
-# range is created. This is used to break the sequence into intervals
-# where the gaps between numbers are greater than limit.
-#
-# For example, if there are numbers 1, 2, 3, 5, 6 and limit = 1, then
-# there is a difference of 2 between 3 and 5, which is greater than 1,
-# so there will be ranges 1-3 and 5-6.
-sub make_ranges
-{
-	my ($nums, $limit) = @_;
-	my ($prev, $start, $total, @sorted, @range);
-
-	@sorted = sort { $a <=> $b } @$nums;
-
-	die "expecting at least 2 codepoints" if (scalar @sorted < 2);
-
-	$start = shift @sorted;
-
-	die "expecting first codepoint to start at 0" unless $start == 0;
-
-	$prev = $start;
-	$total = 0;
-
-	# append final 'undef' to signal final iteration
-	push @sorted, undef;
-
-	foreach my $curr (@sorted)
-	{
-		# if last iteration always append the range
-		if (!defined($curr) || ($curr - $prev > $limit))
-		{
-			push @range,
-			  {
-				Start => $start,
-				End => $prev + 1,
-				Offset => $total
-			  };
-			$total += $prev + 1 - $start;
-			$start = $curr;
-		}
-
-		$prev = $curr;
-	}
-
-	return \@range;
-}
-
-# The function combines all ranges into the case_map table. Ranges may
-# include codepoints without a case mapping at all, in which case the
-# entry in case_map should be zero.
-sub range_tables
-{
-	my ($range) = @_;
-	my (@lines, @result);
-
-	foreach my $entry (@$range)
-	{
-		my $start = $entry->{Start};
-		my $end = $entry->{End} - 1;
-
-		foreach my $cp ($start .. $end)
-		{
-			my $idx = sprintf("%d,", ($simple{$cp}{Index} || 0));
-			$idx .= "\t" if length($idx) < 4;
-			push @lines, sprintf("\t%s\t\t\t\t\t\t/* U+%06X */", $idx, $cp);
-		}
-	}
-
-	return @lines;
-}
