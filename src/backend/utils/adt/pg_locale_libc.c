@@ -81,6 +81,12 @@
  */
 #define		TEXTBUFLEN			1024
 
+/*
+ * Represents datctype locale in a global variable, so that we don't need to
+ * rely on setlocale() anywhere.
+ */
+locale_t	global_libc_ctype = NULL;
+
 extern pg_locale_t create_pg_locale_libc(Oid collid, MemoryContext context);
 
 static int	strncoll_libc(const char *arg1, ssize_t len1,
@@ -663,6 +669,35 @@ strupper_libc_mb(char *dest, size_t destsize, const char *src, ssize_t srclen,
 	pfree(result);
 
 	return result_size;
+}
+
+/*
+ * Initialize global locale for LC_COLLATE and LC_CTYPE from datcollate and
+ * datctype, respectively.
+ *
+ * NB: should be consistent with make_libc_collator(), except that it must
+ * create the locale even for "C" and "POSIX".
+ */
+void
+init_global_libc_ctype(const char *ctype)
+{
+	locale_t	loc = 0;
+
+	/* Normal case where they're the same */
+	errno = 0;
+#ifndef WIN32
+	loc = newlocale(LC_CTYPE_MASK, ctype, NULL);
+#else
+	loc = _create_locale(LC_ALL, ctype);
+#endif
+	if (!loc)
+		ereport(FATAL,
+				(errmsg("database locale is incompatible with operating system"),
+				 errdetail("The database was initialized with LC_CTYPE \"%s\", "
+						   " which is not recognized by setlocale().", ctype),
+				 errhint("Recreate the database with another locale or install the missing locale.")));
+
+	global_libc_ctype = loc;
 }
 
 pg_locale_t
