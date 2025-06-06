@@ -43,7 +43,7 @@ t_isalpha(const char *ptr)
 
 	char2wchar(character, WC_BUF_LEN, ptr, clen, mylocale);
 
-	return iswalpha((wint_t) character[0]);
+	return iswalpha_l((wint_t) character[0], global_lc_ctype);
 }
 
 int
@@ -58,7 +58,7 @@ t_isalnum(const char *ptr)
 
 	char2wchar(character, WC_BUF_LEN, ptr, clen, mylocale);
 
-	return iswalnum((wint_t) character[0]);
+	return iswalnum_l((wint_t) character[0], global_lc_ctype);
 }
 
 

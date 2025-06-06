@@ -28,6 +28,14 @@
 
 #include <ctype.h>
 
+#ifndef FRONTEND
+extern PGDLLIMPORT locale_t global_lc_ctype;
+#define TOUPPER(x) toupper_l((unsigned char) (x), global_lc_ctype)
+#define TOLOWER(x) tolower_l((unsigned char) (x), global_lc_ctype)
+#else
+#define TOUPPER(x) toupper(x)
+#define TOLOWER(x) tolower(x)
+#endif
 
 /*
  * Case-independent comparison of two null-terminated strings.
@@ -45,12 +53,12 @@ pg_strcasecmp(const char *s1, const char *s2)
 			if (ch1 >= 'A' && ch1 <= 'Z')
 				ch1 += 'a' - 'A';
 			else if (IS_HIGHBIT_SET(ch1) && isupper(ch1))
-				ch1 = tolower(ch1);
+				ch1 = TOLOWER(ch1);
 
 			if (ch2 >= 'A' && ch2 <= 'Z')
 				ch2 += 'a' - 'A';
 			else if (IS_HIGHBIT_SET(ch2) && isupper(ch2))
-				ch2 = tolower(ch2);
+				ch2 = TOLOWER(ch2);
 
 			if (ch1 != ch2)
 				return (int) ch1 - (int) ch2;
@@ -78,12 +86,12 @@ pg_strncasecmp(const char *s1, const char *s2, size_t n)
 			if (ch1 >= 'A' && ch1 <= 'Z')
 				ch1 += 'a' - 'A';
 			else if (IS_HIGHBIT_SET(ch1) && isupper(ch1))
-				ch1 = tolower(ch1);
+				ch1 = TOLOWER(ch1);
 
 			if (ch2 >= 'A' && ch2 <= 'Z')
 				ch2 += 'a' - 'A';
 			else if (IS_HIGHBIT_SET(ch2) && isupper(ch2))
-				ch2 = tolower(ch2);
+				ch2 = TOLOWER(ch2);
 
 			if (ch1 != ch2)
 				return (int) ch1 - (int) ch2;
@@ -107,7 +115,7 @@ pg_toupper(unsigned char ch)
 	if (ch >= 'a' && ch <= 'z')
 		ch += 'A' - 'a';
 	else if (IS_HIGHBIT_SET(ch) && islower(ch))
-		ch = toupper(ch);
+		ch = TOUPPER(ch);
 	return ch;
 }
 
@@ -124,7 +132,7 @@ pg_tolower(unsigned char ch)
 	if (ch >= 'A' && ch <= 'Z')
 		ch += 'a' - 'A';
 	else if (IS_HIGHBIT_SET(ch) && isupper(ch))
-		ch = tolower(ch);
+		ch = TOLOWER(ch);
 	return ch;
 }
 

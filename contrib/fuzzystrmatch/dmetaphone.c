@@ -99,6 +99,7 @@ The remaining code is authored by Andrew Dunstan <amdunstan@ncshp.org> and
 #include "postgres.h"
 
 #include "utils/builtins.h"
+#include "utils/pg_locale.h"
 
 /* turn off assertions for embedded function */
 #define NDEBUG
@@ -284,7 +285,7 @@ MakeUpper(metastring *s)
 	char	   *i;
 
 	for (i = s->str; *i; i++)
-		*i = toupper((unsigned char) *i);
+		*i = toupper_l((unsigned char) *i, global_lc_ctype);
 }
 
 
