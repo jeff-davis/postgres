@@ -431,6 +431,8 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
 						   " which is not recognized by setlocale().", ctype),
 				 errhint("Recreate the database with another locale or install the missing locale.")));
 
+	init_global_libc_locale(collate, ctype);
+
 	if (strcmp(ctype, "C") == 0 ||
 		strcmp(ctype, "POSIX") == 0)
 		database_ctype_is_c = true;

@@ -85,6 +85,12 @@ static size_t strupper_libc_mb(char *dest, size_t destsize,
 							   const char *src, ssize_t srclen,
 							   pg_locale_t locale);
 
+/*
+ * Represents datcollate and datctype locales in a global variable, so that we
+ * don't need to rely on setlocale() anywhere.
+ */
+locale_t	global_libc_locale = NULL;
+
 static const struct collate_methods collate_methods_libc = {
 	.strncoll = strncoll_libc,
 	.strnxfrm = strnxfrm_libc,
@@ -415,6 +421,77 @@ strupper_libc_mb(char *dest, size_t destsize, const char *src, ssize_t srclen,
 	pfree(result);
 
 	return result_size;
+}
+
+/*
+ * Initialize global locale for LC_COLLATE and LC_CTYPE from datcollate and
+ * datctype, respectively.
+ *
+ * NB: should be consistent with make_libc_collator(), except that it must
+ * create the locale even for "C" and "POSIX".
+ */
+void
+init_global_libc_locale(const char *collate, const char *ctype)
+{
+	locale_t	loc = 0;
+
+	if (strcmp(collate, ctype) == 0)
+	{
+		/* Normal case where they're the same */
+		errno = 0;
+#ifndef WIN32
+		loc = newlocale(LC_COLLATE_MASK | LC_CTYPE_MASK, collate, NULL);
+#else
+		loc = _create_locale(LC_ALL, collate);
+#endif
+		if (!loc)
+			ereport(FATAL,
+					(errmsg("database locale is incompatible with operating system"),
+					 errdetail("The database was initialized with LC_COLLATE \"%s\", "
+							   " which is not recognized by setlocale().", collate),
+					 errhint("Recreate the database with another locale or install the missing locale.")));
+	}
+	else
+	{
+#ifndef WIN32
+		/* We need two newlocale() steps */
+		locale_t	loc1 = 0;
+
+		errno = 0;
+		loc1 = newlocale(LC_COLLATE_MASK, collate, NULL);
+		if (!loc1)
+			ereport(FATAL,
+					(errmsg("database locale is incompatible with operating system"),
+					 errdetail("The database was initialized with LC_COLLATE \"%s\", "
+							   " which is not recognized by setlocale().", collate),
+					 errhint("Recreate the database with another locale or install the missing locale.")));
+
+		errno = 0;
+		loc = newlocale(LC_CTYPE_MASK, ctype, loc1);
+		if (!loc)
+		{
+			if (loc1)
+				freelocale(loc1);
+			ereport(FATAL,
+					(errmsg("database locale is incompatible with operating system"),
+					 errdetail("The database was initialized with LC_CTYPE \"%s\", "
+							   " which is not recognized by setlocale().", ctype),
+					 errhint("Recreate the database with another locale or install the missing locale.")));
+		}
+#else
+
+		/*
+		 * XXX The _create_locale() API doesn't appear to support this. Could
+		 * perhaps be worked around by changing pg_locale_t to contain two
+		 * separate fields.
+		 */
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("collations with different collate and ctype values are not supported on this platform")));
+#endif
+	}
+
+	global_libc_locale = loc;
 }
 
 pg_locale_t

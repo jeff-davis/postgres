@@ -32,6 +32,12 @@ extern PGDLLIMPORT char *localized_full_days[];
 extern PGDLLIMPORT char *localized_abbrev_months[];
 extern PGDLLIMPORT char *localized_full_months[];
 
+/*
+ * Represents datcollate and datctype locales in a global variable, so that we
+ * don't need to rely on setlocale() anywhere.
+ */
+extern PGDLLIMPORT locale_t global_libc_locale;
+
 /* is the databases's LC_CTYPE the C locale? */
 extern PGDLLIMPORT bool database_ctype_is_c;
 
@@ -121,6 +127,7 @@ struct pg_locale_struct
 	}			info;
 };
 
+extern void init_global_libc_locale(const char *collate, const char *ctype);
 extern void init_database_collation(void);
 extern pg_locale_t pg_newlocale_from_collation(Oid collid);
 
