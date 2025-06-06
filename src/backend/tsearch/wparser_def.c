@@ -411,6 +411,40 @@ TParserCopyClose(TParser *prs)
 }
 
 
+#ifndef HAVE_ISXDIGIT_L
+static int
+isxdigit_l(wint_t wc, locale_t loc)
+{
+#ifdef WIN32
+	return _isxdigit_l(wc, loc);
+#else
+	size_t		result;
+	locale_t	save_locale = uselocale(loc);
+
+	result = isxdigit(wc);
+	uselocale(save_locale);
+	return result;
+#endif
+}
+#endif
+#ifndef HAVE_ISWXDIGIT_L
+static int
+iswxdigit_l(wint_t wc, locale_t loc)
+{
+#ifdef WIN32
+	return _iswxdigit_l(wc, loc);
+#else
+	size_t		result;
+	locale_t	save_locale = uselocale(loc);
+
+	result = iswxdigit(wc);
+	uselocale(save_locale);
+	return result;
+#endif
+}
+#endif
+
+
 /*
  * Character-type support functions, equivalent to is* macros, but
  * working with any possible encodings and locales. Notes:
@@ -436,9 +470,11 @@ p_is##type(TParser *prs)													\
 				return nonascii;											\
 			return is##type(c);												\
 		}																	\
-		return isw##type(*(prs->wstr + prs->state->poschar));				\
+		return isw##type##_l(*(prs->wstr + prs->state->poschar),			\
+							 global_lc_ctype);								\
 	}																		\
-	return is##type(*(unsigned char *) (prs->str + prs->state->posbyte));	\
+	return is##type##_l(*(unsigned char *) (prs->str + prs->state->posbyte),	\
+						global_lc_ctype);									\
 }																			\
 																			\
 static int																	\
