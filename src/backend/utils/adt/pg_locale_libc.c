@@ -85,6 +85,12 @@ static size_t strupper_libc_mb(char *dest, size_t destsize,
 							   const char *src, ssize_t srclen,
 							   pg_locale_t locale);
 
+/*
+ * Represents datctype in a global variable, so that we don't need to rely on
+ * setlocale().
+ */
+locale_t	global_lc_ctype = NULL;
+
 static const struct collate_methods collate_methods_libc = {
 	.strncoll = strncoll_libc,
 	.strnxfrm = strnxfrm_libc,
@@ -415,6 +421,28 @@ strupper_libc_mb(char *dest, size_t destsize, const char *src, ssize_t srclen,
 	pfree(result);
 
 	return result_size;
+}
+
+void
+init_global_lc_ctype(const char *ctype)
+{
+	locale_t	loc;
+
+	errno = 0;
+#ifndef WIN32
+	loc = newlocale(LC_CTYPE_MASK, ctype, NULL);
+#else
+	loc = _create_locale(LC_ALL, ctype);
+#endif
+
+	if (!loc)
+		ereport(FATAL,
+				(errmsg("database locale is incompatible with operating system"),
+				 errdetail("The database was initialized with LC_CTYPE \"%s\", "
+						   " which is not recognized by setlocale().", ctype),
+				 errhint("Recreate the database with another locale or install the missing locale.")));
+
+	global_lc_ctype = loc;
 }
 
 pg_locale_t
@@ -912,7 +940,7 @@ wchar2char(char *to, const wchar_t *from, size_t tolen, pg_locale_t locale)
 	if (locale == (pg_locale_t) 0)
 	{
 		/* Use wcstombs directly for the default locale */
-		result = wcstombs(to, from, tolen);
+		result = wcstombs_l(to, from, tolen, global_lc_ctype);
 	}
 	else
 	{
@@ -972,7 +1000,7 @@ char2wchar(wchar_t *to, size_t tolen, const char *from, size_t fromlen,
 		if (locale == (pg_locale_t) 0)
 		{
 			/* Use mbstowcs directly for the default locale */
-			result = mbstowcs(to, str, tolen);
+			result = mbstowcs_l(to, str, tolen, global_lc_ctype);
 		}
 		else
 		{
