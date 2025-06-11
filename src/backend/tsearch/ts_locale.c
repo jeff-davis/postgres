@@ -36,14 +36,14 @@ t_isalpha(const char *ptr)
 {
 	int			clen = pg_mblen(ptr);
 	wchar_t		character[WC_BUF_LEN];
-	locale_t	mylocale = 0;	/* TODO */
+	locale_t	mylocale = global_libc_locale;	/* TODO */
 
 	if (clen == 1 || database_ctype_is_c)
 		return isalpha(TOUCHAR(ptr));
 
 	char2wchar(character, WC_BUF_LEN, ptr, clen, mylocale);
 
-	return iswalpha((wint_t) character[0]);
+	return iswalpha_l((wint_t) character[0], mylocale);
 }
 
 int
@@ -51,14 +51,14 @@ t_isalnum(const char *ptr)
 {
 	int			clen = pg_mblen(ptr);
 	wchar_t		character[WC_BUF_LEN];
-	locale_t	mylocale = 0;	/* TODO */
+	locale_t	mylocale = global_libc_locale;	/* TODO */
 
 	if (clen == 1 || database_ctype_is_c)
 		return isalnum(TOUCHAR(ptr));
 
 	char2wchar(character, WC_BUF_LEN, ptr, clen, mylocale);
 
-	return iswalnum((wint_t) character[0]);
+	return iswalnum_l((wint_t) character[0], mylocale);
 }
 
 

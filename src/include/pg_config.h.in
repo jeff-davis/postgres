@@ -229,6 +229,12 @@
 /* Define to 1 if you have the global variable 'int timezone'. */
 #undef HAVE_INT_TIMEZONE
 
+/* Define to 1 if you have the `iswxdigit_l' function. */
+#undef HAVE_ISWXDIGIT_L
+
+/* Define to 1 if you have the `isxdigit_l' function. */
+#undef HAVE_ISXDIGIT_L
+
 /* Define to 1 if __builtin_constant_p(x) implies "i"(x) acceptance. */
 #undef HAVE_I_CONSTRAINT__BUILTIN_CONSTANT_P
 
