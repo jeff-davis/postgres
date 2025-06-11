@@ -12,7 +12,7 @@
 
 #ifdef LOWER_NODE
 #include <ctype.h>
-#define TOLOWER(x)	tolower((unsigned char) (x))
+#define TOLOWER(x)	tolower_l((unsigned char) (x), global_libc_locale)
 #else
 #define TOLOWER(x)	(x)
 #endif
