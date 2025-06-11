@@ -2892,6 +2892,8 @@ func_checks = [
   ['getpeerucred'],
   ['inet_aton'],
   ['inet_pton'],
+  ['iswxdigit_l'],
+  ['isxdigit_l'],
   ['kqueue'],
   ['localeconv_l'],
   ['mbstowcs_l'],
