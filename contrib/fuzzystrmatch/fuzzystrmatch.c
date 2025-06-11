@@ -41,6 +41,7 @@
 #include <ctype.h>
 
 #include "utils/builtins.h"
+#include "utils/pg_locale.h"
 #include "utils/varlena.h"
 #include "varatt.h"
 
@@ -56,13 +57,15 @@ static void _soundex(const char *instr, char *outstr);
 
 #define SOUNDEX_LEN 4
 
+#define TOUPPER(x) toupper_l((unsigned char) (x), global_libc_ctype)
+
 /*									ABCDEFGHIJKLMNOPQRSTUVWXYZ */
 static const char *const soundex_table = "01230120022455012623010202";
 
 static char
 soundex_code(char letter)
 {
-	letter = toupper((unsigned char) letter);
+	letter = TOUPPER((unsigned char) letter);
 	/* Defend against non-ASCII letters */
 	if (letter >= 'A' && letter <= 'Z')
 		return soundex_table[letter - 'A'];
@@ -124,7 +127,7 @@ getcode(char c)
 {
 	if (isalpha((unsigned char) c))
 	{
-		c = toupper((unsigned char) c);
+		c = TOUPPER((unsigned char) c);
 		/* Defend against non-ASCII letters */
 		if (c >= 'A' && c <= 'Z')
 			return _codes[c - 'A'];
@@ -301,18 +304,18 @@ metaphone(PG_FUNCTION_ARGS)
  * accessing the array directly... */
 
 /* Look at the next letter in the word */
-#define Next_Letter (toupper((unsigned char) word[w_idx+1]))
+#define Next_Letter (TOUPPER((unsigned char) word[w_idx+1]))
 /* Look at the current letter in the word */
-#define Curr_Letter (toupper((unsigned char) word[w_idx]))
+#define Curr_Letter (TOUPPER((unsigned char) word[w_idx]))
 /* Go N letters back. */
 #define Look_Back_Letter(n) \
-	(w_idx >= (n) ? toupper((unsigned char) word[w_idx-(n)]) : '\0')
+	(w_idx >= (n) ? TOUPPER((unsigned char) word[w_idx-(n)]) : '\0')
 /* Previous letter.  I dunno, should this return null on failure? */
 #define Prev_Letter (Look_Back_Letter(1))
 /* Look two letters down.  It makes sure you don't walk off the string. */
 #define After_Next_Letter \
-	(Next_Letter != '\0' ? toupper((unsigned char) word[w_idx+2]) : '\0')
-#define Look_Ahead_Letter(n) toupper((unsigned char) Lookahead(word+w_idx, n))
+	(Next_Letter != '\0' ? TOUPPER((unsigned char) word[w_idx+2]) : '\0')
+#define Look_Ahead_Letter(n) TOUPPER((unsigned char) Lookahead(word+w_idx, n))
 
 
 /* Allows us to safely look ahead an arbitrary # of letters */
@@ -742,7 +745,7 @@ _soundex(const char *instr, char *outstr)
 	}
 
 	/* Take the first letter as is */
-	*outstr++ = (char) toupper((unsigned char) *instr++);
+	*outstr++ = (char) TOUPPER((unsigned char) *instr++);
 
 	count = 1;
 	while (*instr && count < SOUNDEX_LEN)
