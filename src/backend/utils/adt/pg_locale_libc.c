@@ -215,7 +215,7 @@ strlower_libc_mb(char *dest, size_t destsize, const char *src, ssize_t srclen,
 	/* Output workspace cannot have more codes than input bytes */
 	workspace = (wchar_t *) palloc((srclen + 1) * sizeof(wchar_t));
 
-	char2wchar(workspace, srclen + 1, src, srclen, locale);
+	char2wchar(workspace, srclen + 1, src, srclen, loc);
 
 	for (curr_char = 0; workspace[curr_char] != 0; curr_char++)
 		workspace[curr_char] = towlower_l(workspace[curr_char], loc);
@@ -226,7 +226,7 @@ strlower_libc_mb(char *dest, size_t destsize, const char *src, ssize_t srclen,
 	max_size = curr_char * pg_database_encoding_max_length();
 	result = palloc(max_size + 1);
 
-	result_size = wchar2char(result, workspace, max_size + 1, locale);
+	result_size = wchar2char(result, workspace, max_size + 1, loc);
 
 	if (result_size + 1 > destsize)
 		return result_size;
@@ -310,7 +310,7 @@ strtitle_libc_mb(char *dest, size_t destsize, const char *src, ssize_t srclen,
 	/* Output workspace cannot have more codes than input bytes */
 	workspace = (wchar_t *) palloc((srclen + 1) * sizeof(wchar_t));
 
-	char2wchar(workspace, srclen + 1, src, srclen, locale);
+	char2wchar(workspace, srclen + 1, src, srclen, loc);
 
 	for (curr_char = 0; workspace[curr_char] != 0; curr_char++)
 	{
@@ -327,7 +327,7 @@ strtitle_libc_mb(char *dest, size_t destsize, const char *src, ssize_t srclen,
 	max_size = curr_char * pg_database_encoding_max_length();
 	result = palloc(max_size + 1);
 
-	result_size = wchar2char(result, workspace, max_size + 1, locale);
+	result_size = wchar2char(result, workspace, max_size + 1, loc);
 
 	if (result_size + 1 > destsize)
 		return result_size;
@@ -398,7 +398,7 @@ strupper_libc_mb(char *dest, size_t destsize, const char *src, ssize_t srclen,
 	/* Output workspace cannot have more codes than input bytes */
 	workspace = (wchar_t *) palloc((srclen + 1) * sizeof(wchar_t));
 
-	char2wchar(workspace, srclen + 1, src, srclen, locale);
+	char2wchar(workspace, srclen + 1, src, srclen, loc);
 
 	for (curr_char = 0; workspace[curr_char] != 0; curr_char++)
 		workspace[curr_char] = towupper_l(workspace[curr_char], loc);
@@ -409,7 +409,7 @@ strupper_libc_mb(char *dest, size_t destsize, const char *src, ssize_t srclen,
 	max_size = curr_char * pg_database_encoding_max_length();
 	result = palloc(max_size + 1);
 
-	result_size = wchar2char(result, workspace, max_size + 1, locale);
+	result_size = wchar2char(result, workspace, max_size + 1, loc);
 
 	if (result_size + 1 > destsize)
 		return result_size;
@@ -956,9 +956,11 @@ wcstombs_l(char *dest, const wchar_t *src, size_t n, locale_t loc)
  * zero-terminated.  The output will be zero-terminated iff there is room.
  */
 size_t
-wchar2char(char *to, const wchar_t *from, size_t tolen, pg_locale_t locale)
+wchar2char(char *to, const wchar_t *from, size_t tolen, locale_t loc)
 {
 	size_t		result;
+
+	Assert(loc != NULL);
 
 	if (tolen == 0)
 		return 0;
@@ -986,16 +988,7 @@ wchar2char(char *to, const wchar_t *from, size_t tolen, pg_locale_t locale)
 	}
 	else
 #endif							/* WIN32 */
-	if (locale == (pg_locale_t) 0)
-	{
-		/* Use wcstombs directly for the default locale */
-		result = wcstombs(to, from, tolen);
-	}
-	else
-	{
-		/* Use wcstombs_l for nondefault locales */
-		result = wcstombs_l(to, from, tolen, locale->info.lt);
-	}
+		result = wcstombs_l(to, from, tolen, loc);
 
 	return result;
 }
@@ -1011,9 +1004,11 @@ wchar2char(char *to, const wchar_t *from, size_t tolen, pg_locale_t locale)
  */
 size_t
 char2wchar(wchar_t *to, size_t tolen, const char *from, size_t fromlen,
-		   pg_locale_t locale)
+		   locale_t loc)
 {
 	size_t		result;
+
+	Assert(loc != NULL);
 
 	if (tolen == 0)
 		return 0;
@@ -1046,16 +1041,7 @@ char2wchar(wchar_t *to, size_t tolen, const char *from, size_t fromlen,
 		/* mbstowcs requires ending '\0' */
 		char	   *str = pnstrdup(from, fromlen);
 
-		if (locale == (pg_locale_t) 0)
-		{
-			/* Use mbstowcs directly for the default locale */
-			result = mbstowcs(to, str, tolen);
-		}
-		else
-		{
-			/* Use mbstowcs_l for nondefault locales */
-			result = mbstowcs_l(to, str, tolen, locale->info.lt);
-		}
+		result = mbstowcs_l(to, str, tolen, loc);
 
 		pfree(str);
 	}

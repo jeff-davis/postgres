@@ -1024,7 +1024,7 @@ get_iso_localename(const char *winlocname)
 		char	   *hyphen;
 
 		/* Locale names use only ASCII, any conversion locale suffices. */
-		rc = wchar2char(iso_lc_messages, buffer, sizeof(iso_lc_messages), NULL);
+		rc = wchar2char(iso_lc_messages, buffer, sizeof(iso_lc_messages), LC_C_LOCALE);
 		if (rc == -1 || rc == sizeof(iso_lc_messages))
 			return NULL;
 
