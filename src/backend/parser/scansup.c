@@ -18,6 +18,7 @@
 
 #include "mb/pg_wchar.h"
 #include "parser/scansup.h"
+#include "utils/pg_locale.h"
 
 
 /*
@@ -68,7 +69,7 @@ downcase_identifier(const char *ident, int len, bool warn, bool truncate)
 		if (ch >= 'A' && ch <= 'Z')
 			ch += 'a' - 'A';
 		else if (enc_is_single_byte && IS_HIGHBIT_SET(ch) && isupper(ch))
-			ch = tolower(ch);
+			ch = tolower_l(ch, global_libc_locale);
 		result[i] = (char) ch;
 	}
 	result[i] = '\0';
