@@ -31,6 +31,7 @@
 
 #include "postgres.h"
 
+#include <locale.h>
 #include <time.h>
 
 #include "access/htup_details.h"
@@ -142,6 +143,12 @@ static collation_cache_hash *CollationCache = NULL;
  */
 static Oid	last_collation_cache_oid = InvalidOid;
 static pg_locale_t last_collation_cache_locale = NULL;
+
+#ifdef LC_MESSAGES
+#error "has LC_MESSAGES"
+#else
+#error "doesn't have LC_MESSAGES"
+#endif
 
 #if defined(WIN32) && defined(LC_MESSAGES)
 static char *IsoLocaleName(const char *);
