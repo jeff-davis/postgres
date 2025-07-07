@@ -1169,6 +1169,8 @@ wchar2char(char *to, const wchar_t *from, size_t tolen, locale_t loc)
 {
 	size_t		result;
 
+	Assert(loc != NULL);
+
 	if (tolen == 0)
 		return 0;
 
@@ -1195,16 +1197,7 @@ wchar2char(char *to, const wchar_t *from, size_t tolen, locale_t loc)
 	}
 	else
 #endif							/* WIN32 */
-	if (loc == (locale_t) 0)
-	{
-		/* Use wcstombs directly for the default locale */
-		result = wcstombs(to, from, tolen);
-	}
-	else
-	{
-		/* Use wcstombs_l for nondefault locales */
 		result = wcstombs_l(to, from, tolen, loc);
-	}
 
 	return result;
 }
@@ -1223,6 +1216,8 @@ char2wchar(wchar_t *to, size_t tolen, const char *from, size_t fromlen,
 		   locale_t loc)
 {
 	size_t		result;
+
+	Assert(loc != NULL);
 
 	if (tolen == 0)
 		return 0;
@@ -1255,16 +1250,7 @@ char2wchar(wchar_t *to, size_t tolen, const char *from, size_t fromlen,
 		/* mbstowcs requires ending '\0' */
 		char	   *str = pnstrdup(from, fromlen);
 
-		if (loc == (locale_t) 0)
-		{
-			/* Use mbstowcs directly for the default locale */
-			result = mbstowcs(to, str, tolen);
-		}
-		else
-		{
-			/* Use mbstowcs_l for nondefault locales */
-			result = mbstowcs_l(to, str, tolen, loc);
-		}
+		result = mbstowcs_l(to, str, tolen, loc);
 
 		pfree(str);
 	}
