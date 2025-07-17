@@ -82,6 +82,9 @@
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 
+#define DEFAULT_LOCALE_PROVIDER		COLLPROVIDER_LIBC
+#define DEFAULT_BUILTIN_LOCALE		"C.UTF-8"
+#define DEFAULT_ICU_LOCALE			"und"
 
 /* Ideally this would be in a .h file, but it hardly seems worth the trouble */
 extern const char *select_default_timezone(const char *share_path);
@@ -144,7 +147,7 @@ static char *lc_monetary = NULL;
 static char *lc_numeric = NULL;
 static char *lc_time = NULL;
 static char *lc_messages = NULL;
-static char locale_provider = COLLPROVIDER_LIBC;
+static char locale_provider = '\0';
 static bool builtin_locale_specified = false;
 static char *datlocale = NULL;
 static bool icu_locale_specified = false;
@@ -2468,12 +2471,11 @@ setlocales(void)
 	lc_messages = canonname;
 #endif
 
-	if (locale_provider != COLLPROVIDER_LIBC && datlocale == NULL)
-		pg_fatal("locale must be specified if provider is %s",
-				 collprovider_name(locale_provider));
-
 	if (locale_provider == COLLPROVIDER_BUILTIN)
 	{
+		if (!datlocale)
+			datlocale = DEFAULT_BUILTIN_LOCALE;
+
 		if (strcmp(datlocale, "C") == 0)
 			canonname = "C";
 		else if (strcmp(datlocale, "C.UTF-8") == 0 ||
@@ -2491,11 +2493,13 @@ setlocales(void)
 	{
 		char	   *langtag;
 
+		if (!datlocale)
+			datlocale = DEFAULT_ICU_LOCALE;
+
 		/* canonicalize to a language tag */
 		langtag = icu_language_tag(datlocale);
 		printf(_("Using language tag \"%s\" for ICU locale \"%s\".\n"),
 			   langtag, datlocale);
-		pg_free(datlocale);
 		datlocale = langtag;
 
 		icu_validate_locale(datlocale);
@@ -2686,6 +2690,30 @@ setup_locale_encoding(void)
 {
 	setlocales();
 
+	/*
+	 * For the builtin provider (other than the "C" locale), default encoding
+	 * to UTF-8. If lc_ctype is not compatible with UTF-8, also force lc_ctype
+	 * to "C". On windows, all locales are compatible with UTF-8.
+	 */
+	if (!encoding && locale_provider == COLLPROVIDER_BUILTIN &&
+		strcmp(datlocale, "C") != 0)
+	{
+#ifndef WIN32
+		int			ctype_enc = pg_get_encoding_from_locale(lc_ctype, false);
+
+		if (!(ctype_enc == PG_UTF8 ||
+			  ctype_enc == PG_SQL_ASCII))
+		{
+			pg_log_warning("setting LC_CTYPE to \"C\"");
+			pg_log_warning_detail("Encoding of LC_CTYPE locale \"%s\" does not match encoding required by builtin locale \"%s\".",
+								  lc_ctype, datlocale);
+			pg_log_warning_hint("Specify a UTF-8 compatible locale with --lc-ctype, or choose a different locale provider.");
+			lc_ctype = "C";
+		}
+#endif
+		encoding = "UTF-8";
+	}
+
 	if (locale_provider == COLLPROVIDER_LIBC &&
 		strcmp(lc_ctype, lc_collate) == 0 &&
 		strcmp(lc_ctype, lc_time) == 0 &&
@@ -2721,10 +2749,11 @@ setup_locale_encoding(void)
 		ctype_enc = pg_get_encoding_from_locale(lc_ctype, true);
 
 		/*
-		 * If ctype_enc=SQL_ASCII, it's compatible with any encoding. ICU does
-		 * not support SQL_ASCII, so select UTF-8 instead.
+		 * If ctype_enc=SQL_ASCII, it's compatible with any encoding. Neither
+		 * ICU nor the builtin provider support SQL_ASCII, so select UTF-8
+		 * instead.
 		 */
-		if (locale_provider == COLLPROVIDER_ICU && ctype_enc == PG_SQL_ASCII)
+		if (locale_provider != COLLPROVIDER_LIBC && ctype_enc == PG_SQL_ASCII)
 			ctype_enc = PG_UTF8;
 
 		if (ctype_enc == -1)
@@ -2773,11 +2802,10 @@ setup_locale_encoding(void)
 		!check_locale_encoding(lc_collate, encodingid))
 		exit(1);				/* check_locale_encoding printed the error */
 
-	if (locale_provider == COLLPROVIDER_BUILTIN)
+	if (locale_provider == COLLPROVIDER_BUILTIN &&
+		strcmp(datlocale, "C") != 0)
 	{
-		if ((strcmp(datlocale, "C.UTF-8") == 0 ||
-			 strcmp(datlocale, "PG_UNICODE_FAST") == 0) &&
-			encodingid != PG_UTF8)
+		if (encodingid != PG_UTF8)
 			pg_fatal("builtin provider locale \"%s\" requires encoding \"%s\"",
 					 datlocale, "UTF-8");
 	}
@@ -3402,7 +3430,6 @@ main(int argc, char *argv[])
 		}
 	}
 
-
 	/*
 	 * Non-option argument specifies data directory as long as it wasn't
 	 * already specified with -D / --pgdata
@@ -3419,6 +3446,22 @@ main(int argc, char *argv[])
 					 argv[optind]);
 		pg_log_error_hint("Try \"%s --help\" for more information.", progname);
 		exit(1);
+	}
+
+	if (locale_provider == '\0')
+	{
+		char	   *provider_name = getenv("INITDB_LOCALE_PROVIDER");
+
+		if (!provider_name)
+			locale_provider = DEFAULT_LOCALE_PROVIDER;
+		else if (strcmp(provider_name, "builtin") == 0)
+			locale_provider = COLLPROVIDER_BUILTIN;
+		else if (strcmp(provider_name, "icu") == 0)
+			locale_provider = COLLPROVIDER_ICU;
+		else if (strcmp(provider_name, "libc") == 0)
+			locale_provider = COLLPROVIDER_LIBC;
+		else
+			pg_fatal("unrecognized locale provider: %s", provider_name);
 	}
 
 	if (builtin_locale_specified && locale_provider != COLLPROVIDER_BUILTIN)
