@@ -130,15 +130,6 @@ else
 		'create database with ICU fails since no ICU support');
 }
 
-$node->command_fails(
-	[
-		'createdb',
-		'--template' => 'template0',
-		'--locale-provider' => 'builtin',
-		'tbuiltin1',
-	],
-	'create database with provider "builtin" fails without --locale');
-
 $node->command_ok(
 	[
 		'createdb',
@@ -223,11 +214,21 @@ $node->command_fails(
 	[
 		'createdb',
 		'--template' => 'template1',
-		'--locale-provider' => 'builtin',
+		'--locale-provider' => 'icu',
 		'--locale' => 'C',
 		'tbuiltin9',
 	],
-	'create database with provider "builtin" not matching template');
+	'create database with provider "icu" not matching template');
+
+$node->command_fails(
+	[
+		'createdb',
+		'--template' => 'template1',
+		'--locale-provider' => 'libc',
+		'--locale' => 'C',
+		'tbuiltin9',
+	],
+	'create database with provider "libc" not matching template');
 
 $node->command_fails([ 'createdb', 'foobar1' ],
 	'fails if database already exists');

@@ -200,13 +200,15 @@ else
 		'locale provider ICU fails since no ICU support');
 }
 
-command_fails(
+command_like(
 	[
 		'initdb', '--no-sync',
+		'--auth' => 'trust',
 		'--locale-provider' => 'builtin',
 		"$tempdir/data6"
 	],
-	'locale provider builtin fails without --locale');
+	qr/^\s+default collation:\s+C.UTF-8\n/ms,
+	'locale provider builtin defaults to C.UTF-8');
 
 command_ok(
 	[
