@@ -82,6 +82,12 @@
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 
+#define DEFAULT_ENCODING			"UTF-8"
+#define DEFAULT_COLLATE				"C"
+#define DEFAULT_CTYPE				"C"
+#define DEFAULT_PROVIDER			COLLPROVIDER_BUILTIN
+#define DEFAULT_BUILTIN_LOCALE		"C.UTF-8"
+#define DEFAULT_ICU_LOCALE			"und"
 
 /* Ideally this would be in a .h file, but it hardly seems worth the trouble */
 extern const char *select_default_timezone(const char *share_path);
@@ -136,15 +142,15 @@ static char *share_path = NULL;
 
 /* values to be obtained from arguments */
 static char *pg_data = NULL;
-static char *encoding = NULL;
+static char *encoding = DEFAULT_ENCODING;
 static char *locale = NULL;
-static char *lc_collate = NULL;
-static char *lc_ctype = NULL;
+static char *lc_collate = DEFAULT_COLLATE;
+static char *lc_ctype = DEFAULT_CTYPE;
 static char *lc_monetary = NULL;
 static char *lc_numeric = NULL;
 static char *lc_time = NULL;
 static char *lc_messages = NULL;
-static char locale_provider = COLLPROVIDER_LIBC;
+static char locale_provider = DEFAULT_PROVIDER;
 static bool builtin_locale_specified = false;
 static char *datlocale = NULL;
 static bool icu_locale_specified = false;
@@ -2468,12 +2474,11 @@ setlocales(void)
 	lc_messages = canonname;
 #endif
 
-	if (locale_provider != COLLPROVIDER_LIBC && datlocale == NULL)
-		pg_fatal("locale must be specified if provider is %s",
-				 collprovider_name(locale_provider));
-
 	if (locale_provider == COLLPROVIDER_BUILTIN)
 	{
+		if (!datlocale)
+			datlocale = DEFAULT_BUILTIN_LOCALE;
+
 		if (strcmp(datlocale, "C") == 0)
 			canonname = "C";
 		else if (strcmp(datlocale, "C.UTF-8") == 0 ||
@@ -2490,6 +2495,9 @@ setlocales(void)
 	else if (locale_provider == COLLPROVIDER_ICU)
 	{
 		char	   *langtag;
+
+		if (!datlocale)
+			datlocale = pstrdup(DEFAULT_ICU_LOCALE);
 
 		/* canonicalize to a language tag */
 		langtag = icu_language_tag(datlocale);

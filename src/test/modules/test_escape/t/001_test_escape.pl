@@ -12,7 +12,7 @@ $node->init();
 $node->start();
 
 $node->safe_psql('postgres',
-	q(CREATE DATABASE db_sql_ascii ENCODING "sql_ascii" TEMPLATE template0;));
+	q(CREATE DATABASE db_sql_ascii ENCODING "sql_ascii" LOCALE "C" TEMPLATE template0;));
 
 my $cmd =
   [ 'test_escape', '--conninfo', $node->connstr . " dbname=db_sql_ascii" ];
