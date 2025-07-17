@@ -113,14 +113,13 @@ SKIP:
 
 if ($ENV{with_icu} eq 'yes')
 {
-	command_fails_like(
+	command_ok(
 		[
 			'initdb', '--no-sync',
 			'--locale-provider' => 'icu',
 			"$tempdir/data2"
 		],
-		qr/initdb: error: locale must be specified if provider is icu/,
-		'locale provider ICU requires --icu-locale');
+		'locale provider ICU default locale');
 
 	command_ok(
 		[
@@ -200,13 +199,15 @@ else
 		'locale provider ICU fails since no ICU support');
 }
 
-command_fails(
+command_like(
 	[
 		'initdb', '--no-sync',
+		'--auth' => 'trust',
 		'--locale-provider' => 'builtin',
 		"$tempdir/data6"
 	],
-	'locale provider builtin fails without --locale');
+	qr/^\s+default collation:\s+C.UTF-8\n/ms,
+	'locale provider builtin defaults to C.UTF-8');
 
 command_ok(
 	[

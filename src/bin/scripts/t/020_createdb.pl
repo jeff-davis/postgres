@@ -16,6 +16,9 @@ my $node = PostgreSQL::Test::Cluster->new('main');
 $node->init;
 $node->start;
 
+my $datlocprovider = $node->safe_psql('postgres',
+	"SELECT datlocprovider FROM pg_database WHERE datname='template1'");
+
 $node->issues_sql_like(
 	[ 'createdb', 'foobar1' ],
 	qr/statement: CREATE DATABASE foobar1/,
@@ -33,19 +36,6 @@ $node->issues_sql_like(
 
 if ($ENV{with_icu} eq 'yes')
 {
-	# This fails because template0 uses libc provider and has no ICU
-	# locale set.  It would succeed if template0 used the icu
-	# provider.  XXX Maybe split into multiple tests?
-	$node->command_fails(
-		[
-			'createdb',
-			'--template' => 'template0',
-			'--encoding' => 'UTF8',
-			'--locale-provider' => 'icu',
-			'foobar4',
-		],
-		'create database with ICU fails without ICU locale specified');
-
 	$node->issues_sql_like(
 		[
 			'createdb',
@@ -130,14 +120,18 @@ else
 		'create database with ICU fails since no ICU support');
 }
 
-$node->command_fails(
-	[
-		'createdb',
-		'--template' => 'template0',
-		'--locale-provider' => 'builtin',
-		'tbuiltin1',
-	],
-	'create database with provider "builtin" fails without --locale');
+if ($datlocprovider eq 'c')
+{
+	$node->command_fails(
+		[
+			'createdb',
+			'--template' => 'template0',
+			'--encoding' => 'UTF8',
+			'--locale-provider' => 'builtin',
+			'foobar4',
+		],
+		'create database with builtin provider fails without locale specified');
+}
 
 $node->command_ok(
 	[
@@ -219,15 +213,30 @@ $node->command_fails(
 	],
 	'create database with provider "builtin" and ICU_RULES=""');
 
-$node->command_fails(
-	[
-		'createdb',
-		'--template' => 'template1',
-		'--locale-provider' => 'builtin',
-		'--locale' => 'C',
-		'tbuiltin9',
-	],
-	'create database with provider "builtin" not matching template');
+if ($datlocprovider eq 'b')
+{
+	$node->command_fails(
+		[
+			'createdb',
+			'--template' => 'template1',
+			'--locale-provider' => 'libc',
+			'--locale' => 'C',
+			'tbuiltin9',
+		],
+		'create database with provider "libc" not matching template');
+}
+else
+{
+	$node->command_fails(
+		[
+			'createdb',
+			'--template' => 'template1',
+			'--locale-provider' => 'builtin',
+			'--locale' => 'C',
+			'tbuiltin9',
+		],
+		'create database with provider "builtin" not matching template');
+}
 
 $node->command_fails([ 'createdb', 'foobar1' ],
 	'fails if database already exists');

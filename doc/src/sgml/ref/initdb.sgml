@@ -662,6 +662,17 @@ PostgreSQL documentation
     </listitem>
    </varlistentry>
 
+   <varlistentry id="app-initdb-environment-pg-locale-provider">
+    <term><envar>PG_LOCALE_PROVIDER</envar></term>
+
+    <listitem>
+     <para>
+      Sets the locale provider; can be overridden using the
+      <option>--locale-provider</option> option.
+     </para>
+    </listitem>
+   </varlistentry>
+
    <varlistentry id="app-initdb-environment-pg-color">
     <term><envar>PG_COLOR</envar></term>
     <listitem>
