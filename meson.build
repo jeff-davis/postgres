@@ -2882,6 +2882,8 @@ func_checks = [
   # when enabling asan the dlopen check doesn't notice that -ldl is actually
   # required. Just checking for dlsym() ought to suffice.
   ['dlsym', {'dependencies': [dl_dep], 'define': false}],
+  ['dgettext_l'],
+  ['dngettext_l'],
   ['elf_aux_info'],
   ['explicit_bzero'],
   ['getauxval'],
