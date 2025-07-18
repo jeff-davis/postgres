@@ -249,11 +249,21 @@ extern int	pg_strfromd(char *str, size_t count, int precision, double value);
 
 /* Replace strerror() with our own, somewhat more robust wrapper */
 extern char *pg_strerror(int errnum);
+#if defined(ENABLE_NLS) && !defined(FRONTEND)
+extern char *pg_nls_strerror(int errnum);
+#define strerror pg_nls_strerror
+#else
 #define strerror pg_strerror
+#endif
 
 /* Likewise for strerror_r(); note we prefer the GNU API for that */
 extern char *pg_strerror_r(int errnum, char *buf, size_t buflen);
+#if defined(ENABLE_NLS) && !defined(FRONTEND)
+extern char *pg_nls_strerror_r(int errnum, char *buf, size_t buflen);
+#define strerror_r pg_nls_strerror_r
+#else
 #define strerror_r pg_strerror_r
+#endif
 #define PG_STRERROR_R_BUFLEN 256	/* Recommended buffer size for strerror_r */
 
 /* Wrap strsignal(), or provide our own version if necessary */

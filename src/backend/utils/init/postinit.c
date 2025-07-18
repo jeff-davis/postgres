@@ -65,6 +65,7 @@
 #include "utils/memutils.h"
 #include "utils/pg_locale.h"
 #include "utils/portal.h"
+#include "utils/pg_nls.h"
 #include "utils/ps_status.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
@@ -429,6 +430,9 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
 				 errdetail("The database was initialized with LC_CTYPE \"%s\", "
 						   " which is not recognized by setlocale().", ctype),
 				 errhint("Recreate the database with another locale or install the missing locale.")));
+
+	/* set global_message_locale for this database to datctype */
+	pg_nls_set_locale(ctype, NULL);
 
 	if (strcmp(ctype, "C") == 0 ||
 		strcmp(ctype, "POSIX") == 0)

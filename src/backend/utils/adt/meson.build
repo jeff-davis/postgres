@@ -71,6 +71,7 @@ backend_sources += files(
   'pg_locale_icu.c',
   'pg_locale_libc.c',
   'pg_lsn.c',
+  'pg_nls.c',
   'pg_upgrade_support.c',
   'pgstatfuncs.c',
   'pseudorandomfuncs.c',

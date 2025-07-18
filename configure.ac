@@ -1791,6 +1791,8 @@ AC_CHECK_FUNCS(m4_normalize([
 	backtrace_symbols
 	copyfile
 	copy_file_range
+	dgettext_l
+	dngettext_l
 	elf_aux_info
 	getauxval
 	getifaddrs
