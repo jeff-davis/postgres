@@ -90,6 +90,8 @@
 #undef _
 #define _(x) err_gettext(x)
 
+/* needed for message translation */
+extern locale_t global_message_locale;
 
 /* Global variables */
 ErrorContextCallback *error_context_stack = NULL;
@@ -989,10 +991,17 @@ errcode_for_socket_access(void)
  */
 #define EVALUATE_MESSAGE(domain, targetfield, appendval, translateit)	\
 	{ \
+		locale_t save_loc = (locale_t) 0; \
 		StringInfoData	buf; \
 		/* Internationalize the error format string */ \
 		if ((translateit) && !in_error_recursion_trouble()) \
+		{ \
+			if (global_message_locale != (locale_t) 0) \
+				save_loc = uselocale(global_message_locale); \
 			fmt = dgettext((domain), fmt);				  \
+			if (save_loc != (locale_t) 0) \
+				uselocale(save_loc); \
+		} \
 		initStringInfo(&buf); \
 		if ((appendval) && edata->targetfield) { \
 			appendStringInfoString(&buf, edata->targetfield); \
@@ -1005,7 +1014,11 @@ errcode_for_socket_access(void)
 			int			needed; \
 			errno = edata->saved_errno; \
 			va_start(args, fmt); \
+			if (global_message_locale != (locale_t) 0) \
+				save_loc = uselocale(global_message_locale); \
 			needed = appendStringInfoVA(&buf, fmt, args); \
+			if (save_loc != (locale_t) 0) \
+				uselocale(save_loc); \
 			va_end(args); \
 			if (needed == 0) \
 				break; \

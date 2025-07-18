@@ -430,6 +430,9 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
 						   " which is not recognized by setlocale().", ctype),
 				 errhint("Recreate the database with another locale or install the missing locale.")));
 
+	/* set global_message_locale for this database to datctype */
+	set_message_locale(ctype, NULL);
+
 	if (strcmp(ctype, "C") == 0 ||
 		strcmp(ctype, "POSIX") == 0)
 		database_ctype_is_c = true;

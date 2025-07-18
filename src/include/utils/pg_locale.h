@@ -24,6 +24,8 @@
 /* use for libc locale names */
 #define LOCALE_NAME_BUFLEN 128
 
+extern PGDLLIMPORT locale_t global_message_locale;
+
 /* GUC settings */
 extern PGDLLIMPORT char *locale_messages;
 extern PGDLLIMPORT char *locale_monetary;
@@ -40,6 +42,7 @@ extern PGDLLIMPORT char *localized_full_months[];
 /* is the databases's LC_CTYPE the C locale? */
 extern PGDLLIMPORT bool database_ctype_is_c;
 
+extern void set_message_locale(const char *ctype, const char *messages);
 extern bool check_locale(int category, const char *locale, char **canonname);
 extern char *pg_perm_setlocale(int category, const char *locale);
 

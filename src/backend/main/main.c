@@ -139,14 +139,16 @@ main(int argc, char *argv[])
 	init_locale("LC_CTYPE", LC_CTYPE, "");
 
 	/*
-	 * LC_MESSAGES will get set later during GUC option processing, but we set
-	 * it here to allow startup error messages to be localized.
+	 * Initialize global_message_locale LC_CTYPE and LC_MESSAGES from the
+	 * environment. It will be updated later during GUC option processing, but
+	 * we set it here to allow startup error messages to be localized.
 	 */
-#ifdef LC_MESSAGES
-	init_locale("LC_MESSAGES", LC_MESSAGES, "");
-#endif
+	set_message_locale("", "");
 
 	/* We keep these set to "C" always.  See pg_locale.c for explanation. */
+#ifdef LC_MESSAGES
+	init_locale("LC_MESSAGES", LC_MESSAGES, "C");
+#endif
 	init_locale("LC_MONETARY", LC_MONETARY, "C");
 	init_locale("LC_NUMERIC", LC_NUMERIC, "C");
 	init_locale("LC_TIME", LC_TIME, "C");

@@ -10,21 +10,30 @@
  */
 
 /*----------
- * Here is how the locale stuff is handled: LC_COLLATE and LC_CTYPE
- * are fixed at CREATE DATABASE time, stored in pg_database, and cannot
- * be changed. Thus, the effects of strcoll(), strxfrm(), isupper(),
- * toupper(), etc. are always in the same fixed locale.
+ * Here is how the locale stuff is handled:
  *
- * LC_MESSAGES is settable at run time and will take effect
- * immediately.
+ * LC_COLLATE is permanently set to "C" with setlocale(), and collation
+ * behavior is defined entirely by pg_locale_t, which has provider-dependent
+ * behavior. If the provider is libc, then it holds a locale_t object with
+ * LC_COLLATE set appropriately.
  *
- * The other categories, LC_MONETARY, LC_NUMERIC, and LC_TIME are
- * permanently set to "C", and then we use temporary locale_t
- * objects when we need to look up locale data based on the GUCs
- * of the same name.  Information is cached when the GUCs change.
- * The cached information is only used by the formatting functions
- * (to_char, etc.) and the money type.  For the user, this should all be
- * transparent.
+ * LC_CTYPE is fixed at CREATE DATABASE time, stored in pg_database, and
+ * cannot be changed. It's set with setlocale() as well as held in the
+ * locale_t object global_message_locale. Casing and character classification
+ * is mostly defined by pg_locale_t, similarly to collation behavior. The
+ * LC_CTYPE setting affects message encoding, and a few places in the backend
+ * that perform case conversions without access to a pg_locale_t object.
+ *
+ * LC_MESSAGES is permanently set to "C" with setlocale(), but settable at run
+ * time in the global locale_t object global_message_locale. The setting in
+ * global_message_locale object affects the language of messages.
+ *
+ * The other categories, LC_MONETARY, LC_NUMERIC, and LC_TIME are permanently
+ * set to "C" with setlocale(), and then we use temporary locale_t objects
+ * when we need to look up locale data based on the GUCs of the same name.
+ * Information is cached when the GUCs change.  The cached information is only
+ * used by the formatting functions (to_char, etc.) and the money type.  For
+ * the user, this should all be transparent.
  *----------
  */
 
@@ -63,6 +72,15 @@
 #define		TEXTBUFLEN			1024
 
 #define		MAX_L10N_DATA		80
+
+/*
+ * Represents global LC_CTYPE and LC_MESSAGES settings, for the purpose of
+ * message translation. LC_CTYPE in the postmaster comes from the environment
+ * (to improve message translations), and in a backend comes from
+ * pg_database.datctype. LC_MESSAGES comes from a GUC, and must be kept up to
+ * date.
+ */
+locale_t	global_message_locale = (locale_t) 0;
 
 /* pg_locale_builtin.c */
 extern pg_locale_t create_pg_locale_builtin(Oid collid, MemoryContext context);
@@ -146,6 +164,43 @@ static pg_locale_t last_collation_cache_locale = NULL;
 #if defined(WIN32) && defined(LC_MESSAGES)
 static char *IsoLocaleName(const char *);
 #endif
+
+void
+set_message_locale(const char *ctype, const char *messages)
+{
+	locale_t	loc = 0;
+
+	if (ctype)
+	{
+		errno = 0;
+		loc = newlocale(LC_CTYPE_MASK, ctype, global_message_locale);
+		if (!loc)
+			report_newlocale_failure(ctype);
+		global_message_locale = loc;
+
+		/*
+		 * Use the right encoding in translated messages.  Under ENABLE_NLS,
+		 * let pg_bind_textdomain_codeset() figure it out.  Under !ENABLE_NLS,
+		 * message format strings are ASCII, but database-encoding strings may
+		 * enter the message via %s.  This makes the overall message encoding
+		 * equal to the database encoding.
+		 */
+#ifdef ENABLE_NLS
+		SetMessageEncoding(pg_bind_textdomain_codeset(textdomain(NULL)));
+#else
+		SetMessageEncoding(GetDatabaseEncoding());
+#endif
+	}
+
+	if (messages)
+	{
+		errno = 0;
+		loc = newlocale(LC_MESSAGES_MASK, messages, global_message_locale);
+		if (!loc)
+			report_newlocale_failure(messages);
+		global_message_locale = loc;
+	}
+}
 
 /*
  * pg_perm_setlocale
@@ -406,7 +461,7 @@ assign_locale_messages(const char *newval, void *extra)
 	 * We ignore failure, as per comment above.
 	 */
 #ifdef LC_MESSAGES
-	(void) pg_perm_setlocale(LC_MESSAGES, newval);
+	set_message_locale(NULL, newval);
 #endif
 }
 
