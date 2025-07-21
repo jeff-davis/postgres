@@ -1159,8 +1159,21 @@ typedef union PGAlignedXLogBlock
  * gettext support
  */
 
-#ifndef ENABLE_NLS
-/* stuff we'd otherwise get from <libintl.h> */
+#if defined(ENABLE_NLS) && !defined(FRONTEND)
+/* use backend's global message locale setting */
+extern char *pg_nls_dgettext(const char *domainname, const char *msgid)
+	pg_attribute_format_arg(2);
+extern char *pg_nls_dngettext(const char *domainname, const char *s,
+							  const char *p, unsigned long int n)
+	pg_attribute_format_arg(2) pg_attribute_format_arg(3);
+#define gettext(x) pg_nls_dgettext(NULL, x)
+#define dgettext(d,x) pg_nls_dgettext(d, x)
+#define ngettext(s,p,n) pg_nls_dngettext(NULL, s, p, n)
+#define dngettext(d,s,p,n) pg_nls_dngettext(d, s, p, n)
+#elif defined(ENABLE_NLS)
+/* use <libintl.h> directly */
+#else
+/* no-op */
 #define gettext(x) (x)
 #define dgettext(d,x) (x)
 #define ngettext(s,p,n) ((n) == 1 ? (s) : (p))

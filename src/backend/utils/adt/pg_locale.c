@@ -75,12 +75,20 @@
 
 /*
  * Represents global LC_CTYPE and LC_MESSAGES settings, for the purpose of
- * message translation. LC_CTYPE in the postmaster comes from the environment
- * (to improve message translations), and in a backend comes from
- * pg_database.datctype. LC_MESSAGES comes from a GUC, and must be kept up to
- * date.
+ * message translation. LC_CTYPE in the postmaster comes from the environment,
+ * and in a backend comes from pg_database.datctype. LC_MESSAGES comes from a
+ * GUC, and must be kept up to date.
+ *
+ * On windows, keep the string values instead. It doesn't help to create a
+ * _locale_t object, because the only way to control the locale for
+ * strerror_r() and dgettext() is with setlocale().
  */
-locale_t	global_message_locale = (locale_t) 0;
+#ifndef WIN32
+static locale_t	global_message_locale = (locale_t) 0;
+#else
+static char	   *global_message_lc_ctype = NULL;
+static char	   *global_message_lc_messages = NULL;
+#endif
 
 /* pg_locale_builtin.c */
 extern pg_locale_t create_pg_locale_builtin(Oid collid, MemoryContext context);
@@ -172,11 +180,17 @@ set_message_locale(const char *ctype, const char *messages)
 
 	if (ctype)
 	{
+#ifndef WIN32
 		errno = 0;
 		loc = newlocale(LC_CTYPE_MASK, ctype, global_message_locale);
 		if (!loc)
 			report_newlocale_failure(ctype);
 		global_message_locale = loc;
+#else
+		if (!check_locale(LC_CTYPE, ctype, NULL))
+			report_newlocale_failure(ctype);
+		global_message_lc_ctype = ctype;
+#endif
 
 		/*
 		 * Use the right encoding in translated messages.  Under ENABLE_NLS,
@@ -194,11 +208,17 @@ set_message_locale(const char *ctype, const char *messages)
 
 	if (messages)
 	{
+#ifndef WIN32
 		errno = 0;
 		loc = newlocale(LC_MESSAGES_MASK, messages, global_message_locale);
 		if (!loc)
 			report_newlocale_failure(messages);
 		global_message_locale = loc;
+#else
+		if (!check_locale(LC_MESSAGES, messages, NULL))
+			report_newlocale_failure(messages);
+		global_message_lc_messages = messages;
+#endif
 	}
 }
 
@@ -308,6 +328,289 @@ pg_perm_setlocale(int category, const char *locale)
 	return result;
 }
 
+#ifdef ENABLE_NLS
+
+#undef dgettext
+#undef dngettext
+
+#ifndef WIN32
+
+#ifndef HAVE_DGETTEXT_L
+static char *
+dgettext_l(const char *domainname, const char *msgid, locale_t loc)
+{
+	char *result;
+	locale_t save_loc = uselocale(loc);
+
+	result = dgettext(domainname, msgid);
+	uselocale(save_loc);
+	return result;
+}
+#endif	/* HAVE_DGETTEXT_L */
+
+#ifndef HAVE_DNGETTEXT_L
+static char *
+dngettext_l(const char *domainname, const char *s, const char *p,
+			unsigned long int n, locale_t loc)
+{
+	char *result;
+	locale_t save_loc = uselocale(loc);
+
+	result = dngettext(domainname, s, p, n);
+	uselocale(save_loc);
+	return result;
+}
+#endif	/* HAVE_DNGETTEXT_L */
+
+static char *
+pg_strerror_l(int errnum, locale_t loc)
+{
+	char *result;
+	locale_t save_loc = uselocale(loc);
+
+	result = pg_strerror(errnum);
+	uselocale(save_loc);
+	return result;
+}
+
+static char *
+pg_strerror_r_l(int errnum, char *buf, size_t buflen, locale_t loc)
+{
+	char *result;
+	locale_t save_loc = uselocale(loc);
+
+	result = pg_strerror_r(errnum, buf, buflen);
+	uselocale(save_loc);
+	return result;
+}
+
+#else /* WIN32 */
+
+static bool
+save_message_locale(wchar_t **save_lc_ctype, wchar_t **save_lc_messages,
+					int *config_thread_locale)
+{
+	wchar_t *tmp;
+
+	/* Put setlocale() into thread-local mode. */
+	*config_thread_locale = _configthreadlocale(_ENABLE_PER_THREAD_LOCALE);
+
+	/*
+	 * Capture the current values as wide strings.  Otherwise, we might not be
+	 * able to restore them if their names contain non-ASCII characters and
+	 * the intermediate locale changes the expected encoding.  We don't want
+	 * to leave the caller in an unexpected state by failing to restore, or
+	 * crash the runtime library.
+	 */
+	tmp = _wsetlocale(LC_CTYPE, NULL);
+	if (!tmp || !(tmp = wcsdup(tmp)))
+		return false;
+	*save_lc_ctype = tmp;
+
+	tmp = _wsetlocale(LC_MESSAGES, NULL);
+	if (!tmp || !(tmp = wcsdup(tmp)))
+		return false;
+	*save_lc_messages = tmp;
+
+	return true;
+}
+
+static void
+restore_message_locale(int config_thread_locale, wchar_t *lc_ctype,
+					   wchar_t *lc_messages)
+{
+	if (lc_ctype)
+	{
+		_wsetlocale(LC_CTYPE, save_lc_ctype);
+		free(save_lc_ctype);
+	}
+	if (lc_messages)
+	{
+		_wsetlocale(LC_MESSAGES, save_lc_messages);
+		free(save_lc_messages);
+	}
+	_configthreadlocale(config_thread_locale);
+}
+
+static char *
+dgettext_l(const char *domainname, const char *msgid, const char *lc_ctype,
+		   const char *lc_messages)
+{
+	wchar_t    *save_lc_ctype = NULL;
+	wchar_t    *save_lc_messages = NULL;
+	int			save_config_thread_locale;
+
+	if (save_message_locale(&save_config_thread_locale, &save_lc_ctype,
+							&save_lc_messages))
+	{
+		char	*result;
+
+		(void) setlocale(LC_CTYPE, lc_ctype);
+		(void) setlocale(LC_MESSAGES, lc_messages);
+
+		result = dgettext(domainname, msgid);
+		restore_message_locale(save_config_thread_locale, save_lc_ctype,
+							   save_lc_messages);
+		return result;
+	}
+	else
+		return dgettext(domainname, msgid);
+}
+
+static char *
+dngettext_l(const char *domainname, const char *s, const char *p,
+			unsigned long int n, const char *lc_ctype,
+			const char *lc_messages)
+{
+	wchar_t    *save_lc_ctype = NULL;
+	wchar_t    *save_lc_messages = NULL;
+	int			save_config_thread_locale;
+
+	if (save_message_locale(&save_config_thread_locale, &save_lc_ctype,
+							&save_lc_messages))
+	{
+		char	*result;
+
+		(void) setlocale(LC_CTYPE, lc_ctype);
+		(void) setlocale(LC_MESSAGES, lc_messages);
+
+		result = dngettext(domainname, s, p, n);
+		restore_message_locale(save_config_thread_locale, save_lc_ctype,
+							   save_lc_messages);
+		return result;
+	}
+	else
+		return dngettext(domainname, s, p, n);
+}
+
+static char *
+pg_strerror_l(int errnum, const char *lc_ctype, const char *lc_messages)
+{
+	wchar_t    *save_lc_ctype = NULL;
+	wchar_t    *save_lc_messages = NULL;
+	int			save_config_thread_locale;
+
+	if (save_message_locale(&save_config_thread_locale, &save_lc_ctype,
+							&save_lc_messages))
+	{
+		char	   *result;
+
+		(void) setlocale(LC_CTYPE, lc_ctype);
+		(void) setlocale(LC_MESSAGES, lc_messages);
+
+		result = pg_strerror(errnum);
+		restore_message_locale(save_config_thread_locale, save_lc_ctype,
+							   save_lc_messages);
+		return result;
+	}
+	else
+		return pg_strerror(errnum);
+
+	return result;
+}
+
+static char *
+pg_strerror_r_l(int errnum, char *buf, size_t buflen, const char *lc_ctype,
+				const char *lc_messages)
+{
+	wchar_t    *save_lc_ctype = NULL;
+	wchar_t    *save_lc_messages = NULL;
+	int			save_config_thread_locale;
+
+	if (save_message_locale(&save_config_thread_locale, &save_lc_ctype,
+							&save_lc_messages))
+	{
+		char	   *result;
+
+		(void) setlocale(LC_CTYPE, lc_ctype);
+		(void) setlocale(LC_MESSAGES, lc_messages);
+
+		result = pg_strerror_r(errnum, buf, buflen);
+		restore_message_locale(save_config_thread_locale, save_lc_ctype,
+							   save_lc_messages);
+		return result;
+	}
+	else
+		return pg_strerror_r(errnum, buf, buflen);
+
+	return result;
+}
+#endif /* WIN32 */
+
+/*
+ * dgettext() with global_message_locale, if set.
+ */
+char *
+pg_nls_dgettext(const char *domainname, const char *msgid)
+{
+#ifndef WIN32
+	if (global_message_locale)
+		return dgettext_l(domainname, msgid, global_message_locale);
+#else
+	if (global_message_lc_ctype && global_message_lc_messages)
+		return dgettext_l(domainname, msgid, global_message_lc_ctype,
+						  global_message_lc_messages);
+#endif
+	else
+		return dgettext(domainname, msgid);
+}
+
+/*
+ * dngettext() with global_message_locale, if set.
+ */
+char *
+pg_nls_dngettext(const char *domainname, const char *s, const char *p,
+				 unsigned long int n)
+{
+#ifndef WIN32
+	if (global_message_locale)
+		return dngettext_l(domainname, s, p, n, global_message_locale);
+#else
+	if (global_message_lc_ctype && global_message_lc_messages)
+		return dngettext_l(domainname, s, p, n, global_message_lc_ctype,
+						  global_message_lc_messages);
+#endif
+	else
+		return dngettext(domainname, s, p, n);
+}
+
+/*
+ * pg_strerror() with global_message_locale, if set.
+ */
+char *
+pg_nls_strerror(int errnum)
+{
+#ifndef WIN32
+	if (global_message_locale)
+		return pg_strerror_l(errnum, global_message_locale);
+#else
+	if (global_message_lc_ctype)
+		return pg_strerror_l(errnum, global_message_lc_ctype,
+							 global_message_lc_messages);
+#endif
+	else
+		return pg_strerror(errnum);
+}
+
+/*
+ * pg_strerror_r() with global_message_locale, if set.
+ */
+char *
+pg_nls_strerror_r(int errnum, char *buf, size_t buflen)
+{
+#ifndef WIN32
+	if (global_message_locale)
+		return pg_strerror_r_l(errnum, buf, buflen, global_message_locale);
+#else
+	if (global_message_lc_ctype)
+		return pg_strerror_r_l(errnum, buf, buflen, global_message_lc_ctype,
+							   global_message_lc_messages);
+#endif
+	else
+		return pg_strerror_r(errnum, buf, buflen);
+}
+
+#endif	/* ENABLE_NLS */
 
 /*
  * Is the locale name valid for the locale category?

@@ -191,7 +191,6 @@ static void send_message_to_server_log(ErrorData *edata);
 static void send_message_to_frontend(ErrorData *edata);
 static void append_with_tabs(StringInfo buf, const char *str);
 
-
 /*
  * is_log_level_output -- is elevel logically >= log_min_level?
  *
@@ -991,17 +990,10 @@ errcode_for_socket_access(void)
  */
 #define EVALUATE_MESSAGE(domain, targetfield, appendval, translateit)	\
 	{ \
-		locale_t save_loc = (locale_t) 0; \
 		StringInfoData	buf; \
 		/* Internationalize the error format string */ \
 		if ((translateit) && !in_error_recursion_trouble()) \
-		{ \
-			if (global_message_locale != (locale_t) 0) \
-				save_loc = uselocale(global_message_locale); \
-			fmt = dgettext((domain), fmt);				  \
-			if (save_loc != (locale_t) 0) \
-				uselocale(save_loc); \
-		} \
+			fmt = dgettext((domain), fmt);	\
 		initStringInfo(&buf); \
 		if ((appendval) && edata->targetfield) { \
 			appendStringInfoString(&buf, edata->targetfield); \
@@ -1014,11 +1006,7 @@ errcode_for_socket_access(void)
 			int			needed; \
 			errno = edata->saved_errno; \
 			va_start(args, fmt); \
-			if (global_message_locale != (locale_t) 0) \
-				save_loc = uselocale(global_message_locale); \
 			needed = appendStringInfoVA(&buf, fmt, args); \
-			if (save_loc != (locale_t) 0) \
-				uselocale(save_loc); \
 			va_end(args); \
 			if (needed == 0) \
 				break; \

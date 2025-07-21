@@ -111,6 +111,14 @@
    don't. */
 #undef HAVE_DECL_STRCHRNUL
 
+/* Define to 1 if you have the declaration of `dgettext_l', and to 0 if you
+   don't. */
+#undef HAVE_DGETTEXT_L
+
+/* Define to 1 if you have the declaration of `dngettext_l', and to 0 if you
+   don't. */
+#undef HAVE_DNGETTEXT_L
+
 /* Define to 1 if you have the declaration of `strlcat', and to 0 if you
    don't. */
 #undef HAVE_DECL_STRLCAT

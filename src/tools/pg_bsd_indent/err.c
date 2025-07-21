@@ -27,6 +27,8 @@
  * SUCH DAMAGE.
  */
 
+#define FRONTEND 1
+
 /*
  * This is cut down to just the minimum that we need to build indent.
  */

@@ -24,8 +24,6 @@
 /* use for libc locale names */
 #define LOCALE_NAME_BUFLEN 128
 
-extern PGDLLIMPORT locale_t global_message_locale;
-
 /* GUC settings */
 extern PGDLLIMPORT char *locale_messages;
 extern PGDLLIMPORT char *locale_monetary;
@@ -43,6 +41,15 @@ extern PGDLLIMPORT char *localized_full_months[];
 extern PGDLLIMPORT bool database_ctype_is_c;
 
 extern void set_message_locale(const char *ctype, const char *messages);
+#ifdef ENABLE_NLS
+extern char *pg_nls_dgettext(const char *domainname, const char *msgid)
+	pg_attribute_format_arg(2);
+extern char *pg_nls_dngettext(const char *domainname, const char *s,
+							  const char *p, unsigned long int n)
+	pg_attribute_format_arg(2) pg_attribute_format_arg(3);
+extern char *pg_nls_strerror(int errnum);
+extern char *pg_nls_strerror_r(int errnum, char *buf, size_t buflen);
+#endif
 extern bool check_locale(int category, const char *locale, char **canonname);
 extern char *pg_perm_setlocale(int category, const char *locale);
 
