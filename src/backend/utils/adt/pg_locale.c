@@ -177,11 +177,11 @@ static char *IsoLocaleName(const char *);
 void
 set_message_locale(const char *ctype, const char *messages)
 {
-	locale_t	loc = 0;
-
 	if (ctype)
 	{
 #ifndef WIN32
+		locale_t	loc = 0;
+
 		errno = 0;
 		loc = newlocale(LC_CTYPE_MASK, ctype, global_message_locale);
 		if (!loc)
@@ -190,7 +190,9 @@ set_message_locale(const char *ctype, const char *messages)
 #else
 		if (!check_locale(LC_CTYPE, ctype, NULL))
 			report_newlocale_failure(ctype);
-		global_message_lc_ctype = ctype;
+		if (global_message_lc_ctype)
+			pfree(global_message_lc_ctype);
+		global_message_lc_ctype = pstrdup(ctype);
 #endif
 
 		/*
@@ -210,6 +212,8 @@ set_message_locale(const char *ctype, const char *messages)
 	if (messages)
 	{
 #ifndef WIN32
+		locale_t	loc = 0;
+
 		errno = 0;
 		loc = newlocale(LC_MESSAGES_MASK, messages, global_message_locale);
 		if (!loc)
@@ -219,7 +223,9 @@ set_message_locale(const char *ctype, const char *messages)
 #ifdef LC_MESSAGES
 		if (!check_locale(LC_MESSAGES, messages, NULL))
 			report_newlocale_failure(messages);
-		global_message_lc_messages = messages;
+		if (global_message_lc_messages)
+			pfree(global_message_lc_messages);
+		global_message_lc_messages = pstrdup(messages);
 #endif
 #endif
 	}
@@ -550,7 +556,7 @@ pg_nls_dgettext(const char *domainname, const char *msgid)
 	if (global_message_locale)
 		return dgettext_l(domainname, msgid, global_message_locale);
 #else
-	if (global_message_lc_ctype && global_message_lc_messages)
+	if (global_message_lc_ctype)
 		return dgettext_l(domainname, msgid, global_message_lc_ctype,
 						  global_message_lc_messages);
 #endif
@@ -569,7 +575,7 @@ pg_nls_dngettext(const char *domainname, const char *s, const char *p,
 	if (global_message_locale)
 		return dngettext_l(domainname, s, p, n, global_message_locale);
 #else
-	if (global_message_lc_ctype && global_message_lc_messages)
+	if (global_message_lc_ctype)
 		return dngettext_l(domainname, s, p, n, global_message_lc_ctype,
 						  global_message_lc_messages);
 #endif
