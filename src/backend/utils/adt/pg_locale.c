@@ -40,6 +40,7 @@
 
 #include "postgres.h"
 
+#include <locale.h>
 #include <time.h>
 
 #include "access/htup_details.h"
@@ -215,9 +216,11 @@ set_message_locale(const char *ctype, const char *messages)
 			report_newlocale_failure(messages);
 		global_message_locale = loc;
 #else
+#ifdef LC_MESSAGES
 		if (!check_locale(LC_MESSAGES, messages, NULL))
 			report_newlocale_failure(messages);
 		global_message_lc_messages = messages;
+#endif
 #endif
 	}
 }
