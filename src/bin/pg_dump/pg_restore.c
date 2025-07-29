@@ -425,6 +425,20 @@ main(int argc, char **argv)
 	if (with_statistics && no_statistics)
 		pg_fatal("options --with-statistics and --no-statistics cannot be used together");
 
+	/* reject conflicting "only-" and "with-" options */
+	if (data_only && with_schema)
+		pg_fatal("options -a/--data-only and --with-schema cannot be used together");
+	if (data_only && with_statistics)
+		pg_fatal("options -a/--data-only and --with-statistics cannot be used together");
+	if (schema_only && with_data)
+		pg_fatal("options -s/--schema-only and --with-data cannot be used together");
+	if (schema_only && with_statistics)
+		pg_fatal("options -s/--schema-only and --with-statistics cannot be used together");
+	if (statistics_only && with_data)
+		pg_fatal("options --statistics-only and --with-data cannot be used together");
+	if (statistics_only && with_schema)
+		pg_fatal("options --statistics-only and --with-schema cannot be used together");
+
 	if (data_only && opts->dropSchema)
 		pg_fatal("options -c/--clean and -a/--data-only cannot be used together");
 
@@ -443,11 +457,9 @@ main(int argc, char **argv)
 		pg_fatal("cannot specify both --single-transaction and multiple jobs");
 
 	/*
-	 * Set derivative flags. An "-only" option may be overridden by an
-	 * explicit "with-" option; e.g. "--schema-only --with-statistics" will
-	 * include schema and statistics. Other ambiguous or nonsensical
-	 * combinations, e.g. "--schema-only --no-schema", will have already
-	 * caused an error in one of the checks above.
+	 * Set derivative flags. Ambiguous or nonsensical combinations,
+	 * e.g. "--schema-only --no-schema", will have already caused an error in
+	 * one of the checks above.
 	 */
 	opts->dumpData = ((opts->dumpData && !schema_only && !statistics_only) ||
 					  (data_only || with_data)) && !no_data;
