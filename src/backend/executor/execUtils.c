@@ -229,13 +229,21 @@ FreeExecutorState(EState *estate)
 	MemoryContextDelete(estate->es_query_cxt);
 }
 
-/*
- * Internal implementation for CreateExprContext() and CreateWorkExprContext()
- * that allows control over the AllocSet parameters.
+/* ----------------
+ *		CreateExprContext
+ *
+ *		Create a context for expression evaluation within an EState.
+ *
+ * An executor run may require multiple ExprContexts (we usually make one
+ * for each Plan node, and a separate one for per-output-tuple processing
+ * such as constraint checking).  Each ExprContext has its own "per-tuple"
+ * memory context.
+ *
+ * Note we make no assumption about the caller's memory context.
+ * ----------------
  */
-static ExprContext *
-CreateExprContextInternal(EState *estate, Size minContextSize,
-						  Size initBlockSize, Size maxBlockSize)
+ExprContext *
+CreateExprContext(EState *estate)
 {
 	ExprContext *econtext;
 	MemoryContext oldcontext;
@@ -258,9 +266,7 @@ CreateExprContextInternal(EState *estate, Size minContextSize,
 	econtext->ecxt_per_tuple_memory =
 		AllocSetContextCreate(estate->es_query_cxt,
 							  "ExprContext",
-							  minContextSize,
-							  initBlockSize,
-							  maxBlockSize);
+							  ALLOCSET_DEFAULT_SIZES);
 
 	econtext->ecxt_param_exec_vals = estate->es_param_exec_vals;
 	econtext->ecxt_param_list_info = estate->es_param_list_info;
@@ -290,38 +296,26 @@ CreateExprContextInternal(EState *estate, Size minContextSize,
 	return econtext;
 }
 
-/* ----------------
- *		CreateExprContext
- *
- *		Create a context for expression evaluation within an EState.
- *
- * An executor run may require multiple ExprContexts (we usually make one
- * for each Plan node, and a separate one for per-output-tuple processing
- * such as constraint checking).  Each ExprContext has its own "per-tuple"
- * memory context.
- *
- * Note we make no assumption about the caller's memory context.
- * ----------------
- */
-ExprContext *
-CreateExprContext(EState *estate)
-{
-	return CreateExprContextInternal(estate, ALLOCSET_DEFAULT_SIZES);
-}
-
 
 /* ----------------
  *		CreateWorkExprContext
  *
- * Like CreateExprContext, but specifies the AllocSet sizes to be reasonable
- * in proportion to work_mem. If the maximum block allocation size is too
- * large, it's easy to skip right past work_mem with a single allocation.
+ * Like CreateExprContext, but intended for operations where work_mem should
+ * be enforced for ecxt_per_tuple_memory.  The caller is responsible for
+ * calling ReScanExprContext() when necessary.
+ *
+ * Additionally, the AllocSet sizes are chosen to be reasonable in proportion
+ * to work_mem.  Otherwise, it's easy to skip right past work_mem with a
+ * single allocation.
+ *
  * ----------------
  */
 ExprContext *
-CreateWorkExprContext(EState *estate)
+CreateWorkExprContext(EState *estate, MemoryContext parent)
 {
-	Size		maxBlockSize = ALLOCSET_DEFAULT_MAXSIZE;
+	ExprContext		*econtext;
+	MemoryContext	 oldcontext;
+	Size			 maxBlockSize = ALLOCSET_DEFAULT_MAXSIZE;
 
 	maxBlockSize = pg_prevpower2_size_t(work_mem * (Size) 1024 / 16);
 
@@ -331,8 +325,54 @@ CreateWorkExprContext(EState *estate)
 	/* and no smaller than ALLOCSET_DEFAULT_INITSIZE */
 	maxBlockSize = Max(maxBlockSize, ALLOCSET_DEFAULT_INITSIZE);
 
-	return CreateExprContextInternal(estate, ALLOCSET_DEFAULT_MINSIZE,
-									 ALLOCSET_DEFAULT_INITSIZE, maxBlockSize);
+	/* Create the ExprContext node within the per-query memory context */
+	oldcontext = MemoryContextSwitchTo(estate->es_query_cxt);
+
+	econtext = makeNode(ExprContext);
+
+	/* Initialize fields of ExprContext */
+	econtext->ecxt_scantuple = NULL;
+	econtext->ecxt_innertuple = NULL;
+	econtext->ecxt_outertuple = NULL;
+
+	econtext->ecxt_per_query_memory = estate->es_query_cxt;
+
+	/*
+	 * Create working memory for expression evaluation in this context.
+	 */
+	econtext->ecxt_per_tuple_memory =
+		AllocSetContextCreate(parent,
+							  "WorkExprContext",
+							  ALLOCSET_DEFAULT_MINSIZE,
+							  ALLOCSET_DEFAULT_INITSIZE,
+							  maxBlockSize);
+
+	econtext->ecxt_param_exec_vals = estate->es_param_exec_vals;
+	econtext->ecxt_param_list_info = estate->es_param_list_info;
+
+	econtext->ecxt_aggvalues = NULL;
+	econtext->ecxt_aggnulls = NULL;
+
+	econtext->caseValue_datum = (Datum) 0;
+	econtext->caseValue_isNull = true;
+
+	econtext->domainValue_datum = (Datum) 0;
+	econtext->domainValue_isNull = true;
+
+	econtext->ecxt_estate = estate;
+
+	econtext->ecxt_callbacks = NULL;
+
+	/*
+	 * Link the ExprContext into the EState to ensure it is shut down when the
+	 * EState is freed.  Because we use lcons(), shutdowns will occur in
+	 * reverse order of creation, which may not be essential but can't hurt.
+	 */
+	estate->es_exprcontexts = lcons(econtext, estate->es_exprcontexts);
+
+	MemoryContextSwitchTo(oldcontext);
+
+	return econtext;
 }
 
 /* ----------------

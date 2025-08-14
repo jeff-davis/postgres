@@ -1867,13 +1867,8 @@ static void
 hash_agg_check_limits(AggState *aggstate)
 {
 	uint64		ngroups = aggstate->hash_ngroups_current;
-	Size		meta_mem = MemoryContextMemAllocated(aggstate->hash_metacxt,
-													 true);
-	Size		entry_mem = MemoryContextMemAllocated(aggstate->hash_tablecxt,
-													  true);
-	Size		tval_mem = MemoryContextMemAllocated(aggstate->hashcontext->ecxt_per_tuple_memory,
-													 true);
-	Size		total_mem = meta_mem + entry_mem + tval_mem;
+	Size		total_mem = MemoryContextMemAllocated(
+		aggstate->ss.ss_workmem_cxt, true);
 	bool		do_spill = false;
 
 #ifdef USE_INJECTION_POINTS
@@ -2005,7 +2000,8 @@ hash_create_memory(AggState *aggstate)
 	 * The hashcontext's per-tuple memory will be used for byref transition
 	 * values and returned by AggCheckCallContext().
 	 */
-	aggstate->hashcontext = CreateWorkExprContext(aggstate->ss.ps.state);
+	aggstate->hashcontext = CreateWorkExprContext(aggstate->ss.ps.state,
+												  aggstate->ss.ss_workmem_cxt);
 
 	/*
 	 * The meta context will be used for the bucket array of
@@ -2015,7 +2011,7 @@ hash_create_memory(AggState *aggstate)
 	 * the large allocation path will be used, so it's not worth worrying
 	 * about wasting space due to power-of-two allocations.
 	 */
-	aggstate->hash_metacxt = AllocSetContextCreate(aggstate->ss.ps.state->es_query_cxt,
+	aggstate->hash_metacxt = AllocSetContextCreate(aggstate->ss.ss_workmem_cxt,
 												   "HashAgg meta context",
 												   ALLOCSET_DEFAULT_SIZES);
 
@@ -2043,7 +2039,7 @@ hash_create_memory(AggState *aggstate)
 	/* and no smaller than ALLOCSET_DEFAULT_INITSIZE */
 	maxBlockSize = Max(maxBlockSize, ALLOCSET_DEFAULT_INITSIZE);
 
-	aggstate->hash_tablecxt = BumpContextCreate(aggstate->ss.ps.state->es_query_cxt,
+	aggstate->hash_tablecxt = BumpContextCreate(aggstate->ss.ss_workmem_cxt,
 												"HashAgg table context",
 												ALLOCSET_DEFAULT_MINSIZE,
 												ALLOCSET_DEFAULT_INITSIZE,
@@ -3370,6 +3366,12 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 	aggstate->aggcontexts = (ExprContext **)
 		palloc0(sizeof(ExprContext *) * numGroupingSets);
+
+	/* only used as a parent context, not for actual allocations */
+	aggstate->ss.ss_workmem_cxt = AllocSetContextCreate(
+		aggstate->ss.ps.state->es_query_cxt,
+		"AggState working memory",
+		ALLOCSET_SMALL_SIZES);
 
 	/*
 	 * Create expression contexts.  We need three or more, one for

@@ -1621,6 +1621,7 @@ typedef struct ScanState
 	Relation	ss_currentRelation;
 	struct TableScanDescData *ss_currentScanDesc;
 	TupleTableSlot *ss_ScanTupleSlot;
+	MemoryContext	ss_workmem_cxt;	/* should be parent context for all workmem allocations */
 } ScanState;
 
 /* ----------------
