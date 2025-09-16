@@ -306,7 +306,9 @@ DefineCollation(ParseState *pstate, List *names, List *parameters, bool if_not_e
 		 * difference. So we can save writing the code for the other
 		 * providers.
 		 */
-		if (!collisdeterministic && collprovider != COLLPROVIDER_ICU)
+		if (!collisdeterministic &&
+			(collprovider == COLLPROVIDER_LIBC ||
+			 (collprovider == COLLPROVIDER_BUILTIN && strcmp(colllocale, "PG_UNICODE_CI") != 0)))
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("nondeterministic collations not supported with this provider")));

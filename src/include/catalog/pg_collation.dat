@@ -37,5 +37,10 @@
   descr => 'sorts by Unicode code point; Unicode character semantics',
   collname => 'pg_unicode_fast', collprovider => 'b', collencoding => '6',
   colllocale => 'PG_UNICODE_FAST', collversion => '1' },
+{ oid => '6434',
+  descr => 'sorts by Unicode code point; Unicode character semantics',
+  collname => 'pg_unicode_ci', collprovider => 'b', collencoding => '6',
+  collisdeterministic => 'f',
+  colllocale => 'PG_UNICODE_CI', collversion => '16.0' },
 
 ]

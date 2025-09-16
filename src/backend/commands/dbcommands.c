@@ -1140,6 +1140,12 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 					 errmsg("LOCALE or BUILTIN_LOCALE must be specified")));
 
 		dblocale = builtin_validate_locale(encoding, dblocale);
+
+		if (strcmp(dblocale, "PG_UNICODE_CI") == 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("cannot use locale \"%s\" for the database collation",
+							dblocale)));
 	}
 	else if (dblocprovider == COLLPROVIDER_ICU)
 	{

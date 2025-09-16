@@ -148,3 +148,31 @@ SELECT 'δ' ~* '[Γ-Λ]' COLLATE PG_UNICODE_FAST; -- same as above with cases re
 
 -- case folding
 select casefold('AbCd 123 #$% ıiIİ ẞ ß Ǆǅǆ Σσς' collate PG_UNICODE_FAST);
+
+--
+-- Test PG_UNICODE_CI
+--
+
+CREATE COLLATION regress_pg_unicode_ci (
+  provider = builtin, locale = 'PG_UNICODE_CI');
+DROP COLLATION regress_pg_unicode_ci;
+
+CREATE TABLE test_pg_unicode_ci (
+  t TEXT COLLATE PG_UNICODE_CI
+);
+
+INSERT INTO test_pg_unicode_ci VALUES
+       ('ABC'),
+       ('aBc'),
+       ('ABB'),
+       ('ẞß'),
+       ('sSSs'),
+       ('ςσΣ'),
+       ('σςΣ'),
+       ('ΣΣσ');
+
+SELECT DISTINCT t FROM test_pg_unicode_ci;
+
+SELECT r1.t, r2.t FROM test_pg_unicode_ci r1, test_pg_unicode_ci r2
+ WHERE r1.t = r2.t COLLATE PG_UNICODE_CI AND
+       r1.t < r2.t COLLATE "C";

@@ -1443,6 +1443,8 @@ builtin_locale_encoding(const char *locale)
 		return PG_UTF8;
 	else if (strcmp(locale, "PG_UNICODE_FAST") == 0)
 		return PG_UTF8;
+	else if (strcmp(locale, "PG_UNICODE_CI") == 0)
+		return PG_UTF8;
 
 
 	ereport(ERROR,
@@ -1470,6 +1472,8 @@ builtin_validate_locale(int encoding, const char *locale)
 		canonical_name = "C.UTF-8";
 	else if (strcmp(locale, "PG_UNICODE_FAST") == 0)
 		canonical_name = "PG_UNICODE_FAST";
+	else if (strcmp(locale, "PG_UNICODE_CI") == 0)
+		canonical_name = "PG_UNICODE_CI";
 
 	if (!canonical_name)
 		ereport(ERROR,

@@ -20,6 +20,9 @@
 #include "common/unicode_category.h"
 #include "mb/pg_wchar.h"
 
+StaticAssertDecl(UNICODE_CASEMAP_BUFSZ == MAX_CASE_EXPANSION * sizeof(pg_wchar),
+				 "UNICODE_CASEMAP_BUFSZ miscalculated");
+
 enum CaseMapResult
 {
 	CASEMAP_SELF,

@@ -2478,6 +2478,9 @@ setlocales(void)
 			canonname = "C.UTF-8";
 		else if (strcmp(datlocale, "PG_UNICODE_FAST") == 0)
 			canonname = "PG_UNICODE_FAST";
+		else if (strcmp(datlocale, "PG_UNICODE_CI") == 0)
+			pg_fatal("cannot use locale \"%s\" for the database collation",
+					 datlocale);
 		else
 			pg_fatal("invalid locale name \"%s\" for builtin provider",
 					 datlocale);

@@ -99,8 +99,9 @@ CREATE COLLATION [ IF NOT EXISTS ] <replaceable>name</replaceable> FROM <replace
       <para>
        If <replaceable>provider</replaceable> is <literal>builtin</literal>,
        then <replaceable>locale</replaceable> must be specified and set to
-       either <literal>C</literal>, <literal>C.UTF-8</literal> or
-       <literal>PG_UNICODE_FAST</literal>.
+       either <literal>C</literal>, <literal>C.UTF-8</literal>,
+       <literal>PG_UNICODE_FAST</literal>, or
+       <literal>PG_UNICODE_CI</literal>.
       </para>
      </listitem>
     </varlistentry>

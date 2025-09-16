@@ -16,6 +16,9 @@
 
 #include "mb/pg_wchar.h"
 
+/* buffer size needed to map a single codepoint */
+#define UNICODE_CASEMAP_BUFSZ	12
+
 typedef size_t (*WordBoundaryNext) (void *wbstate);
 
 pg_wchar	unicode_lowercase_simple(pg_wchar code);
