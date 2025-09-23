@@ -170,6 +170,132 @@ if ($range_category ne $CATEGORY_UNASSIGNED)
 		});
 }
 
+my %assigned = ();
+foreach my $range (@category_ranges)
+{
+	for (my $code = $range->{start}; $code <= $range->{end}; $code++)
+	{
+		$assigned{$code} = 1;
+	}
+}
+
+
+sub create_bitmap
+{
+	my $h = shift;
+	my $bit1 = shift;
+	my $bit2 = shift;
+	my $bit3 = shift;
+
+	die unless ($bit1 + $bit2 + $bit3) == 21;
+	die unless $bit3 == 7;
+
+	my @level1 = ();
+	my @level2 = ();
+	push @level2, 0;
+	push @level2, 0;
+	my @level3 = ();
+	push @level3, [ 0, 0, 0, 0, 0, 0, 0, 0 ];
+	die unless scalar @level3 == 1;
+	push @level3, [ 0, 0, 0, 0, 0, 0, 0, 0 ];
+	die unless scalar @level3 == 2;
+	my $level1type = "uint16";
+	my $level2type = "uint16";
+	my $level3type = "uint64";
+
+	for (my $i1 = 0; $i1 < (1 << $bit1); $i1++)
+	{
+		my @tmp_level2 = ();
+		for (my $i2 = 0; $i2 < (1 << $bit2); $i2++)
+		{
+			my @tmp_level3 = (0, 0, 0, 0, 0, 0, 0, 0);
+
+			for (my $i3 = 0; $i3 < (1 << $bit3); $i3++)
+			{
+				my $code = ($i1 << ($bit2 + $bit3)) + ($i2 << $bit3) + $i3;
+
+				if (defined %{$h}{$code})
+				{
+					$tmp_level3[$i3 / 16] |= 0x1 << (15 - ($i3 % 16));
+				}
+			}
+
+			# if all level3 values are either 0 or 1, then use that value
+			# for level2; otherwise add the level3 bitmap and save the
+			# offset
+			my $l3_all_zeros = 1;
+			my $l3_all_ones = 1;
+			foreach my $val (@tmp_level3)
+			{
+				die "invalid val" if $val < 0 || $val > 0xFFFF;
+				$l3_all_zeros = 0 unless $val == 0x0000;
+				$l3_all_ones = 0 unless $val == 0xFFFF;
+			}
+
+			if ($l3_all_zeros)
+			{
+				push @tmp_level2, 0;
+			}
+			elsif ($l3_all_ones)
+			{
+				push @tmp_level2, 1;
+			}
+			else
+			{
+				push @tmp_level2, scalar @level3;
+				push @level3, \@tmp_level3;
+			}
+		}
+
+		# check if temp level2 array is all the same value
+		my $l2_all_zeros = 1;
+		my $l2_all_ones = 1;
+		foreach my $val (@tmp_level2)
+		{
+			$l2_all_zeros = 0 unless $val == 0;
+			$l2_all_ones = 0 unless $val == 1;
+		}
+
+		# if all level2 values are either 0 or 1, then use that for value
+		# for level1; otherwise, use a level2 array and save the offset
+		if ($l2_all_zeros)
+		{
+			push @level1, 0;
+		}
+		elsif ($l2_all_ones)
+		{
+			push @level1, 1;
+		}
+		else
+		{
+			push @level1, scalar @level2;
+			push @level2, @tmp_level2;
+		}
+	}
+
+	# optimize type sizes if possible
+	$level1type = "uint8" if (scalar @level2 < 256);
+	$level2type = "uint8" if (scalar @level3 < 256);
+
+	return {
+		l1type => $level1type,
+		l2type => $level2type,
+		l3type => $level3type,
+		level1 => \@level1,
+		level2 => \@level2,
+		level3 => \@level3,
+	}
+}
+
+my $assigned_bits1 = 9;
+my $assigned_bits2 = 5;
+my $assigned_bits3 = 7;
+my $assigned_bitmap = create_bitmap(\%assigned, $assigned_bits1, $assigned_bits2, $assigned_bits3);
+
+my $num_assigned_l1 = scalar @{$assigned_bitmap->{level1}};
+my $num_assigned_l2 = scalar @{$assigned_bitmap->{level2}};
+my $num_assigned_l3 = scalar @{$assigned_bitmap->{level3}};
+
 # See: https://www.unicode.org/reports/tr44/#General_Category_Values
 my $categories = {
 	Cn => 'PG_U_UNASSIGNED',
@@ -397,6 +523,53 @@ typedef struct
 #define PG_U_PROP_HEX_DIGIT			(1 << 7)
 
 EOS
+
+print $OT <<"EOS";
+/* tables to quickly determine if a code point is assigned */
+
+const int unicode_assigned_bits1 = $assigned_bits1;
+const int unicode_assigned_bits2 = $assigned_bits2;
+const int unicode_assigned_bits3 = $assigned_bits3;
+
+typedef $assigned_bitmap->{l1type} unicode_assigned_l1_type;
+typedef $assigned_bitmap->{l2type} unicode_assigned_l2_type;
+typedef $assigned_bitmap->{l3type} unicode_assigned_l3_type;
+
+static const $assigned_bitmap->{l1type} unicode_assigned_level1[$num_assigned_l1] =
+{
+EOS
+
+foreach my $val (@{$assigned_bitmap->{level1}})
+{
+	printf $OT "\t%d,\n", $val;
+}
+
+print $OT "};\n\n";
+
+print $OT <<"EOS";
+static const $assigned_bitmap->{l2type} unicode_assigned_level2[$num_assigned_l2] =
+{
+EOS
+
+foreach my $val (@{$assigned_bitmap->{level2}})
+{
+	printf $OT "\t%d,\n", $val;
+}
+
+print $OT "};\n\n";
+print $OT <<"EOS";
+static const $assigned_bitmap->{l3type} unicode_assigned_level3[$num_assigned_l3][2] =
+{
+EOS
+
+foreach my $vals (@{$assigned_bitmap->{level3}})
+{
+	printf $OT "\t{ 0x%04x%04x%04x%04x, 0x%04x%04x%04x%04x },\n",
+	  $vals->[0], $vals->[1], $vals->[2], $vals->[3],
+	  $vals->[4], $vals->[5], $vals->[6], $vals->[7];
+}
+
+print $OT "};\n\n";
 
 print $OT <<"EOS";
 /* table for fast lookup of ASCII codepoints */

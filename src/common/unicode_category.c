@@ -78,6 +78,44 @@
 static bool range_search(const pg_unicode_range *tbl, size_t size,
 						 pg_wchar code);
 
+bool
+unicode_is_assigned(pg_wchar code)
+{
+	int	c1;
+	int	c2;
+	int	c3;
+	int	l2_offset;
+	int	l3_offset;
+	int	wordnum;
+	const int l3_type_bits = sizeof(unicode_assigned_l3_type) * 8;
+	unicode_assigned_l3_type		 wordmask;
+
+	/* if offset is a special value */
+	c1 = (code >> (unicode_assigned_bits2 + unicode_assigned_bits3)) &
+		((1 << unicode_assigned_bits1) - 1);
+	l2_offset = unicode_assigned_level1[c1];
+	if (l2_offset < 2)
+		return l2_offset;
+
+	/* look in level2 */
+	c2 = (code >> unicode_assigned_bits3) &
+		((1 << unicode_assigned_bits2) - 1);
+	l3_offset = unicode_assigned_level2[l2_offset + c2];
+	if (l3_offset < 2)
+		return l3_offset;
+
+	/* look in level3 */
+	c3 = code & ((1 << unicode_assigned_bits3) - 1);
+
+	/* the most-significant bit is first position in the bitmap */
+	wordnum = c3 / l3_type_bits;
+	wordmask = ((unicode_assigned_l3_type) 1ULL) << (l3_type_bits - 1);
+	if ((c3 % l3_type_bits) > 0)
+		wordmask >>= (c3 % l3_type_bits);
+
+	return (unicode_assigned_level3[l3_offset][wordnum] & wordmask) != 0;
+}
+
 /*
  * Unicode general category for the given codepoint.
  */

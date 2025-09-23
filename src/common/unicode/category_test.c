@@ -61,6 +61,7 @@ icu_test()
 
 	for (pg_wchar code = 0; code <= 0x10ffff; code++)
 	{
+		bool		assigned = unicode_is_assigned(code);
 		uint8_t		pg_category = unicode_category(code);
 		uint8_t		icu_category = u_charType(code);
 
@@ -124,6 +125,17 @@ icu_test()
 													  UCHAR_POSIX_GRAPH);
 		bool		icu_isprint = u_hasBinaryProperty(code,
 													  UCHAR_POSIX_PRINT);
+
+		if ((pg_category == PG_U_UNASSIGNED) != !assigned)
+		{
+			printf("category_test: FAILURE for codepoint 0x%06x\n", code);
+			printf("category_test: pg_category: %s %s, assigned: %s\n",
+				   unicode_category_abbrev(icu_category),
+				   unicode_category_string(icu_category),
+				   assigned ? "true" : "false");
+			printf("\n");
+			exit(1);
+		}
 
 		/*
 		 * A version mismatch means that some assigned codepoints in the newer

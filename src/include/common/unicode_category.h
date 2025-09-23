@@ -61,6 +61,7 @@ typedef enum pg_unicode_category
 	PG_U_FINAL_PUNCTUATION = 29 /* Pf */
 } pg_unicode_category;
 
+extern bool unicode_is_assigned(pg_wchar code);
 extern pg_unicode_category unicode_category(pg_wchar code);
 extern const char *unicode_category_string(pg_unicode_category category);
 extern const char *unicode_category_abbrev(pg_unicode_category category);

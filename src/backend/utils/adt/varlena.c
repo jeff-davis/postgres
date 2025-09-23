@@ -5425,9 +5425,8 @@ unicode_assigned(PG_FUNCTION_ARGS)
 	for (int i = 0; i < size; i++)
 	{
 		pg_wchar	uchar = utf8_to_unicode(p);
-		int			category = unicode_category(uchar);
 
-		if (category == PG_U_UNASSIGNED)
+		if (!unicode_is_assigned(uchar))
 			PG_RETURN_BOOL(false);
 
 		p += pg_utf_mblen(p);
