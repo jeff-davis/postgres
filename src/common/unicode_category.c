@@ -181,16 +181,39 @@ pg_u_prop_uppercase(pg_wchar code)
 bool
 pg_u_prop_cased(pg_wchar code)
 {
-	uint32		category_mask;
+	int	c1;
+	int	c2;
+	int	c3;
+	int	l2_offset;
+	int	l3_offset;
+	int	wordnum;
+	const int l3_type_bits = sizeof(unicode_cased_l3_type) * 8;
+	unicode_cased_l3_type		 wordmask;
 
-	if (code < 0x80)
-		return unicode_opt_ascii[code].properties & PG_U_PROP_CASED;
+	/* if offset is a special value */
+	c1 = (code >> (unicode_cased_bits2 + unicode_cased_bits3)) &
+		((1 << unicode_cased_bits1) - 1);
+	l2_offset = unicode_cased_level1[c1];
+	if (l2_offset < 2)
+		return l2_offset;
 
-	category_mask = PG_U_CATEGORY_MASK(unicode_category(code));
+	/* look in level2 */
+	c2 = (code >> unicode_cased_bits3) &
+		((1 << unicode_cased_bits2) - 1);
+	l3_offset = unicode_cased_level2[l2_offset + c2];
+	if (l3_offset < 2)
+		return l3_offset;
 
-	return category_mask & PG_U_LT_MASK ||
-		pg_u_prop_lowercase(code) ||
-		pg_u_prop_uppercase(code);
+	/* look in level3 */
+	c3 = code & ((1 << unicode_cased_bits3) - 1);
+
+	/* the most-significant bit is first position in the bitmap */
+	wordnum = c3 / l3_type_bits;
+	wordmask = ((unicode_cased_l3_type) 1ULL) << (l3_type_bits - 1);
+	if ((c3 % l3_type_bits) > 0)
+		wordmask >>= (c3 % l3_type_bits);
+
+	return (unicode_cased_level3[l3_offset][wordnum] & wordmask) != 0;
 }
 
 bool

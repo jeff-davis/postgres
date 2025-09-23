@@ -171,11 +171,13 @@ if ($range_category ne $CATEGORY_UNASSIGNED)
 }
 
 my %assigned = ();
+my %cased = (); # Lowercase, Uppercase, or category=Lt
 foreach my $range (@category_ranges)
 {
 	for (my $code = $range->{start}; $code <= $range->{end}; $code++)
 	{
 		$assigned{$code} = 1;
+		$cased{$code} = 1 if $range->{category} eq 'Lt';
 	}
 }
 
@@ -431,6 +433,10 @@ while (my $line = <$FH>)
 	elsif ($property eq "Lowercase")
 	{
 		push @lowercase, { start => $start, end => $end };
+		for (my $i = $start; $i <= $end; $i++)
+		{
+			$cased{$i} = 1;
+		}
 		for (my $i = $start; $i <= $end && $i < 0x80; $i++)
 		{
 			push @{ $opt_ascii{$i}{Properties} }, "PG_U_PROP_LOWERCASE";
@@ -440,6 +446,10 @@ while (my $line = <$FH>)
 	elsif ($property eq "Uppercase")
 	{
 		push @uppercase, { start => $start, end => $end };
+		for (my $i = $start; $i <= $end; $i++)
+		{
+			$cased{$i} = 1;
+		}
 		for (my $i = $start; $i <= $end && $i < 0x80; $i++)
 		{
 			push @{ $opt_ascii{$i}{Properties} }, "PG_U_PROP_UPPERCASE";
@@ -455,6 +465,15 @@ while (my $line = <$FH>)
 		}
 	}
 }
+
+my $cased_bits1 = 8;
+my $cased_bits2 = 6;
+my $cased_bits3 = 7;
+my $cased_bitmap = create_bitmap(\%cased, $cased_bits1, $cased_bits2, $cased_bits3);
+
+my $num_cased_l1 = scalar @{$cased_bitmap->{level1}};
+my $num_cased_l2 = scalar @{$cased_bitmap->{level2}};
+my $num_cased_l3 = scalar @{$cased_bitmap->{level3}};
 
 my $num_category_ranges = scalar @category_ranges;
 my $num_alphabetic_ranges = scalar @alphabetic;
@@ -563,6 +582,53 @@ static const $assigned_bitmap->{l3type} unicode_assigned_level3[$num_assigned_l3
 EOS
 
 foreach my $vals (@{$assigned_bitmap->{level3}})
+{
+	printf $OT "\t{ 0x%04x%04x%04x%04x, 0x%04x%04x%04x%04x },\n",
+	  $vals->[0], $vals->[1], $vals->[2], $vals->[3],
+	  $vals->[4], $vals->[5], $vals->[6], $vals->[7];
+}
+
+print $OT "};\n\n";
+
+print $OT <<"EOS";
+/* tables to quickly determine if a code point is cased */
+
+const int unicode_cased_bits1 = $cased_bits1;
+const int unicode_cased_bits2 = $cased_bits2;
+const int unicode_cased_bits3 = $cased_bits3;
+
+typedef $cased_bitmap->{l1type} unicode_cased_l1_type;
+typedef $cased_bitmap->{l2type} unicode_cased_l2_type;
+typedef $cased_bitmap->{l3type} unicode_cased_l3_type;
+
+static const $cased_bitmap->{l1type} unicode_cased_level1[$num_cased_l1] =
+{
+EOS
+
+foreach my $val (@{$cased_bitmap->{level1}})
+{
+	printf $OT "\t%d,\n", $val;
+}
+
+print $OT "};\n\n";
+
+print $OT <<"EOS";
+static const $cased_bitmap->{l2type} unicode_cased_level2[$num_cased_l2] =
+{
+EOS
+
+foreach my $val (@{$cased_bitmap->{level2}})
+{
+	printf $OT "\t%d,\n", $val;
+}
+
+print $OT "};\n\n";
+print $OT <<"EOS";
+static const $cased_bitmap->{l3type} unicode_cased_level3[$num_cased_l3][2] =
+{
+EOS
+
+foreach my $vals (@{$cased_bitmap->{level3}})
 {
 	printf $OT "\t{ 0x%04x%04x%04x%04x, 0x%04x%04x%04x%04x },\n",
 	  $vals->[0], $vals->[1], $vals->[2], $vals->[3],
