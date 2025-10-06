@@ -208,6 +208,18 @@ extern size_t pg_strxfrm_prefix(char *dest, const char *src, size_t destsize,
 extern size_t pg_strnxfrm_prefix(char *dest, size_t destsize, const char *src,
 								 ssize_t srclen, pg_locale_t locale);
 
+extern bool pg_wc_isdigit(pg_wchar wc, pg_locale_t locale);
+extern bool pg_wc_isalpha(pg_wchar wc, pg_locale_t locale);
+extern bool pg_wc_isalnum(pg_wchar wc, pg_locale_t locale);
+extern bool pg_wc_isupper(pg_wchar wc, pg_locale_t locale);
+extern bool pg_wc_islower(pg_wchar wc, pg_locale_t locale);
+extern bool pg_wc_isgraph(pg_wchar wc, pg_locale_t locale);
+extern bool pg_wc_isprint(pg_wchar wc, pg_locale_t locale);
+extern bool pg_wc_ispunct(pg_wchar wc, pg_locale_t locale);
+extern bool pg_wc_isspace(pg_wchar wc, pg_locale_t locale);
+extern pg_wchar pg_wc_toupper(pg_wchar wc, pg_locale_t locale);
+extern pg_wchar pg_wc_tolower(pg_wchar wc, pg_locale_t locale);
+
 extern int	builtin_locale_encoding(const char *locale);
 extern const char *builtin_validate_locale(int encoding, const char *locale);
 extern void icu_validate_locale(const char *loc_str);
