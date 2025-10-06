@@ -110,6 +110,7 @@ struct ctype_methods
 	bool		(*wc_isprint) (pg_wchar wc, pg_locale_t locale);
 	bool		(*wc_ispunct) (pg_wchar wc, pg_locale_t locale);
 	bool		(*wc_isspace) (pg_wchar wc, pg_locale_t locale);
+	bool		(*wc_isxdigit) (pg_wchar wc, pg_locale_t locale);
 	pg_wchar	(*wc_toupper) (pg_wchar wc, pg_locale_t locale);
 	pg_wchar	(*wc_tolower) (pg_wchar wc, pg_locale_t locale);
 
@@ -217,6 +218,7 @@ extern bool pg_wc_isgraph(pg_wchar wc, pg_locale_t locale);
 extern bool pg_wc_isprint(pg_wchar wc, pg_locale_t locale);
 extern bool pg_wc_ispunct(pg_wchar wc, pg_locale_t locale);
 extern bool pg_wc_isspace(pg_wchar wc, pg_locale_t locale);
+extern bool pg_wc_isxdigit(pg_wchar wc, pg_locale_t locale);
 extern pg_wchar pg_wc_toupper(pg_wchar wc, pg_locale_t locale);
 extern pg_wchar pg_wc_tolower(pg_wchar wc, pg_locale_t locale);
 
