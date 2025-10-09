@@ -82,7 +82,7 @@
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 
-#define DEFAULT_LOCALE_PROVIDER		COLLPROVIDER_LIBC
+#define DEFAULT_LOCALE_PROVIDER		COLLPROVIDER_BUILTIN
 #define DEFAULT_BUILTIN_LOCALE		"C.UTF-8"
 #define DEFAULT_ICU_LOCALE			"und"
 
