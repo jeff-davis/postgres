@@ -323,6 +323,51 @@ tolower_libc_mb(pg_wchar wc, pg_locale_t locale)
 		return wc;
 }
 
+static size_t
+strfold_ident_libc_sb(char *dst, size_t dstsize, const char *src,
+					  ssize_t srclen, pg_locale_t locale)
+{
+	locale_t	loc = locale->lt;
+	int			i;
+
+	for (i = 0; i < srclen && i < dstsize; i++)
+	{
+		unsigned char ch = (unsigned char) src[i];
+
+		if (ch >= 'A' && ch <= 'Z')
+			ch += 'a' - 'A';
+		else if (IS_HIGHBIT_SET(ch) && isupper_l(ch, loc))
+			ch = tolower_l(ch, loc);
+		dst[i] = (char) ch;
+	}
+
+	if (i < dstsize)
+		dst[i] = '\0';
+
+	return srclen;
+}
+
+static size_t
+strfold_ident_libc_mb(char *dst, size_t dstsize, const char *src,
+					  ssize_t srclen, pg_locale_t locale)
+{
+	int			i;
+
+	for (i = 0; i < srclen && i < dstsize; i++)
+	{
+		unsigned char ch = (unsigned char) src[i];
+
+		if (ch >= 'A' && ch <= 'Z')
+			ch += 'a' - 'A';
+		dst[i] = (char) ch;
+	}
+
+	if (i < dstsize)
+		dst[i] = '\0';
+
+	return srclen;
+}
+
 static const struct ctype_methods ctype_methods_libc_sb = {
 	.strlower = strlower_libc_sb,
 	.strtitle = strtitle_libc_sb,
@@ -337,6 +382,7 @@ static const struct ctype_methods ctype_methods_libc_sb = {
 	.wc_ispunct = wc_ispunct_libc_sb,
 	.wc_isspace = wc_isspace_libc_sb,
 	.wc_isxdigit = wc_isxdigit_libc_sb,
+	.strfold_ident = strfold_ident_libc_sb,
 	.char_is_cased = char_is_cased_libc,
 	.char_tolower = char_tolower_libc,
 	.wc_toupper = toupper_libc_sb,
@@ -362,6 +408,7 @@ static const struct ctype_methods ctype_methods_libc_other_mb = {
 	.wc_ispunct = wc_ispunct_libc_sb,
 	.wc_isspace = wc_isspace_libc_sb,
 	.wc_isxdigit = wc_isxdigit_libc_sb,
+	.strfold_ident = strfold_ident_libc_mb,
 	.char_is_cased = char_is_cased_libc,
 	.char_tolower = char_tolower_libc,
 	.wc_toupper = toupper_libc_sb,
@@ -383,6 +430,7 @@ static const struct ctype_methods ctype_methods_libc_utf8 = {
 	.wc_ispunct = wc_ispunct_libc_mb,
 	.wc_isspace = wc_isspace_libc_mb,
 	.wc_isxdigit = wc_isxdigit_libc_mb,
+	.strfold_ident = strfold_ident_libc_mb,
 	.char_is_cased = char_is_cased_libc,
 	.char_tolower = char_tolower_libc,
 	.wc_toupper = toupper_libc_mb,

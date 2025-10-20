@@ -218,6 +218,37 @@ wc_isxdigit_icu(pg_wchar wc, pg_locale_t locale)
 	return u_isxdigit(wc);
 }
 
+/*
+ * Historically, tolower() was used for identifier casefolding even when the
+ * provider was ICU. We preserve that behavior here, but it creates an awkward
+ * dependency on the global LC_CTYPE. The pg_locale_t object has no internal
+ * libc locale_t object, so we can't use tolower_l().
+ */
+static size_t
+strfold_ident_icu(char *dst, size_t dstsize, const char *src,
+				  ssize_t srclen, pg_locale_t locale)
+{
+	int			i;
+	bool		enc_is_single_byte;
+
+	enc_is_single_byte = pg_database_encoding_max_length() == 1;
+	for (i = 0; i < srclen && i < dstsize; i++)
+	{
+		unsigned char ch = (unsigned char) src[i];
+
+		if (ch >= 'A' && ch <= 'Z')
+			ch += 'a' - 'A';
+		else if (enc_is_single_byte && IS_HIGHBIT_SET(ch) && isupper(ch))
+			ch = tolower(ch);
+		dst[i] = (char) ch;
+	}
+
+	if (i < dstsize)
+		dst[i] = '\0';
+
+	return srclen;
+}
+
 static const struct ctype_methods ctype_methods_icu = {
 	.strlower = strlower_icu,
 	.strtitle = strtitle_icu,
@@ -233,6 +264,7 @@ static const struct ctype_methods ctype_methods_icu = {
 	.wc_ispunct = wc_ispunct_icu,
 	.wc_isspace = wc_isspace_icu,
 	.wc_isxdigit = wc_isxdigit_icu,
+	.strfold_ident = strfold_ident_icu,
 	.char_is_cased = char_is_cased_icu,
 	.wc_toupper = toupper_icu,
 	.wc_tolower = tolower_icu,
