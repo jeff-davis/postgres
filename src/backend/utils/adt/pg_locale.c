@@ -1342,6 +1342,38 @@ pg_strfold(char *dst, size_t dstsize, const char *src, ssize_t srclen,
 }
 
 /*
+ * Fold an identifier using the database default locale.
+ *
+ * For historical reasons, does not use ordinary locale behavior. Should only
+ * be used for identifier folding. XXX: can we make this equivalent to
+ * pg_strfold(..., default_locale)?
+ */
+size_t
+pg_strfold_ident(char *dest, size_t destsize, const char *src, ssize_t srclen)
+{
+	if (default_locale == NULL || default_locale->ctype == NULL)
+	{
+		int			i;
+
+		for (i = 0; i < srclen && i < destsize; i++)
+		{
+			unsigned char ch = (unsigned char) src[i];
+
+			if (ch >= 'A' && ch <= 'Z')
+				ch += 'a' - 'A';
+			dest[i] = (char) ch;
+		}
+
+		if (i < destsize)
+			dest[i] = '\0';
+
+		return srclen;
+	}
+	return default_locale->ctype->strfold_ident(dest, destsize, src, srclen,
+												default_locale);
+}
+
+/*
  * pg_strcoll
  *
  * Like pg_strncoll for NUL-terminated input strings.

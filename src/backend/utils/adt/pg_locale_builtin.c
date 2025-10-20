@@ -125,6 +125,29 @@ strfold_builtin(char *dest, size_t destsize, const char *src, ssize_t srclen,
 						   locale->builtin.casemap_full);
 }
 
+static size_t
+strfold_ident_builtin(char *dst, size_t dstsize, const char *src,
+					  ssize_t srclen, pg_locale_t locale)
+{
+	int			i;
+
+	Assert(GetDatabaseEncoding() == PG_UTF8);
+
+	for (i = 0; i < srclen && i < dstsize; i++)
+	{
+		unsigned char ch = (unsigned char) src[i];
+
+		if (ch >= 'A' && ch <= 'Z')
+			ch += 'a' - 'A';
+		dst[i] = (char) ch;
+	}
+
+	if (i < dstsize)
+		dst[i] = '\0';
+
+	return srclen;
+}
+
 static bool
 wc_isdigit_builtin(pg_wchar wc, pg_locale_t locale)
 {
@@ -208,6 +231,7 @@ static const struct ctype_methods ctype_methods_builtin = {
 	.strtitle = strtitle_builtin,
 	.strupper = strupper_builtin,
 	.strfold = strfold_builtin,
+	.strfold_ident = strfold_ident_builtin,
 	.wc_isdigit = wc_isdigit_builtin,
 	.wc_isalpha = wc_isalpha_builtin,
 	.wc_isalnum = wc_isalnum_builtin,
