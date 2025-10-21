@@ -49,7 +49,7 @@ pg_get_utf8_id(void)
  *
  * No error checks here, c must point to a long-enough string.
  */
-static pg_wchar
+static char32_t
 utf8_to_unicode(const unsigned char *c)
 {
 	if ((*c & 0x80) == 0)

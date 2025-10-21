@@ -513,6 +513,11 @@ typedef void (*pg_funcptr_t) (void);
 
 #include <stdbool.h>
 
+/*
+ * char32_t
+ *      Unicode code point.
+ */
+#include <uchar.h>
 
 /* ----------------------------------------------------------------
  *				Section 3:	standard system types

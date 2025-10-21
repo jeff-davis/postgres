@@ -677,7 +677,7 @@ extern bool is_encoding_supported_by_icu(int encoding);
 extern const char *get_encoding_name_for_icu(int encoding);
 
 extern unsigned char *unicode_to_utf8(pg_wchar c, unsigned char *utf8string);
-extern pg_wchar utf8_to_unicode(const unsigned char *c);
+extern char32_t utf8_to_unicode(const unsigned char *c);
 extern bool pg_utf8_islegal(const unsigned char *source, int length);
 extern int	pg_utf_mblen(const unsigned char *s);
 extern int	pg_mule_mblen(const unsigned char *s);
