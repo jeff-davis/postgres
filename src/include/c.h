@@ -518,6 +518,26 @@ typedef void (*pg_funcptr_t) (void);
 #include <stdbool.h>
 
 
+/*
+ * char16_t and char32_t
+ *      Unicode code points.
+ *
+ * uchar.h should always be available in C11, but it's not available on
+ * Mac. However, these types are keywords in C++11, so when using C++, we
+ * can't redefine the types.
+ *
+ * XXX: when uchar.h is available everywhere, we can remove this check and
+ * just include uchar.h unconditionally.
+ *
+ * XXX: this section is out of place because uchar.h needs to be included
+ * after port.h, due to an interaction with win32_port.h in some cases.
+ */
+#ifndef __cplusplus
+typedef uint16_t char16_t;
+typedef uint32_t char32_t;
+#endif
+
+
 /* ----------------------------------------------------------------
  *				Section 3:	standard system types
  * ----------------------------------------------------------------
