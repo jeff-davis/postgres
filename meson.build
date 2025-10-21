@@ -2613,6 +2613,7 @@ header_checks = [
   'sys/signalfd.h',
   'sys/ucred.h',
   'termios.h',
+  'uchar.h',
   'ucred.h',
   'xlocale.h',
 ]
@@ -2718,6 +2719,16 @@ if cc.has_type('socklen_t',
     prefix: '''
 #include <sys/socket.h>''')
   cdata.set('HAVE_SOCKLEN_T', 1)
+endif
+
+if cc.has_type('char16_t',
+    args: test_c_args, include_directories: postgres_inc)
+  cdata.set('HAVE_CHAR16_T', 1)
+endif
+
+if cc.has_type('char32_t',
+    args: test_c_args, include_directories: postgres_inc)
+  cdata.set('HAVE_CHAR32_T', 1)
 endif
 
 if cc.has_member('struct sockaddr', 'sa_len',
