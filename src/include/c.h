@@ -513,6 +513,19 @@ typedef void (*pg_funcptr_t) (void);
 
 #include <stdbool.h>
 
+/*
+ * char16_t and char32_t
+ *      Unicode code points.
+ */
+#if !defined(HAVE_CHAR16_T) || !defined(HAVE_CHAR32_T)
+#ifdef HAVE_UCHAR_H
+#include <uchar.h>
+#else
+typedef uint16_t char16_t;
+typedef uint32_t char32_t;
+#endif
+#endif
+
 
 /* ----------------------------------------------------------------
  *				Section 3:	standard system types

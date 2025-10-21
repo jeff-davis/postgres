@@ -1513,6 +1513,7 @@ AC_CHECK_HEADERS(m4_normalize([
 	sys/signalfd.h
 	sys/ucred.h
 	termios.h
+	uchar.h
 	ucred.h
 	xlocale.h
 ]))
@@ -1684,6 +1685,8 @@ PGAC_STRUCT_TIMEZONE
 PGAC_UNION_SEMUN
 AC_CHECK_TYPES(socklen_t, [], [], [#include <sys/socket.h>])
 PGAC_STRUCT_SOCKADDR_SA_LEN
+AC_CHECK_TYPES(char16_t, [], [], [])
+AC_CHECK_TYPES(char32_t, [], [], [])
 
 # MSVC doesn't cope well with defining restrict to __restrict, the
 # spelling it understands, because it conflicts with

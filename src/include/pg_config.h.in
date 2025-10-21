@@ -373,6 +373,12 @@
 /* Define to 1 if the system has the type `socklen_t'. */
 #undef HAVE_SOCKLEN_T
 
+/* Define to 1 if the system has the type `char16_t'. */
+#undef HAVE_CHAR16_T
+
+/* Define to 1 if the system has the type `char32_t'. */
+#undef HAVE_CHAR32_T
+
 /* Define to 1 if you have the `SSL_CTX_set_cert_cb' function. */
 #undef HAVE_SSL_CTX_SET_CERT_CB
 
@@ -462,6 +468,9 @@
 
 /* Define to 1 if you have the <termios.h> header file. */
 #undef HAVE_TERMIOS_H
+
+/* Define to 1 if you have the <uchar.h> header file. */
+#undef HAVE_UCHAR_H
 
 /* Define to 1 if curl_global_init() is guaranteed to be thread-safe. */
 #undef HAVE_THREADSAFE_CURL_GLOBAL_INIT
