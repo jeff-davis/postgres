@@ -33,6 +33,9 @@
 
 #include "c.h"
 
+#ifdef HAVE_USELOCALE
+#include <locale.h>
+#endif
 #include <math.h>
 
 /*
@@ -161,6 +164,8 @@ typedef union
 
 static void flushbuffer(PrintfTarget *target);
 static void dopr(PrintfTarget *target, const char *format, va_list args);
+static char *c_strerror_r(int errnum, char *buf, size_t buflen);
+static char *nls_strerror_r(int errnum, char *buf, size_t buflen);
 
 
 /*
@@ -724,8 +729,8 @@ nextch2:
 			case 'm':
 				{
 					char		errbuf[PG_STRERROR_R_BUFLEN];
-					const char *errm = strerror_r(save_errno,
-												  errbuf, sizeof(errbuf));
+					const char *errm = nls_strerror_r(save_errno,
+													  errbuf, sizeof(errbuf));
 
 					dostr(errm, strlen(errm), target);
 				}
@@ -1565,4 +1570,68 @@ trailing_pad(int padlen, PrintfTarget *target)
 {
 	if (padlen < 0)
 		dopr_outchmulti(' ', -padlen, target);
+}
+
+
+/*
+ * If NLS is enabled, translate the system error message. Otherwise, return
+ * the untranslated string.
+ */
+static char *
+nls_strerror_r(int errnum, char *buf, size_t buflen)
+{
+#ifdef ENABLE_NLS
+	char			 plain[PG_STRERROR_R_BUFLEN];
+	char			*msgid;
+	char			*msgstr;
+
+	/* run c_strerror_r to get plain untranslated string */
+	msgid = c_strerror_r(errnum, plain, PG_STRERROR_R_BUFLEN);
+
+	/* translate with gettext() and store in result buffer */
+	msgstr = _(msgid);
+	strlcpy(buf, msgstr, buflen);
+	return buf;
+#else
+	return c_strerror_r(errnum, buf, buflen);
+#endif
+}
+
+/*
+ * Temporarily switches to the C locale to ensure that strerror_r() returns an
+ * untranslated string.
+ *
+ * The purpose of this function is to avoid strerror_r() performing the
+ * translation itself, which has different behavior than gettext. In
+ * particular, strerror_r() may force the translated message into the ASCII
+ * character set if LC_CTYPE=C, even if the database encoding supports a wider
+ * character set (e.g. UTF-8). We also want to avoid translations when NLS is
+ * disabled.
+ */
+static char *
+c_strerror_r(int errnum, char *buf, size_t buflen)
+{
+#ifdef HAVE_USELOCALE
+	static locale_t	 c_locale = NULL;
+	char			*msgid;
+	locale_t		 save_loc;
+
+	if (!c_locale)
+		c_locale = newlocale(LC_ALL_MASK, "C", NULL);
+
+	save_loc = uselocale(c_locale);
+
+	msgid = strerror_r(errnum, buf, buflen);
+
+	if (save_loc != NULL)
+		uselocale(save_loc);
+
+	return msgid;
+#else
+	/*
+	 * Platforms lacking uselocale() have not been observed to translate
+	 * messages inside strerror_r().
+	 */
+	return strerror_r(errnum, buf, buflen);
+#endif
 }
