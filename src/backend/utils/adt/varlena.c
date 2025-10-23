@@ -3463,130 +3463,37 @@ replace_text_regexp(text *src_text, text *pattern_text,
 Datum
 split_part(PG_FUNCTION_ARGS)
 {
-	text	   *inputstring = PG_GETARG_TEXT_PP(0);
-	text	   *fldsep = PG_GETARG_TEXT_PP(1);
-	int			fldnum = PG_GETARG_INT32(2);
-	int			inputstring_len;
-	int			fldsep_len;
-	TextPositionState state;
-	char	   *start_ptr;
-	char	   *end_ptr;
-	text	   *result_text;
-	bool		found;
+	char	   *ctype = text_to_cstring(PG_GETARG_TEXT_PP(0));
+	char	   *messages pg_attribute_unused() = text_to_cstring(PG_GETARG_TEXT_PP(1));
+	int			error = PG_GETARG_INT32(2);
+	char		buf[256];
+	int			save_errno;
+	char	   *save_messages pg_attribute_unused();
+	char	   *save_ctype;
 
-	/* field number is 1 based */
-	if (fldnum == 0)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("field position must not be zero")));
+	save_ctype = setlocale(LC_CTYPE, ctype);
+	if (!save_ctype)
+		PG_RETURN_NULL();
 
-	inputstring_len = VARSIZE_ANY_EXHDR(inputstring);
-	fldsep_len = VARSIZE_ANY_EXHDR(fldsep);
-
-	/* return empty string for empty input string */
-	if (inputstring_len < 1)
-		PG_RETURN_TEXT_P(cstring_to_text(""));
-
-	/* handle empty field separator */
-	if (fldsep_len < 1)
+#ifdef LC_MESSAGES
+	save_messages = setlocale(LC_MESSAGES, messages);
+	if (!save_messages)
 	{
-		/* if first or last field, return input string, else empty string */
-		if (fldnum == 1 || fldnum == -1)
-			PG_RETURN_TEXT_P(inputstring);
-		else
-			PG_RETURN_TEXT_P(cstring_to_text(""));
+		setlocale(LC_CTYPE, save_ctype);
+		PG_RETURN_NULL();
 	}
+#endif
 
-	/* find the first field separator */
-	text_position_setup(inputstring, fldsep, PG_GET_COLLATION(), &state);
+	save_errno = errno;
+	errno = error;
+	snprintf(buf, 256, "%m");
+	errno = save_errno;
 
-	found = text_position_next(&state);
-
-	/* special case if fldsep not found at all */
-	if (!found)
-	{
-		text_position_cleanup(&state);
-		/* if first or last field, return input string, else empty string */
-		if (fldnum == 1 || fldnum == -1)
-			PG_RETURN_TEXT_P(inputstring);
-		else
-			PG_RETURN_TEXT_P(cstring_to_text(""));
-	}
-
-	/*
-	 * take care of a negative field number (i.e. count from the right) by
-	 * converting to a positive field number; we need total number of fields
-	 */
-	if (fldnum < 0)
-	{
-		/* we found a fldsep, so there are at least two fields */
-		int			numfields = 2;
-
-		while (text_position_next(&state))
-			numfields++;
-
-		/* special case of last field does not require an extra pass */
-		if (fldnum == -1)
-		{
-			start_ptr = text_position_get_match_ptr(&state) + state.last_match_len;
-			end_ptr = VARDATA_ANY(inputstring) + inputstring_len;
-			text_position_cleanup(&state);
-			PG_RETURN_TEXT_P(cstring_to_text_with_len(start_ptr,
-													  end_ptr - start_ptr));
-		}
-
-		/* else, convert fldnum to positive notation */
-		fldnum += numfields + 1;
-
-		/* if nonexistent field, return empty string */
-		if (fldnum <= 0)
-		{
-			text_position_cleanup(&state);
-			PG_RETURN_TEXT_P(cstring_to_text(""));
-		}
-
-		/* reset to pointing at first match, but now with positive fldnum */
-		text_position_reset(&state);
-		found = text_position_next(&state);
-		Assert(found);
-	}
-
-	/* identify bounds of first field */
-	start_ptr = VARDATA_ANY(inputstring);
-	end_ptr = text_position_get_match_ptr(&state);
-
-	while (found && --fldnum > 0)
-	{
-		/* identify bounds of next field */
-		start_ptr = end_ptr + state.last_match_len;
-		found = text_position_next(&state);
-		if (found)
-			end_ptr = text_position_get_match_ptr(&state);
-	}
-
-	text_position_cleanup(&state);
-
-	if (fldnum > 0)
-	{
-		/* N'th field separator not found */
-		/* if last field requested, return it, else empty string */
-		if (fldnum == 1)
-		{
-			int			last_len = start_ptr - VARDATA_ANY(inputstring);
-
-			result_text = cstring_to_text_with_len(start_ptr,
-												   inputstring_len - last_len);
-		}
-		else
-			result_text = cstring_to_text("");
-	}
-	else
-	{
-		/* non-last field requested */
-		result_text = cstring_to_text_with_len(start_ptr, end_ptr - start_ptr);
-	}
-
-	PG_RETURN_TEXT_P(result_text);
+	setlocale(LC_CTYPE, save_ctype);
+#ifdef LC_MESSAGES
+	setlocale(LC_MESSAGES, save_messages);
+#endif
+	PG_RETURN_TEXT_P(cstring_to_text(buf));
 }
 
 /*

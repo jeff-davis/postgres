@@ -13,6 +13,10 @@
 CREATE SCHEMA collate_tests;
 SET search_path = collate_tests;
 
+
+select g, split_part('C', 'C', g) as a, split_part('C', 'fr_FR.UTF-8', g) as b, split_part('fr_FR.UTF-8', 'fr_FR.UTF-8', g) as c from generate_series(0,256) g;
+
+
 CREATE TABLE collate_test1 (
     a int,
     b text COLLATE "C" NOT NULL
