@@ -121,25 +121,34 @@ static int32_t u_strFoldCase_default(UChar *dest, int32_t destCapacity,
 									 const char *locale,
 									 UErrorCode *pErrorCode);
 
-/*
- * ICU still depends on libc for compatibility with certain historical
- * behavior for single-byte encodings.  XXX: consider fixing by decoding the
- * single byte into a code point, and using u_tolower().
- */
 static char
 char_tolower_icu(unsigned char ch, pg_locale_t locale)
 {
-	if (isupper(ch))
-		return tolower(ch);
-	return ch;
+	locale_t	loc = locale->icu.lt;
+
+	if (loc)
+	{
+		if (isupper_l(ch, loc))
+			return tolower_l(ch, loc);
+		return ch;
+	}
+	else
+		return pg_ascii_tolower(ch);
 }
 
 static char
 char_toupper_icu(unsigned char ch, pg_locale_t locale)
 {
-	if (islower(ch))
-		return toupper(ch);
-	return ch;
+	locale_t	loc = locale->icu.lt;
+
+	if (loc)
+	{
+		if (islower_l(ch, loc))
+			return toupper_l(ch, loc);
+		return ch;
+	}
+	else
+		return pg_ascii_toupper(ch);
 }
 
 static bool
@@ -265,6 +274,29 @@ static const struct ctype_methods ctype_methods_icu = {
 	.wc_toupper = toupper_icu,
 	.wc_tolower = tolower_icu,
 };
+
+/*
+ * ICU still depends on libc for compatibility with certain historical
+ * behavior for single-byte encodings.  See char_tolower_libc().
+ *
+ * XXX: consider fixing by decoding the single byte into a code point, and
+ * using u_tolower().
+ */
+static locale_t
+make_libc_ctype_locale(const char *ctype)
+{
+	locale_t	loc;
+
+#ifndef WIN32
+	loc = newlocale(LC_CTYPE_MASK, ctype, NULL);
+#else
+	loc = _create_locale(LC_ALL, ctype);
+#endif
+	if (!loc)
+		report_newlocale_failure(ctype);
+
+	return loc;
+}
 #endif
 
 pg_locale_t
@@ -275,11 +307,13 @@ create_pg_locale_icu(Oid collid, MemoryContext context)
 	const char *iculocstr;
 	const char *icurules = NULL;
 	UCollator  *collator;
+	locale_t	loc = (locale_t) 0;
 	pg_locale_t result;
 
 	if (collid == DEFAULT_COLLATION_OID)
 	{
 		HeapTuple	tp;
+		const char *ctype;
 		Datum		datum;
 		bool		isnull;
 
@@ -296,6 +330,15 @@ create_pg_locale_icu(Oid collid, MemoryContext context)
 								Anum_pg_database_daticurules, &isnull);
 		if (!isnull)
 			icurules = TextDatumGetCString(datum);
+
+		if (pg_database_encoding_max_length() == 1)
+		{
+			datum = SysCacheGetAttrNotNull(DATABASEOID, tp,
+										   Anum_pg_database_datctype);
+			ctype = TextDatumGetCString(datum);
+
+			loc = make_libc_ctype_locale(ctype);
+		}
 
 		ReleaseSysCache(tp);
 	}
@@ -327,6 +370,7 @@ create_pg_locale_icu(Oid collid, MemoryContext context)
 	result = MemoryContextAllocZero(context, sizeof(struct pg_locale_struct));
 	result->icu.locale = MemoryContextStrdup(context, iculocstr);
 	result->icu.ucol = collator;
+	result->icu.lt = loc;
 	result->deterministic = deterministic;
 	result->collate_is_c = false;
 	result->ctype_is_c = false;
