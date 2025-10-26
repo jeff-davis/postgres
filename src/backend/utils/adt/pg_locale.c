@@ -1555,11 +1555,17 @@ char_is_cased(char ch, pg_locale_t locale)
  *
  * Convert single-byte char to lowercase. Not correct for multibyte encodings,
  * but needed for historical compatibility purposes.
+ *
+ * If locale is NULL, use the default database locale. This function may be
+ * called before the database locale is initialized, in which case it uses
+ * plain ASCII semantics.
  */
 char
 char_tolower(unsigned char ch, pg_locale_t locale)
 {
-	if (locale->ctype == NULL)
+	if (locale == NULL)
+		locale = default_locale;
+	if (locale == NULL || locale->ctype == NULL)
 	{
 		if (ch >= 'A' && ch <= 'Z')
 			return ch + ('a' - 'A');
@@ -1573,11 +1579,17 @@ char_tolower(unsigned char ch, pg_locale_t locale)
  *
  * Convert single-byte char to uppercase. Not correct for multibyte encodings,
  * but needed for historical compatibility purposes.
+ *
+ * If locale is NULL, use the default database locale. This function may be
+ * called before the database locale is initialized, in which case it uses
+ * plain ASCII semantics.
  */
 char
 char_toupper(unsigned char ch, pg_locale_t locale)
 {
-	if (locale->ctype == NULL)
+	if (locale == NULL)
+		locale = default_locale;
+	if (locale == NULL || locale->ctype == NULL)
 	{
 		if (ch >= 'a' && ch <= 'z')
 			return ch - ('a' - 'A');
