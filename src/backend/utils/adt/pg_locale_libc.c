@@ -251,8 +251,21 @@ wc_isxdigit_libc_mb(pg_wchar wc, pg_locale_t locale)
 static char
 char_tolower_libc(unsigned char ch, pg_locale_t locale)
 {
-	Assert(pg_database_encoding_max_length() == 1);
-	return tolower_l(ch, locale->lt);
+	locale_t	loc = locale->lt;
+
+	if (isupper_l(ch, loc))
+		return tolower_l(ch, loc);
+	return ch;
+}
+
+static char
+char_toupper_libc(unsigned char ch, pg_locale_t locale)
+{
+	locale_t	loc = locale->lt;
+
+	if (islower_l(ch, loc))
+		return toupper_l(ch, loc);
+	return ch;
 }
 
 static bool
@@ -338,9 +351,11 @@ static const struct ctype_methods ctype_methods_libc_sb = {
 	.wc_isxdigit = wc_isxdigit_libc_sb,
 	.char_is_cased = char_is_cased_libc,
 	.char_tolower = char_tolower_libc,
+	.char_toupper = char_toupper_libc,
 	.wc_toupper = toupper_libc_sb,
 	.wc_tolower = tolower_libc_sb,
 	.max_chr = UCHAR_MAX,
+	.pattern_casefold_char = true,
 };
 
 /*
@@ -363,6 +378,7 @@ static const struct ctype_methods ctype_methods_libc_other_mb = {
 	.wc_isxdigit = wc_isxdigit_libc_sb,
 	.char_is_cased = char_is_cased_libc,
 	.char_tolower = char_tolower_libc,
+	.char_toupper = char_toupper_libc,
 	.wc_toupper = toupper_libc_sb,
 	.wc_tolower = tolower_libc_sb,
 	.max_chr = UCHAR_MAX,
@@ -384,6 +400,7 @@ static const struct ctype_methods ctype_methods_libc_utf8 = {
 	.wc_isxdigit = wc_isxdigit_libc_mb,
 	.char_is_cased = char_is_cased_libc,
 	.char_tolower = char_tolower_libc,
+	.char_toupper = char_toupper_libc,
 	.wc_toupper = toupper_libc_mb,
 	.wc_tolower = tolower_libc_mb,
 };

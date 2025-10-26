@@ -1551,25 +1551,39 @@ char_is_cased(char ch, pg_locale_t locale)
 }
 
 /*
- * char_tolower_enabled()
- *
- * Does the provider support char_tolower()?
- */
-bool
-char_tolower_enabled(pg_locale_t locale)
-{
-	return (locale->ctype->char_tolower != NULL);
-}
-
-/*
  * char_tolower()
  *
- * Convert char (single-byte encoding) to lowercase.
+ * Convert single-byte char to lowercase. Not correct for multibyte encodings,
+ * but needed for historical compatibility purposes.
  */
 char
 char_tolower(unsigned char ch, pg_locale_t locale)
 {
+	if (locale->ctype == NULL)
+	{
+		if (ch >= 'A' && ch <= 'Z')
+			return ch + ('a' - 'A');
+		return ch;
+	}
 	return locale->ctype->char_tolower(ch, locale);
+}
+
+/*
+ * char_toupper()
+ *
+ * Convert single-byte char to uppercase. Not correct for multibyte encodings,
+ * but needed for historical compatibility purposes.
+ */
+char
+char_toupper(unsigned char ch, pg_locale_t locale)
+{
+	if (locale->ctype == NULL)
+	{
+		if (ch >= 'a' && ch <= 'z')
+			return ch - ('a' - 'A');
+		return ch;
+	}
+	return locale->ctype->char_toupper(ch, locale);
 }
 
 /*

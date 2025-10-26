@@ -113,13 +113,13 @@ struct ctype_methods
 
 	/* required */
 	bool		(*char_is_cased) (char ch, pg_locale_t locale);
+	char		(*char_tolower) (unsigned char ch, pg_locale_t locale);
+	char		(*char_toupper) (unsigned char ch, pg_locale_t locale);
 
 	/*
-	 * Optional. If defined, will only be called for single-byte encodings. If
-	 * not defined, or if the encoding is multibyte, will fall back to
-	 * pg_strlower().
+	 * Use byte-at-a-time case folding for case-insensitive patterns.
 	 */
-	char		(*char_tolower) (unsigned char ch, pg_locale_t locale);
+	bool		pattern_casefold_char;
 
 	/*
 	 * For regex and pattern matching efficiency, the maximum char value
@@ -177,8 +177,8 @@ extern pg_locale_t pg_newlocale_from_collation(Oid collid);
 extern char *get_collation_actual_version(char collprovider, const char *collcollate);
 
 extern bool char_is_cased(char ch, pg_locale_t locale);
-extern bool char_tolower_enabled(pg_locale_t locale);
 extern char char_tolower(unsigned char ch, pg_locale_t locale);
+extern char char_toupper(unsigned char ch, pg_locale_t locale);
 extern size_t pg_strlower(char *dst, size_t dstsize,
 						  const char *src, ssize_t srclen,
 						  pg_locale_t locale);

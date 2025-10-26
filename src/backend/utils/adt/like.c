@@ -209,9 +209,7 @@ Generic_Text_IC_like(text *str, text *pat, Oid collation)
 	 * way.
 	 */
 
-	if (locale->ctype_is_c ||
-		(char_tolower_enabled(locale) &&
-		 pg_database_encoding_max_length() == 1))
+	if (locale->ctype_is_c || locale->ctype->pattern_casefold_char)
 	{
 		p = VARDATA_ANY(pat);
 		plen = VARSIZE_ANY_EXHDR(pat);

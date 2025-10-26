@@ -121,6 +121,27 @@ static int32_t u_strFoldCase_default(UChar *dest, int32_t destCapacity,
 									 const char *locale,
 									 UErrorCode *pErrorCode);
 
+/*
+ * ICU still depends on libc for compatibility with certain historical
+ * behavior for single-byte encodings.  XXX: consider fixing by decoding the
+ * single byte into a code point, and using u_tolower().
+ */
+static char
+char_tolower_icu(unsigned char ch, pg_locale_t locale)
+{
+	if (isupper(ch))
+		return tolower(ch);
+	return ch;
+}
+
+static char
+char_toupper_icu(unsigned char ch, pg_locale_t locale)
+{
+	if (islower(ch))
+		return toupper(ch);
+	return ch;
+}
+
 static bool
 char_is_cased_icu(char ch, pg_locale_t locale)
 {
@@ -238,6 +259,8 @@ static const struct ctype_methods ctype_methods_icu = {
 	.wc_ispunct = wc_ispunct_icu,
 	.wc_isspace = wc_isspace_icu,
 	.wc_isxdigit = wc_isxdigit_icu,
+	.char_tolower = char_tolower_icu,
+	.char_toupper = char_toupper_icu,
 	.char_is_cased = char_is_cased_icu,
 	.wc_toupper = toupper_icu,
 	.wc_tolower = tolower_icu,
