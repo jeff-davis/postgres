@@ -99,6 +99,7 @@ The remaining code is authored by Andrew Dunstan <amdunstan@ncshp.org> and
 #include "postgres.h"
 
 #include "utils/builtins.h"
+#include "utils/pg_locale.h"
 
 /* turn off assertions for embedded function */
 #define NDEBUG
@@ -115,6 +116,8 @@ The remaining code is authored by Andrew Dunstan <amdunstan@ncshp.org> and
 
 #include <assert.h>
 #include <ctype.h>
+
+#define TOUPPER(x) char_toupper(x, NULL)
 
 /* prototype for the main function we got from the perl module */
 static void DoubleMetaphone(char *str, char **codes);
@@ -284,7 +287,7 @@ MakeUpper(metastring *s)
 	char	   *i;
 
 	for (i = s->str; *i; i++)
-		*i = toupper((unsigned char) *i);
+		*i = TOUPPER((unsigned char) *i);
 }
 
 
