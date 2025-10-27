@@ -12,7 +12,7 @@
 
 #ifdef LOWER_NODE
 #include <ctype.h>
-#define TOLOWER(x)	tolower((unsigned char) (x))
+#define TOLOWER(x)	char_tolower((unsigned char) (x), NULL)
 #else
 #define TOLOWER(x)	(x)
 #endif
