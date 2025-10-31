@@ -145,6 +145,7 @@ static char *lc_numeric = NULL;
 static char *lc_time = NULL;
 static char *lc_messages = NULL;
 static char locale_provider = COLLPROVIDER_LIBC;
+static bool locale_provider_specified = false;
 static bool builtin_locale_specified = false;
 static char *datlocale = NULL;
 static bool icu_locale_specified = false;
@@ -2465,6 +2466,28 @@ setlocales(void)
 	lc_messages = canonname;
 #endif
 
+	/*
+	 * If the locale is C or C.UTF-8, and no provider was specified, use the
+	 * builtin provider rather than libc.
+	 */
+	if (!locale_provider_specified && locale_provider == COLLPROVIDER_LIBC)
+	{
+		if (strcmp(lc_ctype, lc_collate) == 0)
+		{
+			if (strcmp(lc_ctype, "C") == 0)
+			{
+				locale_provider = COLLPROVIDER_BUILTIN;
+				datlocale = "C";
+			}
+			else if (strcmp(lc_ctype, "C.UTF-8") == 0 ||
+					 strcmp(lc_ctype, "C.UTF8") == 0)
+			{
+				locale_provider = COLLPROVIDER_BUILTIN;
+				datlocale = "C.UTF-8";
+			}
+		}
+	}
+
 	if (locale_provider != COLLPROVIDER_LIBC && datlocale == NULL)
 		pg_fatal("locale must be specified if provider is %s",
 				 collprovider_name(locale_provider));
@@ -3362,6 +3385,8 @@ main(int argc, char *argv[])
 										 "-c debug_discard_caches=1");
 				break;
 			case 15:
+				locale_provider_specified = true;
+
 				if (strcmp(optarg, "builtin") == 0)
 					locale_provider = COLLPROVIDER_BUILTIN;
 				else if (strcmp(optarg, "icu") == 0)
