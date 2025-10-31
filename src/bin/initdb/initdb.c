@@ -2718,10 +2718,10 @@ setup_locale_encoding(void)
 		ctype_enc = pg_get_encoding_from_locale(lc_ctype, true);
 
 		/*
-		 * If ctype_enc=SQL_ASCII, it's compatible with any encoding. ICU does
-		 * not support SQL_ASCII, so select UTF-8 instead.
+		 * If ctype_enc=SQL_ASCII, it's compatible with any encoding. Prefer
+		 * UTF-8.
 		 */
-		if (locale_provider == COLLPROVIDER_ICU && ctype_enc == PG_SQL_ASCII)
+		if (ctype_enc == PG_SQL_ASCII)
 			ctype_enc = PG_UTF8;
 
 		if (ctype_enc == -1)
