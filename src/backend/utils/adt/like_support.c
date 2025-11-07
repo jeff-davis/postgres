@@ -99,8 +99,6 @@ static Selectivity like_selectivity(const char *patt, int pattlen,
 static Selectivity regex_selectivity(const char *patt, int pattlen,
 									 bool case_insensitive,
 									 int fixed_prefix_len);
-static int	pattern_char_isalpha(char c, bool is_multibyte,
-								 pg_locale_t locale);
 static Const *make_greater_string(const Const *str_const, FmgrInfo *ltproc,
 								  Oid collation);
 static Datum string_to_datum(const char *str, Oid datatype);
@@ -995,7 +993,6 @@ like_fixed_prefix(Const *patt_const, bool case_insensitive, Oid collation,
 	Oid			typeid = patt_const->consttype;
 	int			pos,
 				match_pos;
-	bool		is_multibyte = (pg_database_encoding_max_length() > 1);
 	pg_locale_t locale = 0;
 
 	/* the right-hand const is type text or bytea */
@@ -1055,9 +1052,16 @@ like_fixed_prefix(Const *patt_const, bool case_insensitive, Oid collation,
 				break;
 		}
 
-		/* Stop if case-varying character (it's sort of a wildcard) */
-		if (case_insensitive &&
-			pattern_char_isalpha(patt[pos], is_multibyte, locale))
+		/*
+		 * Stop if case-varying character (it's sort of a wildcard).
+		 *
+		 * In multibyte character sets or with non-libc providers, we can't
+		 * use isalpha, and it does not seem worth trying to convert to
+		 * wchar_t or char32_t.  Instead, just pass the single byte to the
+		 * provider, which will assume any non-ASCII char is potentially
+		 * case-varying.
+		 */
+		if (case_insensitive && char_is_cased(patt[pos], locale))
 			break;
 
 		match[match_pos++] = patt[pos];
@@ -1479,24 +1483,6 @@ regex_selectivity(const char *patt, int pattlen, bool case_insensitive,
 	/* Make sure result stays in range */
 	CLAMP_PROBABILITY(sel);
 	return sel;
-}
-
-/*
- * Check whether char is a letter (and, hence, subject to case-folding)
- *
- * In multibyte character sets or with ICU, we can't use isalpha, and it does
- * not seem worth trying to convert to wchar_t to use iswalpha or u_isalpha.
- * Instead, just assume any non-ASCII char is potentially case-varying, and
- * hard-wire knowledge of which ASCII chars are letters.
- */
-static int
-pattern_char_isalpha(char c, bool is_multibyte,
-					 pg_locale_t locale)
-{
-	if (locale->ctype_is_c)
-		return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
-	else
-		return char_is_cased(c, locale);
 }
 
 
