@@ -1261,6 +1261,17 @@ size_t
 pg_strlower(char *dst, size_t dstsize, const char *src, ssize_t srclen,
 			pg_locale_t locale)
 {
+	if (locale->ctype == NULL)
+	{
+		int			i;
+
+		srclen = (srclen >= 0) ? srclen : strlen(src);
+		for (i = 0; i < srclen && i < dstsize; i++)
+			dst[i] = pg_ascii_tolower(src[i]);
+		if (i < dstsize)
+			dst[i] = '\0';
+		return srclen;
+	}
 	return locale->ctype->strlower(dst, dstsize, src, srclen, locale);
 }
 
@@ -1268,6 +1279,29 @@ size_t
 pg_strtitle(char *dst, size_t dstsize, const char *src, ssize_t srclen,
 			pg_locale_t locale)
 {
+	if (locale->ctype == NULL)
+	{
+		bool		wasalnum = false;
+		int			i;
+
+		srclen = (srclen >= 0) ? srclen : strlen(src);
+		for (i = 0; i < Min(srclen, dstsize); i++)
+		{
+			char		c = src[i];
+
+			if (wasalnum)
+				dst[i] = pg_ascii_tolower(c);
+			else
+				dst[i] = pg_ascii_toupper(c);
+
+			wasalnum = ((c >= '0' && c <= '9') ||
+						(c >= 'A' && c <= 'Z') ||
+						(c >= 'a' && c <= 'z'));
+		}
+		if (i < dstsize)
+			dst[i] = '\0';
+		return srclen;
+	}
 	return locale->ctype->strtitle(dst, dstsize, src, srclen, locale);
 }
 
@@ -1275,6 +1309,17 @@ size_t
 pg_strupper(char *dst, size_t dstsize, const char *src, ssize_t srclen,
 			pg_locale_t locale)
 {
+	if (locale->ctype == NULL)
+	{
+		int			i;
+
+		srclen = (srclen >= 0) ? srclen : strlen(src);
+		for (i = 0; i < srclen && i < dstsize; i++)
+			dst[i] = pg_ascii_toupper(src[i]);
+		if (i < dstsize)
+			dst[i] = '\0';
+		return srclen;
+	}
 	return locale->ctype->strupper(dst, dstsize, src, srclen, locale);
 }
 
@@ -1282,10 +1327,18 @@ size_t
 pg_strfold(char *dst, size_t dstsize, const char *src, ssize_t srclen,
 		   pg_locale_t locale)
 {
-	if (locale->ctype->strfold)
-		return locale->ctype->strfold(dst, dstsize, src, srclen, locale);
-	else
-		return locale->ctype->strlower(dst, dstsize, src, srclen, locale);
+	if (locale->ctype == NULL)
+	{
+		int			i;
+
+		srclen = (srclen >= 0) ? srclen : strlen(src);
+		for (i = 0; i < srclen && i < dstsize; i++)
+			dst[i] = pg_ascii_tolower(src[i]);
+		if (i < dstsize)
+			dst[i] = '\0';
+		return srclen;
+	}
+	return locale->ctype->strfold(dst, dstsize, src, srclen, locale);
 }
 
 /*
@@ -1560,6 +1613,8 @@ pg_towlower(pg_wchar wc, pg_locale_t locale)
 bool
 char_is_cased(char ch, pg_locale_t locale)
 {
+	if (locale->ctype == NULL)
+		return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
 	return locale->ctype->char_is_cased(ch, locale);
 }
 
