@@ -284,7 +284,7 @@ MakeUpper(metastring *s)
 	char	   *i;
 
 	for (i = s->str; *i; i++)
-		*i = toupper((unsigned char) *i);
+		*i = pg_ascii_toupper((unsigned char) *i);
 }
 
 
