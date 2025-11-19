@@ -77,9 +77,36 @@ compare_subnode(ltree_level *t, char *qn, int len, int (*cmpptr) (const char *, 
 int
 ltree_strncasecmp(const char *a, const char *b, size_t s)
 {
-	char	   *al = str_tolower(a, s, DEFAULT_COLLATION_OID);
-	char	   *bl = str_tolower(b, s, DEFAULT_COLLATION_OID);
+	static pg_locale_t locale = NULL;
+	size_t		al_sz = s + 1;
+	char	   *al = palloc(al_sz);
+	size_t		bl_sz = s + 1;
+	char	   *bl = palloc(bl_sz);
+	size_t		needed;
 	int			res;
+
+	if (!locale)
+		locale = pg_database_locale();
+
+	needed = pg_strfold(al, al_sz, a, s, locale);
+	if (needed + 1 > al_sz)
+	{
+		/* grow buffer if needed and retry */
+		al_sz = needed + 1;
+		al = repalloc(al, al_sz);
+		needed = pg_strfold(al, al_sz, a, s, locale);
+		Assert(needed + 1 <= al_sz);
+	}
+
+	needed = pg_strfold(bl, bl_sz, b, s, locale);
+	if (needed + 1 > bl_sz)
+	{
+		/* grow buffer if needed and retry */
+		bl_sz = needed + 1;
+		bl = repalloc(bl, bl_sz);
+		needed = pg_strfold(bl, bl_sz, b, s, locale);
+		Assert(needed + 1 <= bl_sz);
+	}
 
 	res = strncmp(al, bl, s);
 
