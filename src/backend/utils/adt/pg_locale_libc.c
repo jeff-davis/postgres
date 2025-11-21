@@ -185,6 +185,13 @@ wc_isxdigit_libc_sb(pg_wchar wc, pg_locale_t locale)
 }
 
 static bool
+wc_iscased_libc_sb(pg_wchar wc, pg_locale_t locale)
+{
+	return isupper_l((unsigned char) wc, locale->lt) ||
+		islower_l((unsigned char) wc, locale->lt);
+}
+
+static bool
 wc_isdigit_libc_mb(pg_wchar wc, pg_locale_t locale)
 {
 	return iswdigit_l((wint_t) wc, locale->lt);
@@ -249,14 +256,10 @@ wc_isxdigit_libc_mb(pg_wchar wc, pg_locale_t locale)
 }
 
 static bool
-char_is_cased_libc(char ch, pg_locale_t locale)
+wc_iscased_libc_mb(pg_wchar wc, pg_locale_t locale)
 {
-	bool		is_multibyte = pg_database_encoding_max_length() > 1;
-
-	if (is_multibyte && IS_HIGHBIT_SET(ch))
-		return true;
-	else
-		return isalpha_l((unsigned char) ch, locale->lt);
+	return iswupper_l((wint_t) wc, locale->lt) ||
+		iswlower_l((wint_t) wc, locale->lt);
 }
 
 static pg_wchar
@@ -330,7 +333,7 @@ static const struct ctype_methods ctype_methods_libc_sb = {
 	.wc_ispunct = wc_ispunct_libc_sb,
 	.wc_isspace = wc_isspace_libc_sb,
 	.wc_isxdigit = wc_isxdigit_libc_sb,
-	.char_is_cased = char_is_cased_libc,
+	.wc_iscased = wc_iscased_libc_sb,
 	.wc_toupper = toupper_libc_sb,
 	.wc_tolower = tolower_libc_sb,
 	.max_chr = UCHAR_MAX,
@@ -355,7 +358,7 @@ static const struct ctype_methods ctype_methods_libc_other_mb = {
 	.wc_ispunct = wc_ispunct_libc_sb,
 	.wc_isspace = wc_isspace_libc_sb,
 	.wc_isxdigit = wc_isxdigit_libc_sb,
-	.char_is_cased = char_is_cased_libc,
+	.wc_iscased = wc_iscased_libc_sb,
 	.wc_toupper = toupper_libc_sb,
 	.wc_tolower = tolower_libc_sb,
 	.max_chr = UCHAR_MAX,
@@ -376,7 +379,7 @@ static const struct ctype_methods ctype_methods_libc_utf8 = {
 	.wc_ispunct = wc_ispunct_libc_mb,
 	.wc_isspace = wc_isspace_libc_mb,
 	.wc_isxdigit = wc_isxdigit_libc_mb,
-	.char_is_cased = char_is_cased_libc,
+	.wc_iscased = wc_iscased_libc_mb,
 	.wc_toupper = toupper_libc_mb,
 	.wc_tolower = tolower_libc_mb,
 };

@@ -1577,6 +1577,17 @@ pg_iswxdigit(pg_wchar wc, pg_locale_t locale)
 		return locale->ctype->wc_isxdigit(wc, locale);
 }
 
+bool
+pg_iswcased(pg_wchar wc, pg_locale_t locale)
+{
+	/* for the C locale, Cased and Alpha are equivalent */
+	if (locale->ctype == NULL)
+		return (wc <= (pg_wchar) 127 &&
+				(pg_char_properties[wc] & PG_ISALPHA));
+	else
+		return locale->ctype->wc_iscased(wc, locale);
+}
+
 pg_wchar
 pg_towupper(pg_wchar wc, pg_locale_t locale)
 {
@@ -1601,21 +1612,6 @@ pg_towlower(pg_wchar wc, pg_locale_t locale)
 	}
 	else
 		return locale->ctype->wc_tolower(wc, locale);
-}
-
-/*
- * char_is_cased()
- *
- * Fuzzy test of whether the given char is case-varying or not. The argument
- * is a single byte, so in a multibyte encoding, just assume any non-ASCII
- * char is case-varying.
- */
-bool
-char_is_cased(char ch, pg_locale_t locale)
-{
-	if (locale->ctype == NULL)
-		return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
-	return locale->ctype->char_is_cased(ch, locale);
 }
 
 /*

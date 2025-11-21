@@ -186,10 +186,9 @@ wc_isxdigit_builtin(pg_wchar wc, pg_locale_t locale)
 }
 
 static bool
-char_is_cased_builtin(char ch, pg_locale_t locale)
+wc_iscased_builtin(pg_wchar wc, pg_locale_t locale)
 {
-	return IS_HIGHBIT_SET(ch) ||
-		(ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+	return pg_u_prop_cased(to_char32(wc));
 }
 
 static pg_wchar
@@ -219,7 +218,7 @@ static const struct ctype_methods ctype_methods_builtin = {
 	.wc_ispunct = wc_ispunct_builtin,
 	.wc_isspace = wc_isspace_builtin,
 	.wc_isxdigit = wc_isxdigit_builtin,
-	.char_is_cased = char_is_cased_builtin,
+	.wc_iscased = wc_iscased_builtin,
 	.wc_tolower = wc_tolower_builtin,
 	.wc_toupper = wc_toupper_builtin,
 };

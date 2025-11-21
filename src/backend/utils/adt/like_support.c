@@ -987,12 +987,11 @@ static Pattern_Prefix_Status
 like_fixed_prefix(Const *patt_const, bool case_insensitive, Oid collation,
 				  Const **prefix_const, Selectivity *rest_selec)
 {
-	char	   *match;
 	char	   *patt;
 	int			pattlen;
 	Oid			typeid = patt_const->consttype;
-	int			pos,
-				match_pos;
+	int			pos;
+	int			match_pos = 0;
 	pg_locale_t locale = 0;
 
 	/* the right-hand const is type text or bytea */
@@ -1020,66 +1019,90 @@ like_fixed_prefix(Const *patt_const, bool case_insensitive, Oid collation,
 		locale = pg_newlocale_from_collation(collation);
 	}
 
+	/* for text types, use pg_wchar; for BYTEA, use char */
 	if (typeid != BYTEAOID)
 	{
-		patt = TextDatumGetCString(patt_const->constvalue);
-		pattlen = strlen(patt);
+		text	   *val = DatumGetTextPP(patt_const->constvalue);
+		pg_wchar   *wpatt;
+		pg_wchar   *wmatch;
+		char	   *match;
+
+		patt = VARDATA_ANY(val);
+		pattlen = VARSIZE_ANY_EXHDR(val);
+		wpatt = palloc((pattlen + 1) * sizeof(pg_wchar));
+		wmatch = palloc((pattlen + 1) * sizeof(pg_wchar));
+		pg_mb2wchar_with_len(patt, wpatt, pattlen);
+
+		match = palloc(pattlen + 1);
+		for (pos = 0; pos < pattlen; pos++)
+		{
+			/* % and _ are wildcard characters in LIKE */
+			if (wpatt[pos] == '%' ||
+				wpatt[pos] == '_')
+				break;
+
+			/* Backslash escapes the next character */
+			if (wpatt[pos] == '\\')
+			{
+				pos++;
+				if (pos >= pattlen)
+					break;
+			}
+
+			/*
+			 * For ILIKE, stop if it's a case-varying character (it's sort of
+			 * a wildcard).
+			 */
+			if (case_insensitive && pg_iswcased(wpatt[pos], locale))
+				break;
+
+			wmatch[match_pos++] = wpatt[pos];
+		}
+
+		wmatch[match_pos] = '\0';
+
+		pg_wchar2mb_with_len(wmatch, match, pattlen);
+
+		pfree(wpatt);
+		pfree(wmatch);
+
+		*prefix_const = string_to_const(match, typeid);
 	}
 	else
 	{
 		bytea	   *bstr = DatumGetByteaPP(patt_const->constvalue);
+		char	   *match;
 
+		patt = VARDATA_ANY(bstr);
 		pattlen = VARSIZE_ANY_EXHDR(bstr);
-		patt = (char *) palloc(pattlen);
-		memcpy(patt, VARDATA_ANY(bstr), pattlen);
-		Assert((Pointer) bstr == DatumGetPointer(patt_const->constvalue));
-	}
 
-	match = palloc(pattlen + 1);
-	match_pos = 0;
-	for (pos = 0; pos < pattlen; pos++)
-	{
-		/* % and _ are wildcard characters in LIKE */
-		if (patt[pos] == '%' ||
-			patt[pos] == '_')
-			break;
-
-		/* Backslash escapes the next character */
-		if (patt[pos] == '\\')
+		match = palloc(pattlen + 1);
+		for (pos = 0; pos < pattlen; pos++)
 		{
-			pos++;
-			if (pos >= pattlen)
+			/* % and _ are wildcard characters in LIKE */
+			if (patt[pos] == '%' ||
+				patt[pos] == '_')
 				break;
+
+			/* Backslash escapes the next character */
+			if (patt[pos] == '\\')
+			{
+				pos++;
+				if (pos >= pattlen)
+					break;
+			}
+
+			match[match_pos++] = pos;
 		}
 
-		/*
-		 * Stop if case-varying character (it's sort of a wildcard).
-		 *
-		 * In multibyte character sets or with non-libc providers, we can't
-		 * use isalpha, and it does not seem worth trying to convert to
-		 * wchar_t or char32_t.  Instead, just pass the single byte to the
-		 * provider, which will assume any non-ASCII char is potentially
-		 * case-varying.
-		 */
-		if (case_insensitive && char_is_cased(patt[pos], locale))
-			break;
-
-		match[match_pos++] = patt[pos];
-	}
-
-	match[match_pos] = '\0';
-
-	if (typeid != BYTEAOID)
-		*prefix_const = string_to_const(match, typeid);
-	else
 		*prefix_const = string_to_bytea_const(match, match_pos);
+
+		pfree(match);
+	}
 
 	if (rest_selec != NULL)
 		*rest_selec = like_selectivity(&patt[pos], pattlen - pos,
 									   case_insensitive);
-
-	pfree(patt);
-	pfree(match);
 
 	/* in LIKE, an empty pattern is an exact match! */
 	if (pos == pattlen)
