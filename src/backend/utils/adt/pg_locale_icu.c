@@ -121,13 +121,6 @@ static int32_t u_strFoldCase_default(UChar *dest, int32_t destCapacity,
 									 const char *locale,
 									 UErrorCode *pErrorCode);
 
-static bool
-char_is_cased_icu(char ch, pg_locale_t locale)
-{
-	return IS_HIGHBIT_SET(ch) ||
-		(ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
-}
-
 /*
  * XXX: many of the functions below rely on casts directly from pg_wchar to
  * UChar32, which is correct for the UTF-8 encoding, but not in general.
@@ -223,6 +216,12 @@ wc_isxdigit_icu(pg_wchar wc, pg_locale_t locale)
 	return u_isxdigit(wc);
 }
 
+static bool
+wc_iscased_icu(pg_wchar wc, pg_locale_t locale)
+{
+	return u_hasBinaryProperty(wc, UCHAR_CASED);
+}
+
 static const struct ctype_methods ctype_methods_icu = {
 	.strlower = strlower_icu,
 	.strtitle = strtitle_icu,
@@ -238,7 +237,7 @@ static const struct ctype_methods ctype_methods_icu = {
 	.wc_ispunct = wc_ispunct_icu,
 	.wc_isspace = wc_isspace_icu,
 	.wc_isxdigit = wc_isxdigit_icu,
-	.char_is_cased = char_is_cased_icu,
+	.wc_iscased = wc_iscased_icu,
 	.wc_toupper = toupper_icu,
 	.wc_tolower = tolower_icu,
 };
