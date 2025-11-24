@@ -798,6 +798,8 @@
                                         # encoding
 
 # These settings are initialized by initdb, but they can be changed.
+#lc_collate = ''                        # locale for text ordering (only affects
+                                        # extensions)
 #lc_messages = ''                       # locale for system error message
                                         # strings
 #lc_monetary = 'C'                      # locale for monetary formatting
