@@ -404,6 +404,8 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
 	 * the pg_database tuple.
 	 */
 	SetDatabaseEncoding(dbform->encoding);
+	/* Reset lc_collate to check encoding, and fall back to C if necessary */
+	SetConfigOption("lc_collate", locale_collate, PGC_POSTMASTER, PGC_S_FILE);
 	/* Record it as a GUC internal option, too */
 	SetConfigOption("server_encoding", GetDatabaseEncodingName(),
 					PGC_INTERNAL, PGC_S_DYNAMIC_DEFAULT);

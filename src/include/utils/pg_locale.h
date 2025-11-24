@@ -41,6 +41,7 @@
 #define UNICODE_CASEMAP_BUFSZ	(UNICODE_CASEMAP_LEN * sizeof(char32_t))
 
 /* GUC settings */
+extern PGDLLIMPORT char *locale_collate;
 extern PGDLLIMPORT char *locale_messages;
 extern PGDLLIMPORT char *locale_monetary;
 extern PGDLLIMPORT char *locale_numeric;

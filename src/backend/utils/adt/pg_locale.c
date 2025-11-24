@@ -81,6 +81,7 @@ extern pg_locale_t create_pg_locale_libc(Oid collid, MemoryContext context);
 extern char *get_collation_actual_version_libc(const char *collcollate);
 
 /* GUC settings */
+char	   *locale_collate;
 char	   *locale_messages;
 char	   *locale_monetary;
 char	   *locale_numeric;
@@ -367,6 +368,64 @@ void
 assign_locale_time(const char *newval, void *extra)
 {
 	CurrentLCTimeValid = false;
+}
+
+/*
+ * We allow LC_COLLATE to actually be set globally.
+ *
+ * Note: we normally disallow value = "" because it wouldn't have consistent
+ * semantics (it'd effectively just use the previous value).  However, this
+ * is the value passed for PGC_S_DEFAULT, so don't complain in that case,
+ * not even if the attempted setting fails due to invalid environment value.
+ * The idea there is just to accept the environment setting *if possible*
+ * during startup, until we can read the proper value from postgresql.conf.
+ */
+bool
+check_locale_collate(char **newval, void **extra, GucSource source)
+{
+	int			locale_enc;
+	int			db_enc;
+
+	if (**newval == '\0')
+	{
+		if (source == PGC_S_DEFAULT)
+			return true;
+		else
+			return false;
+	}
+
+	locale_enc = pg_get_encoding_from_locale(*newval, true);
+	db_enc = GetDatabaseEncoding();
+
+	if (!(locale_enc == db_enc ||
+		  locale_enc == PG_SQL_ASCII ||
+		  db_enc == PG_SQL_ASCII ||
+		  locale_enc == -1))
+	{
+		if (source == PGC_S_FILE)
+		{
+			guc_free(*newval);
+			*newval = guc_strdup(LOG, "C");
+			if (!*newval)
+				return false;
+		}
+		else if (source != PGC_S_TEST)
+		{
+			ereport(WARNING,
+					(errmsg("encoding mismatch"),
+					 errdetail("Locale \"%s\" uses encoding \"%s\", which does not match database encoding \"%s\".",
+							   *newval, pg_encoding_to_char(locale_enc), pg_encoding_to_char(db_enc))));
+			return false;
+		}
+	}
+
+	return check_locale(LC_COLLATE, *newval, NULL);
+}
+
+void
+assign_locale_collate(const char *newval, void *extra)
+{
+	(void) pg_perm_setlocale(LC_COLLATE, newval);
 }
 
 /*
