@@ -1450,6 +1450,15 @@
   boot_val => 'PG_KRB_SRVTAB',
 },
 
+{ name => 'lc_collate', type => 'string', context => 'PGC_SUSET', group => 'CLIENT_CONN_LOCALE',
+  short_desc => 'Sets the locale for text ordering in extensions.',
+  long_desc => 'An empty string means use the operating system setting.',
+  variable => 'locale_collate',
+  boot_val => '""',
+  check_hook => 'check_locale_collate',
+  assign_hook => 'assign_locale_collate',
+},
+
 { name => 'lc_messages', type => 'string', context => 'PGC_SUSET', group => 'CLIENT_CONN_LOCALE',
   short_desc => 'Sets the language in which messages are displayed.',
   long_desc => 'An empty string means use the operating system setting.',

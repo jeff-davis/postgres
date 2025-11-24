@@ -1312,6 +1312,9 @@ setup_config(void)
 	conflines = replace_guc_value(conflines, "shared_buffers",
 								  repltok, false);
 
+	conflines = replace_guc_value(conflines, "lc_collate",
+								  lc_collate, false);
+
 	conflines = replace_guc_value(conflines, "lc_messages",
 								  lc_messages, false);
 
