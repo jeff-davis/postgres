@@ -99,8 +99,6 @@ static Selectivity like_selectivity(const char *patt, int pattlen,
 static Selectivity regex_selectivity(const char *patt, int pattlen,
 									 bool case_insensitive,
 									 int fixed_prefix_len);
-static int	pattern_char_isalpha(char c, bool is_multibyte,
-								 pg_locale_t locale);
 static Const *make_greater_string(const Const *str_const, FmgrInfo *ltproc,
 								  Oid collation);
 static Datum string_to_datum(const char *str, Oid datatype);
@@ -989,13 +987,11 @@ static Pattern_Prefix_Status
 like_fixed_prefix(Const *patt_const, bool case_insensitive, Oid collation,
 				  Const **prefix_const, Selectivity *rest_selec)
 {
-	char	   *match;
 	char	   *patt;
 	int			pattlen;
 	Oid			typeid = patt_const->consttype;
-	int			pos,
-				match_pos;
-	bool		is_multibyte = (pg_database_encoding_max_length() > 1);
+	int			pos;
+	int			match_pos = 0;
 	pg_locale_t locale = 0;
 
 	/* the right-hand const is type text or bytea */
@@ -1023,59 +1019,93 @@ like_fixed_prefix(Const *patt_const, bool case_insensitive, Oid collation,
 		locale = pg_newlocale_from_collation(collation);
 	}
 
+	/* for text types, use pg_wchar; for BYTEA, use char */
 	if (typeid != BYTEAOID)
 	{
-		patt = TextDatumGetCString(patt_const->constvalue);
-		pattlen = strlen(patt);
+		text	   *val = DatumGetTextPP(patt_const->constvalue);
+		pg_wchar   *wpatt;
+		pg_wchar   *wmatch;
+		char	   *match;
+		int			match_mblen;
+
+		patt = VARDATA_ANY(val);
+		pattlen = VARSIZE_ANY_EXHDR(val);
+		wpatt = palloc((pattlen + 1) * sizeof(pg_wchar));
+		pg_mb2wchar_with_len(patt, wpatt, pattlen);
+
+		wmatch = palloc((pattlen + 1) * sizeof(pg_wchar));
+		for (pos = 0; pos < pattlen; pos++)
+		{
+			/* % and _ are wildcard characters in LIKE */
+			if (wpatt[pos] == '%' ||
+				wpatt[pos] == '_')
+				break;
+
+			/* Backslash escapes the next character */
+			if (wpatt[pos] == '\\')
+			{
+				pos++;
+				if (pos >= pattlen)
+					break;
+			}
+
+			/*
+			 * For ILIKE, stop if it's a case-varying character (it's sort of
+			 * a wildcard).
+			 */
+			if (case_insensitive && pg_iswcased(wpatt[pos], locale))
+				break;
+
+			wmatch[match_pos++] = wpatt[pos];
+		}
+
+		wmatch[match_pos] = '\0';
+
+		match_mblen = pg_database_encoding_max_length() * match_pos + 1;
+		match = palloc(match_mblen);
+		pg_wchar2mb_with_len(wmatch, match, match_pos);
+
+		pfree(wpatt);
+		pfree(wmatch);
+
+		*prefix_const = string_to_const(match, typeid);
+		pfree(match);
 	}
 	else
 	{
 		bytea	   *bstr = DatumGetByteaPP(patt_const->constvalue);
+		char	   *match;
 
+		patt = VARDATA_ANY(bstr);
 		pattlen = VARSIZE_ANY_EXHDR(bstr);
-		patt = (char *) palloc(pattlen);
-		memcpy(patt, VARDATA_ANY(bstr), pattlen);
-		Assert((Pointer) bstr == DatumGetPointer(patt_const->constvalue));
-	}
 
-	match = palloc(pattlen + 1);
-	match_pos = 0;
-	for (pos = 0; pos < pattlen; pos++)
-	{
-		/* % and _ are wildcard characters in LIKE */
-		if (patt[pos] == '%' ||
-			patt[pos] == '_')
-			break;
-
-		/* Backslash escapes the next character */
-		if (patt[pos] == '\\')
+		match = palloc(pattlen + 1);
+		for (pos = 0; pos < pattlen; pos++)
 		{
-			pos++;
-			if (pos >= pattlen)
+			/* % and _ are wildcard characters in LIKE */
+			if (patt[pos] == '%' ||
+				patt[pos] == '_')
 				break;
+
+			/* Backslash escapes the next character */
+			if (patt[pos] == '\\')
+			{
+				pos++;
+				if (pos >= pattlen)
+					break;
+			}
+
+			match[match_pos++] = patt[pos];
 		}
 
-		/* Stop if case-varying character (it's sort of a wildcard) */
-		if (case_insensitive &&
-			pattern_char_isalpha(patt[pos], is_multibyte, locale))
-			break;
-
-		match[match_pos++] = patt[pos];
-	}
-
-	match[match_pos] = '\0';
-
-	if (typeid != BYTEAOID)
-		*prefix_const = string_to_const(match, typeid);
-	else
 		*prefix_const = string_to_bytea_const(match, match_pos);
+
+		pfree(match);
+	}
 
 	if (rest_selec != NULL)
 		*rest_selec = like_selectivity(&patt[pos], pattlen - pos,
 									   case_insensitive);
-
-	pfree(patt);
-	pfree(match);
 
 	/* in LIKE, an empty pattern is an exact match! */
 	if (pos == pattlen)
@@ -1479,24 +1509,6 @@ regex_selectivity(const char *patt, int pattlen, bool case_insensitive,
 	/* Make sure result stays in range */
 	CLAMP_PROBABILITY(sel);
 	return sel;
-}
-
-/*
- * Check whether char is a letter (and, hence, subject to case-folding)
- *
- * In multibyte character sets or with ICU, we can't use isalpha, and it does
- * not seem worth trying to convert to wchar_t to use iswalpha or u_isalpha.
- * Instead, just assume any non-ASCII char is potentially case-varying, and
- * hard-wire knowledge of which ASCII chars are letters.
- */
-static int
-pattern_char_isalpha(char c, bool is_multibyte,
-					 pg_locale_t locale)
-{
-	if (locale->ctype_is_c)
-		return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
-	else
-		return char_is_cased(c, locale);
 }
 
 

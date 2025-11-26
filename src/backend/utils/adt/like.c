@@ -118,7 +118,7 @@ wchareq(const char *p1, const char *p2)
 
 #include "like_match.c"
 
-/* setup to compile like_match.c for single byte case insensitive matches */
+/* setup to compile like_match.c for case-insensitive matches in C locale */
 #define MATCH_LOWER
 #define NextChar(p, plen) NextByte((p), (plen))
 #define MatchText C_IMatchText
@@ -190,8 +190,11 @@ Generic_Text_IC_like(text *str, text *pat, Oid collation)
 				 errmsg("nondeterministic collations are not supported for ILIKE")));
 
 	/*
-	 * For efficiency reasons, in the C locale we don't call lower() on the
-	 * pattern and text, but instead call SB_lower_char on each character.
+	 * For efficiency reasons, in the C locale lowercase each character
+	 * lazily.  Otherwise, we lowercase the entire pattern and text strings
+	 * prior to matching.
+	 *
+	 * XXX: use casefolding instead?
 	 */
 
 	if (locale->ctype_is_c)
