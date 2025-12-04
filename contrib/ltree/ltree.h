@@ -208,9 +208,11 @@ bool		ltree_execute(ITEM *curitem, void *checkval,
 int			ltree_compare(const ltree *a, const ltree *b);
 bool		inner_isparent(const ltree *c, const ltree *p);
 bool		compare_subnode(ltree_level *t, char *qn, int len,
-							int (*cmpptr) (const char *, const char *, size_t), bool anyend);
+							bool (*prefix_eq) (const char *, size_t, const char *, size_t),
+							bool anyend);
 ltree	   *lca_inner(ltree **a, int len);
-int			ltree_strncasecmp(const char *a, const char *b, size_t s);
+bool		ltree_prefix_eq(const char *a, size_t a_sz, const char *b, size_t b_sz);
+bool		ltree_prefix_eq_ci(const char *a, size_t a_sz, const char *b, size_t b_sz);
 
 /* fmgr macros for ltree objects */
 #define DatumGetLtreeP(X)			((ltree *) PG_DETOAST_DATUM(X))
