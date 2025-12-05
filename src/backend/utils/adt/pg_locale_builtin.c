@@ -59,12 +59,13 @@ static size_t
 initcap_wbnext(void *state)
 {
 	struct WordBoundaryState *wbstate = (struct WordBoundaryState *) state;
+	unsigned char *str = (unsigned char *) wbstate->str;
 
 	while (wbstate->offset < wbstate->len &&
 		   wbstate->str[wbstate->offset] != '\0')
 	{
-		char32_t	u = utf8_to_unicode((unsigned char *) wbstate->str +
-										wbstate->offset);
+		char32_t	u = utf8_to_unicode(str + wbstate->offset,
+										wbstate->len - wbstate->offset);
 		bool		curr_alnum = pg_u_isalnum(u, wbstate->posix);
 
 		if (!wbstate->init || curr_alnum != wbstate->prev_alnum)

@@ -5412,19 +5412,17 @@ Datum
 unicode_assigned(PG_FUNCTION_ARGS)
 {
 	text	   *input = PG_GETARG_TEXT_PP(0);
-	unsigned char *p;
-	int			size;
+	unsigned char *p = (unsigned char *) VARDATA_ANY(input);
+	unsigned char *p_end = p + VARSIZE_ANY_EXHDR(input);
 
 	if (GetDatabaseEncoding() != PG_UTF8)
 		ereport(ERROR,
 				(errmsg("Unicode categorization can only be performed if server encoding is UTF8")));
 
 	/* convert to char32_t */
-	size = pg_mbstrlen_with_len(VARDATA_ANY(input), VARSIZE_ANY_EXHDR(input));
-	p = (unsigned char *) VARDATA_ANY(input);
-	for (int i = 0; i < size; i++)
+	while (p < p_end)
 	{
-		char32_t	uchar = utf8_to_unicode(p);
+		char32_t	uchar = utf8_to_unicode(p, p_end - p);
 		int			category = unicode_category(uchar);
 
 		if (category == PG_U_UNASSIGNED)
@@ -5445,7 +5443,8 @@ unicode_normalize_func(PG_FUNCTION_ARGS)
 	int			size;
 	char32_t   *input_chars;
 	char32_t   *output_chars;
-	unsigned char *p;
+	unsigned char *p = (unsigned char *) VARDATA_ANY(input);
+	unsigned char *p_end = p + VARSIZE_ANY_EXHDR(input);
 	text	   *result;
 	int			i;
 
@@ -5454,14 +5453,13 @@ unicode_normalize_func(PG_FUNCTION_ARGS)
 	/* convert to char32_t */
 	size = pg_mbstrlen_with_len(VARDATA_ANY(input), VARSIZE_ANY_EXHDR(input));
 	input_chars = palloc((size + 1) * sizeof(char32_t));
-	p = (unsigned char *) VARDATA_ANY(input);
 	for (i = 0; i < size; i++)
 	{
-		input_chars[i] = utf8_to_unicode(p);
+		input_chars[i] = utf8_to_unicode(p, p_end - p);
 		p += pg_utf_mblen(p);
 	}
 	input_chars[i] = (char32_t) '\0';
-	Assert((char *) p == VARDATA_ANY(input) + VARSIZE_ANY_EXHDR(input));
+	Assert(p == p_end);
 
 	/* action */
 	output_chars = unicode_normalize(form, input_chars);
@@ -5511,7 +5509,8 @@ unicode_is_normalized(PG_FUNCTION_ARGS)
 	int			size;
 	char32_t   *input_chars;
 	char32_t   *output_chars;
-	unsigned char *p;
+	unsigned char *p = (unsigned char *) VARDATA_ANY(input);
+	unsigned char *p_end = p + VARSIZE_ANY_EXHDR(input);
 	int			i;
 	UnicodeNormalizationQC quickcheck;
 	int			output_size;
@@ -5522,14 +5521,13 @@ unicode_is_normalized(PG_FUNCTION_ARGS)
 	/* convert to char32_t */
 	size = pg_mbstrlen_with_len(VARDATA_ANY(input), VARSIZE_ANY_EXHDR(input));
 	input_chars = palloc((size + 1) * sizeof(char32_t));
-	p = (unsigned char *) VARDATA_ANY(input);
 	for (i = 0; i < size; i++)
 	{
-		input_chars[i] = utf8_to_unicode(p);
+		input_chars[i] = utf8_to_unicode(p, p_end - p);
 		p += pg_utf_mblen(p);
 	}
 	input_chars[i] = (char32_t) '\0';
-	Assert((char *) p == VARDATA_ANY(input) + VARSIZE_ANY_EXHDR(input));
+	Assert(p == p_end);
 
 	/* quick check (see UAX #15) */
 	quickcheck = unicode_is_normalized_quickcheck(form, input_chars);
