@@ -558,22 +558,20 @@ surrogate_pair_to_codepoint(char16_t first, char16_t second)
 /*
  * Convert a UTF-8 character to a Unicode code point.
  * This is a one-character version of pg_utf2wchar_with_len.
- *
- * No error checks here, c must point to a long-enough string.
  */
 static inline char32_t
-utf8_to_unicode(const unsigned char *c)
+utf8_to_unicode(const unsigned char *c, size_t len)
 {
-	if ((*c & 0x80) == 0)
+	if ((*c & 0x80) == 0 && len >= 1)
 		return (char32_t) c[0];
-	else if ((*c & 0xe0) == 0xc0)
+	else if ((*c & 0xe0) == 0xc0 && len >= 2)
 		return (char32_t) (((c[0] & 0x1f) << 6) |
 						   (c[1] & 0x3f));
-	else if ((*c & 0xf0) == 0xe0)
+	else if ((*c & 0xf0) == 0xe0 && len >= 3)
 		return (char32_t) (((c[0] & 0x0f) << 12) |
 						   ((c[1] & 0x3f) << 6) |
 						   (c[2] & 0x3f));
-	else if ((*c & 0xf8) == 0xf0)
+	else if ((*c & 0xf8) == 0xf0 && len >= 4)
 		return (char32_t) (((c[0] & 0x07) << 18) |
 						   ((c[1] & 0x3f) << 12) |
 						   ((c[2] & 0x3f) << 6) |
@@ -676,8 +674,6 @@ extern int	pg_valid_server_encoding(const char *name);
 extern bool is_encoding_supported_by_icu(int encoding);
 extern const char *get_encoding_name_for_icu(int encoding);
 
-extern unsigned char *unicode_to_utf8(char32_t c, unsigned char *utf8string);
-extern char32_t utf8_to_unicode(const unsigned char *c);
 extern bool pg_utf8_islegal(const unsigned char *source, int length);
 extern int	pg_utf_mblen(const unsigned char *s);
 extern int	pg_mule_mblen(const unsigned char *s);

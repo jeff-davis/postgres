@@ -401,7 +401,8 @@ read_char(const unsigned char *str, int *ix)
 
 	/* Decode UTF-8 character to ISO 10646 code point. */
 	str += *ix;
-	c = utf8_to_unicode(str);
+	/* Assume byte sequence has not been broken. */
+	c = utf8_to_unicode(str, MAX_MULTIBYTE_CHAR_LEN);
 
 	/* Advance *ix, but (for safety) not if we've reached end of string. */
 	if (c)

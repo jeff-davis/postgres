@@ -661,7 +661,8 @@ ucs_wcwidth(pg_wchar ucs)
 static int
 pg_utf_dsplen(const unsigned char *s)
 {
-	return ucs_wcwidth(utf8_to_unicode(s));
+	/* trust that input is not a truncated byte sequence */
+	return ucs_wcwidth(utf8_to_unicode(s, MAX_MULTIBYTE_CHAR_LEN));
 }
 
 /*

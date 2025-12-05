@@ -223,15 +223,19 @@ convert_case(char *dst, size_t dstsize, const char *src, ssize_t srclen,
 	Assert((str_casekind == CaseTitle && wbnext && wbstate) ||
 		   (str_casekind != CaseTitle && !wbnext && !wbstate));
 
+	if (srclen < 0)
+		srclen = strlen(src);
+
 	if (str_casekind == CaseTitle)
 	{
 		boundary = wbnext(wbstate);
 		Assert(boundary == 0);	/* start of text is always a boundary */
 	}
 
-	while ((srclen < 0 || srcoff < srclen) && src[srcoff] != '\0')
+	while (srcoff < srclen)
 	{
-		char32_t	u1 = utf8_to_unicode((unsigned char *) src + srcoff);
+		char32_t	u1 = utf8_to_unicode((unsigned char *) src + srcoff,
+										 srclen - srcoff);
 		int			u1len = unicode_utf8len(u1);
 		char32_t	simple = 0;
 		const char32_t *special = NULL;
@@ -320,7 +324,7 @@ check_final_sigma(const unsigned char *str, size_t len, size_t offset)
 	{
 		if ((str[i] & 0x80) == 0 || (str[i] & 0xC0) == 0xC0)
 		{
-			char32_t	curr = utf8_to_unicode(str + i);
+			char32_t	curr = utf8_to_unicode(str + i, len - i);
 
 			if (pg_u_prop_case_ignorable(curr))
 				continue;
@@ -344,7 +348,7 @@ check_final_sigma(const unsigned char *str, size_t len, size_t offset)
 	{
 		if ((str[i] & 0x80) == 0 || (str[i] & 0xC0) == 0xC0)
 		{
-			char32_t	curr = utf8_to_unicode(str + i);
+			char32_t	curr = utf8_to_unicode(str + i, len - i);
 
 			if (pg_u_prop_case_ignorable(curr))
 				continue;

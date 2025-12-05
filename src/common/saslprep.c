@@ -1055,6 +1055,7 @@ pg_saslprep(const char *input, char **output)
 	int			i;
 	bool		contains_RandALCat;
 	unsigned char *p;
+	unsigned char *p_end;
 	char32_t   *wp;
 
 	/* Ensure we return *output as NULL on failure */
@@ -1088,9 +1089,10 @@ pg_saslprep(const char *input, char **output)
 		goto oom;
 
 	p = (unsigned char *) input;
+	p_end = p + strlen(input);
 	for (i = 0; i < input_size; i++)
 	{
-		input_chars[i] = utf8_to_unicode(p);
+		input_chars[i] = utf8_to_unicode(p, p_end - p);
 		p += pg_utf_mblen(p);
 	}
 	input_chars[i] = (char32_t) '\0';
