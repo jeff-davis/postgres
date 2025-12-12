@@ -125,9 +125,6 @@ struct ctype_methods
 	bool		(*wc_iscased) (pg_wchar wc, pg_locale_t locale);
 	pg_wchar	(*wc_toupper) (pg_wchar wc, pg_locale_t locale);
 	pg_wchar	(*wc_tolower) (pg_wchar wc, pg_locale_t locale);
-
-	/* required */
-	bool		(*char_is_cased) (char ch, pg_locale_t locale);
 };
 
 /*
