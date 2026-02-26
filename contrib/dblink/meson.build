@@ -22,7 +22,8 @@ install_data(
   'dblink.control',
   'dblink--1.0--1.1.sql',
   'dblink--1.1--1.2.sql',
-  'dblink--1.2.sql',
+  'dblink--1.2--1.3.sql',
+  'dblink--1.3.sql',
   kwargs: contrib_data_args,
 )
 

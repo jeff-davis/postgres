@@ -1993,6 +1993,87 @@ dblink_fdw_validator(PG_FUNCTION_ARGS)
 	PG_RETURN_VOID();
 }
 
+/*
+ * Implement FDW CONNECTION clause.
+ */
+PG_FUNCTION_INFO_V1(dblink_fdw_connection);
+Datum
+dblink_fdw_connection(PG_FUNCTION_ARGS)
+{
+	Oid			userid = PG_GETARG_OID(0);
+	Oid			serverid = PG_GETARG_OID(1);
+	ForeignServer *foreign_server = GetForeignServer(serverid);
+	UserMapping *user_mapping = GetUserMapping(userid, serverid);
+	ForeignDataWrapper *fdw = GetForeignDataWrapper(foreign_server->fdwid);
+	AclResult	aclresult;
+	ListCell   *cell;
+	StringInfoData buf;
+
+	static const PQconninfoOption *options = NULL;
+
+	initStringInfo(&buf);
+
+	/*
+	 * Get list of valid libpq options.
+	 *
+	 * To avoid unnecessary work, we get the list once and use it throughout
+	 * the lifetime of this backend process.  We don't need to care about
+	 * memory context issues, because PQconndefaults allocates with malloc.
+	 */
+	if (!options)
+	{
+		options = PQconndefaults();
+		if (!options)			/* assume reason for failure is OOM */
+			ereport(ERROR,
+					(errcode(ERRCODE_FDW_OUT_OF_MEMORY),
+					 errmsg("out of memory"),
+					 errdetail("Could not get libpq's default connection options.")));
+	}
+
+	/* Check permissions, user must have usage on the server. */
+	aclresult = object_aclcheck(ForeignServerRelationId, serverid, userid, ACL_USAGE);
+	if (aclresult != ACLCHECK_OK)
+		aclcheck_error(aclresult, OBJECT_FOREIGN_SERVER, foreign_server->servername);
+
+	/*
+	 * First append hardcoded options needed for SCRAM pass-through, so if the
+	 * user overwrites these options we can ereport on dblink_connstr_check
+	 * and dblink_security_check.
+	 */
+	if (MyProcPort != NULL && MyProcPort->has_scram_keys && UseScramPassthrough(foreign_server, user_mapping))
+		appendSCRAMKeysInfo(&buf);
+
+	foreach(cell, fdw->options)
+	{
+		DefElem    *def = lfirst(cell);
+
+		if (is_valid_dblink_option(options, def->defname, ForeignDataWrapperRelationId))
+			appendStringInfo(&buf, "%s='%s' ", def->defname,
+							 escape_param_str(strVal(def->arg)));
+	}
+
+	foreach(cell, foreign_server->options)
+	{
+		DefElem    *def = lfirst(cell);
+
+		if (is_valid_dblink_option(options, def->defname, ForeignServerRelationId))
+			appendStringInfo(&buf, "%s='%s' ", def->defname,
+							 escape_param_str(strVal(def->arg)));
+	}
+
+	foreach(cell, user_mapping->options)
+	{
+
+		DefElem    *def = lfirst(cell);
+
+		if (is_valid_dblink_option(options, def->defname, UserMappingRelationId))
+			appendStringInfo(&buf, "%s='%s' ", def->defname,
+							 escape_param_str(strVal(def->arg)));
+	}
+
+	PG_RETURN_TEXT_P(cstring_to_text(buf.data));
+}
+
 
 /*************************************************************
  * internal functions
@@ -2855,93 +2936,17 @@ static char *
 get_connect_string(const char *servername)
 {
 	ForeignServer *foreign_server = NULL;
-	UserMapping *user_mapping;
-	ListCell   *cell;
-	StringInfoData buf;
-	ForeignDataWrapper *fdw;
-	AclResult	aclresult;
 	char	   *srvname;
-
-	static const PQconninfoOption *options = NULL;
-
-	initStringInfo(&buf);
-
-	/*
-	 * Get list of valid libpq options.
-	 *
-	 * To avoid unnecessary work, we get the list once and use it throughout
-	 * the lifetime of this backend process.  We don't need to care about
-	 * memory context issues, because PQconndefaults allocates with malloc.
-	 */
-	if (!options)
-	{
-		options = PQconndefaults();
-		if (!options)			/* assume reason for failure is OOM */
-			ereport(ERROR,
-					(errcode(ERRCODE_FDW_OUT_OF_MEMORY),
-					 errmsg("out of memory"),
-					 errdetail("Could not get libpq's default connection options.")));
-	}
 
 	/* first gather the server connstr options */
 	srvname = pstrdup(servername);
 	truncate_identifier(srvname, strlen(srvname), false);
 	foreign_server = GetForeignServerByName(srvname, true);
 
-	if (foreign_server)
-	{
-		Oid			serverid = foreign_server->serverid;
-		Oid			fdwid = foreign_server->fdwid;
-		Oid			userid = GetUserId();
-
-		user_mapping = GetUserMapping(userid, serverid);
-		fdw = GetForeignDataWrapper(fdwid);
-
-		/* Check permissions, user must have usage on the server. */
-		aclresult = object_aclcheck(ForeignServerRelationId, serverid, userid, ACL_USAGE);
-		if (aclresult != ACLCHECK_OK)
-			aclcheck_error(aclresult, OBJECT_FOREIGN_SERVER, foreign_server->servername);
-
-		/*
-		 * First append hardcoded options needed for SCRAM pass-through, so if
-		 * the user overwrites these options we can ereport on
-		 * dblink_connstr_check and dblink_security_check.
-		 */
-		if (MyProcPort != NULL && MyProcPort->has_scram_keys && UseScramPassthrough(foreign_server, user_mapping))
-			appendSCRAMKeysInfo(&buf);
-
-		foreach(cell, fdw->options)
-		{
-			DefElem    *def = lfirst(cell);
-
-			if (is_valid_dblink_option(options, def->defname, ForeignDataWrapperRelationId))
-				appendStringInfo(&buf, "%s='%s' ", def->defname,
-								 escape_param_str(strVal(def->arg)));
-		}
-
-		foreach(cell, foreign_server->options)
-		{
-			DefElem    *def = lfirst(cell);
-
-			if (is_valid_dblink_option(options, def->defname, ForeignServerRelationId))
-				appendStringInfo(&buf, "%s='%s' ", def->defname,
-								 escape_param_str(strVal(def->arg)));
-		}
-
-		foreach(cell, user_mapping->options)
-		{
-
-			DefElem    *def = lfirst(cell);
-
-			if (is_valid_dblink_option(options, def->defname, UserMappingRelationId))
-				appendStringInfo(&buf, "%s='%s' ", def->defname,
-								 escape_param_str(strVal(def->arg)));
-		}
-
-		return buf.data;
-	}
-	else
+	if (!foreign_server)
 		return NULL;
+
+	return ForeignServerConnectionString(GetUserId(), foreign_server->serverid);
 }
 
 /*

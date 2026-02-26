@@ -1,4 +1,4 @@
-/* contrib/dblink/dblink--1.2.sql */
+/* contrib/dblink/dblink--1.3.sql */
 
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION dblink" to load this file. \quit
@@ -232,4 +232,11 @@ RETURNS void
 AS 'MODULE_PATHNAME', 'dblink_fdw_validator'
 LANGUAGE C STRICT PARALLEL SAFE;
 
-CREATE FOREIGN DATA WRAPPER dblink_fdw VALIDATOR dblink_fdw_validator;
+-- takes internal parameter to prevent calling from SQL
+CREATE FUNCTION dblink_fdw_connection(oid, oid, internal)
+RETURNS text
+AS 'MODULE_PATHNAME'
+LANGUAGE C STRICT PARALLEL RESTRICTED;
+
+CREATE FOREIGN DATA WRAPPER dblink_fdw VALIDATOR dblink_fdw_validator
+  CONNECTION dblink_fdw_connection;
