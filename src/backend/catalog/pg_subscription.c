@@ -217,20 +217,6 @@ CountDBSubscriptions(Oid dbid)
 }
 
 /*
- * Free memory allocated by subscription struct.
- */
-void
-FreeSubscription(Subscription *sub)
-{
-	pfree(sub->name);
-	pfree(sub->conninfo);
-	if (sub->slotname)
-		pfree(sub->slotname);
-	list_free_deep(sub->publications);
-	pfree(sub);
-}
-
-/*
  * Disable the given subscription.
  */
 void

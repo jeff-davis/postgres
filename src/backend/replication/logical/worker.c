@@ -479,6 +479,7 @@ static MemoryContext LogicalStreamingContext = NULL;
 WalReceiverConn *LogRepWorkerWalRcvConn = NULL;
 
 Subscription *MySubscription = NULL;
+static MemoryContext MySubscriptionCtx = NULL;
 static bool MySubscriptionValid = false;
 
 static List *on_commit_wakeup_workers_subids = NIL;
@@ -5042,6 +5043,7 @@ void
 maybe_reread_subscription(void)
 {
 	MemoryContext oldctx;
+	MemoryContext newctx;
 	Subscription *newsub;
 	bool		started_tx = false;
 
@@ -5056,8 +5058,15 @@ maybe_reread_subscription(void)
 		started_tx = true;
 	}
 
-	/* Ensure allocations in permanent context. */
-	oldctx = MemoryContextSwitchTo(ApplyContext);
+	newctx = AllocSetContextCreate(ApplyContext,
+								   "Subscription Context",
+								   ALLOCSET_SMALL_SIZES);
+
+	/*
+	 * GetSubscription() leaks a number of small allocations, so use a
+	 * subcontext for each call.
+	 */
+	oldctx = MemoryContextSwitchTo(newctx);
 
 	newsub = GetSubscription(MyLogicalRepWorker->subid, true, true);
 
@@ -5149,7 +5158,8 @@ maybe_reread_subscription(void)
 	}
 
 	/* Clean old subscription info and switch to new one. */
-	FreeSubscription(MySubscription);
+	MemoryContextDelete(MySubscriptionCtx);
+	MySubscriptionCtx = newctx;
 	MySubscription = newsub;
 
 	MemoryContextSwitchTo(oldctx);
@@ -5794,12 +5804,19 @@ InitializeLogRepWorker(void)
 	 */
 	SetConfigOption("search_path", "", PGC_SUSET, PGC_S_OVERRIDE);
 
-	/* Load the subscription into persistent memory context. */
 	ApplyContext = AllocSetContextCreate(TopMemoryContext,
 										 "ApplyContext",
 										 ALLOCSET_DEFAULT_SIZES);
+
+	/*
+	 * GetSubscription() leaks a number of small allocations, so use a
+	 * subcontext for each call.
+	 */
+	MySubscriptionCtx = AllocSetContextCreate(ApplyContext,
+											  "Subscription Context",
+											  ALLOCSET_SMALL_SIZES);
+
 	StartTransactionCommand();
-	oldctx = MemoryContextSwitchTo(ApplyContext);
 
 	/*
 	 * Lock the subscription to prevent it from being concurrently dropped,
@@ -5808,7 +5825,10 @@ InitializeLogRepWorker(void)
 	 */
 	LockSharedObject(SubscriptionRelationId, MyLogicalRepWorker->subid, 0,
 					 AccessShareLock);
+
+	oldctx = MemoryContextSwitchTo(MySubscriptionCtx);
 	MySubscription = GetSubscription(MyLogicalRepWorker->subid, true, true);
+
 	if (!MySubscription)
 	{
 		ereport(LOG,

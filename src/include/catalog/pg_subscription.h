@@ -212,7 +212,6 @@ typedef struct Subscription
 
 extern Subscription *GetSubscription(Oid subid, bool missing_ok,
 									 bool aclcheck);
-extern void FreeSubscription(Subscription *sub);
 extern void DisableSubscription(Oid subid);
 
 extern int	CountDBSubscriptions(Oid dbid);
