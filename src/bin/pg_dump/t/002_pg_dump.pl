@@ -2846,6 +2846,40 @@ my %tests = (
 		like => { %full_runs, section_pre_data => 1, },
 	},
 
+	'CREATE FUNCTION public.test_fdw_connection(oid, oid, internal)' => {
+		create_order => 37,
+		create_sql => "CREATE FUNCTION public.test_fdw_connection(oid, oid, internal) RETURNS text AS '\$libdir/regress', 'test_fdw_connection' LANGUAGE C;",
+		regexp => qr/^
+			\QCREATE FUNCTION public.test_fdw_connection(oid, oid, internal) \E
+			\QRETURNS text\E
+			\n\s+\QLANGUAGE c\E
+			\n\s+AS\ \'\$
+			\Qlibdir\/regress', 'test_fdw_connection';\E
+			/xm,
+		like => { %full_runs, section_pre_data => 1, },
+	},
+
+	'CREATE FOREIGN DATA WRAPPER test_fdw CONNECTION public.test_fdw_connection' => {
+		create_order => 38,
+		create_sql => 'CREATE FOREIGN DATA WRAPPER test_fdw CONNECTION public.test_fdw_connection;',
+		regexp => qr/CREATE FOREIGN DATA WRAPPER test_fdw CONNECTION public.test_fdw_connection;/m,
+		like => { %full_runs, section_pre_data => 1, },
+	},
+
+	'CREATE SERVER s2 FOREIGN DATA WRAPPER test_fdw' => {
+		create_order => 39,
+		create_sql => 'CREATE SERVER s2 FOREIGN DATA WRAPPER test_fdw;',
+		regexp => qr/CREATE SERVER s2 FOREIGN DATA WRAPPER test_fdw;/m,
+		like => { %full_runs, section_pre_data => 1, },
+	},
+
+	'CREATE USER MAPPING FOR public SERVER s2' => {
+		create_order => 40,
+		create_sql => 'CREATE USER MAPPING FOR public SERVER s2;',
+		regexp => qr/CREATE USER MAPPING FOR public SERVER s2;/m,
+		like => { %full_runs, section_pre_data => 1, },
+	},
+
 	'CREATE FOREIGN TABLE dump_test.foreign_table SERVER s1' => {
 		create_order => 88,
 		create_sql =>
@@ -3267,6 +3301,21 @@ my %tests = (
 						 WITH (connect = false, origin = any, streaming = on);',
 		regexp => qr/^
 			\QCREATE SUBSCRIPTION sub3 CONNECTION 'dbname=doesnotexist' PUBLICATION pub1 WITH (connect = false, slot_name = 'sub3', streaming = on);\E
+			/xm,
+		like => { %full_runs, section_post_data => 1, },
+		unlike => {
+			no_subscriptions => 1,
+			no_subscriptions_restore => 1,
+		},
+	},
+
+	'CREATE SUBSCRIPTION sub4 SERVER s2' => {
+		create_order => 50,
+		create_sql => 'CREATE SUBSCRIPTION sub4
+						 SERVER s2 PUBLICATION pub1
+						 WITH (connect = false, slot_name = NONE, origin = any, streaming = on);',
+		regexp => qr/^
+			\QCREATE SUBSCRIPTION sub4 SERVER s2 PUBLICATION pub1 WITH (connect = false, slot_name = NONE, streaming = on);\E
 			/xm,
 		like => { %full_runs, section_post_data => 1, },
 		unlike => {
