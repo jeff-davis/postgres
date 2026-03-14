@@ -178,31 +178,6 @@ GetForeignServerExtended(Oid serverid, bits16 flags)
 
 
 /*
- * ForeignServerName - get name of foreign server.
- */
-char *
-ForeignServerName(Oid serverid)
-{
-	Form_pg_foreign_server serverform;
-	char	   *servername;
-	HeapTuple	tp;
-
-	tp = SearchSysCache1(FOREIGNSERVEROID, ObjectIdGetDatum(serverid));
-
-	if (!HeapTupleIsValid(tp))
-		elog(ERROR, "cache lookup failed for foreign server %u", serverid);
-
-	serverform = (Form_pg_foreign_server) GETSTRUCT(tp);
-
-	servername = pstrdup(NameStr(serverform->srvname));
-
-	ReleaseSysCache(tp);
-
-	return servername;
-}
-
-
-/*
  * GetForeignServerByName - look up the foreign server definition by name.
  */
 ForeignServer *
@@ -223,13 +198,11 @@ GetForeignServerByName(const char *srvname, bool missing_ok)
  * NB: leaks into CurrentMemoryContext.
  */
 char *
-ForeignServerConnectionString(Oid userid, Oid serverid)
+ForeignServerConnectionString(Oid userid, ForeignServer *server)
 {
-	ForeignServer *server;
 	ForeignDataWrapper *fdw;
 	Datum		connection_datum;
 
-	server = GetForeignServer(serverid);
 	fdw = GetForeignDataWrapper(server->fdwid);
 
 	if (!OidIsValid(fdw->fdwconnection))
@@ -241,7 +214,7 @@ ForeignServerConnectionString(Oid userid, Oid serverid)
 
 	connection_datum = OidFunctionCall3(fdw->fdwconnection,
 										ObjectIdGetDatum(userid),
-										ObjectIdGetDatum(serverid),
+										ObjectIdGetDatum(server->serverid),
 										PointerGetDatum(NULL));
 
 	return text_to_cstring(DatumGetTextPP(connection_datum));
