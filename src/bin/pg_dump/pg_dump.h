@@ -604,6 +604,7 @@ typedef struct _fdwInfo
 	const char *rolname;
 	char	   *fdwhandler;
 	char	   *fdwvalidator;
+	char	   *fdwconnection;
 	char	   *fdwoptions;
 } FdwInfo;
 
