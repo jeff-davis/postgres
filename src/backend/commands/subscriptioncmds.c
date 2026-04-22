@@ -1026,7 +1026,8 @@ AlterSubscription_refresh(Subscription *sub, bool copy_data,
 
 	/* Try to connect to the publisher. */
 	must_use_password = sub->passwordrequired && !sub->ownersuperuser;
-	wrconn = walrcv_connect(sub->conninfo, true, true, must_use_password,
+	wrconn = walrcv_connect(GetSubscriptionConnInfo(sub), true, true,
+							must_use_password,
 							sub->name, &err);
 	if (!wrconn)
 		ereport(ERROR,
@@ -1278,7 +1279,8 @@ AlterSubscription_refresh_seq(Subscription *sub)
 
 	/* Try to connect to the publisher. */
 	must_use_password = sub->passwordrequired && !sub->ownersuperuser;
-	wrconn = walrcv_connect(sub->conninfo, true, true, must_use_password,
+	wrconn = walrcv_connect(GetSubscriptionConnInfo(sub), true, true,
+							must_use_password,
 							sub->name, &err);
 	if (!wrconn)
 		ereport(ERROR,
@@ -2129,7 +2131,8 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 		 * available.
 		 */
 		must_use_password = sub->passwordrequired && !sub->ownersuperuser;
-		wrconn = walrcv_connect(stmt->conninfo ? stmt->conninfo : sub->conninfo,
+		wrconn = walrcv_connect(stmt->conninfo ? stmt->conninfo :
+								GetSubscriptionConnInfo(sub),
 								true, true, must_use_password, sub->name,
 								&err);
 		if (!wrconn)

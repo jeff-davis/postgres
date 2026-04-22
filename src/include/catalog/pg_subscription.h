@@ -164,6 +164,7 @@ typedef struct Subscription
 									 * and the retention duration has not
 									 * exceeded max_retention_duration, when
 									 * defined */
+	Oid			serverid;		/* Oid of the foreign server, if any */
 	char	   *conninfo;		/* Connection string to the publisher */
 	char	   *slotname;		/* Name of the replication slot */
 	char	   *synccommit;		/* Synchronous commit setting for worker */
@@ -214,6 +215,7 @@ typedef struct Subscription
 
 extern Subscription *GetSubscription(Oid subid, bool missing_ok,
 									 bool aclcheck);
+extern char *GetSubscriptionConnInfo(Subscription *sub);
 extern void DisableSubscription(Oid subid);
 
 extern int	CountDBSubscriptions(Oid dbid);

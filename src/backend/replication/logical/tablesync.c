@@ -1304,7 +1304,7 @@ LogicalRepSyncTableStart(XLogRecPtr *origin_startpos)
 	 * so that synchronous replication can distinguish them.
 	 */
 	LogRepWorkerWalRcvConn =
-		walrcv_connect(MySubscription->conninfo, true, true,
+		walrcv_connect(GetSubscriptionConnInfo(MySubscription), true, true,
 					   must_use_password,
 					   slotname, &err);
 	if (LogRepWorkerWalRcvConn == NULL)

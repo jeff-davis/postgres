@@ -72,6 +72,18 @@ GetPublicationsStr(List *publications, StringInfo dest, bool quote_literal)
 
 /*
  * Fetch the subscription from the syscache.
+ *
+ * If missing_ok is false, throw an error if the subscription is not found.
+ * If true, return NULL in that case.
+ *
+ * If the subscription uses a foreign server and aclcheck is true, check
+ * whether the subscription owner has permission on that server and eagerly
+ * load the connection string into sub->conninfo.
+ *
+ * If the subscription uses a foreign server and aclcheck is false,
+ * sub->conninfo is left NULL until it is needed. Call
+ * GetSubscriptionConnInfo() to fetch it on demand. That accessor is also safe
+ * to call when sub->conninfo has already been populated.
  */
 Subscription *
 GetSubscription(Oid subid, bool missing_ok, bool aclcheck)
@@ -118,32 +130,32 @@ GetSubscription(Oid subid, bool missing_ok, bool aclcheck)
 	sub->retaindeadtuples = subform->subretaindeadtuples;
 	sub->maxretention = subform->submaxretention;
 	sub->retentionactive = subform->subretentionactive;
+	sub->serverid = subform->subserver;
+	sub->conninfo = NULL;
 
 	/* Get conninfo */
-	if (OidIsValid(subform->subserver))
+	if (OidIsValid(sub->serverid))
 	{
-		AclResult	aclresult;
-		ForeignServer *server;
-
-		server = GetForeignServer(subform->subserver);
-
 		/* recheck ACL if requested */
 		if (aclcheck)
 		{
-			aclresult = object_aclcheck(ForeignServerRelationId,
-										subform->subserver,
-										subform->subowner, ACL_USAGE);
+			AclResult	aclresult;
+			ForeignServer *server;
 
+			server = GetForeignServer(sub->serverid);
+			aclresult = object_aclcheck(ForeignServerRelationId,
+										sub->serverid,
+										subform->subowner, ACL_USAGE);
 			if (aclresult != ACLCHECK_OK)
 				ereport(ERROR,
-						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-						 errmsg("subscription owner \"%s\" does not have permission on foreign server \"%s\"",
-								GetUserNameFromId(subform->subowner, false),
-								server->servername)));
-		}
+						errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+						errmsg("subscription owner \"%s\" does not have permission on foreign server \"%s\"",
+							   GetUserNameFromId(subform->subowner, false),
+							   server->servername));
 
-		sub->conninfo = ForeignServerConnectionString(subform->subowner,
-													  server);
+			sub->conninfo = ForeignServerConnectionString(subform->subowner,
+														  server);
+		}
 	}
 	else
 	{
@@ -195,6 +207,31 @@ GetSubscription(Oid subid, bool missing_ok, bool aclcheck)
 	MemoryContextSwitchTo(oldcxt);
 
 	return sub;
+}
+
+/*
+ * Return the subscription's connection string, loading it into the
+ * subscription memory context if necessary.
+ *
+ * GetSubscription must be called earlier to set sub->serverid, because ACL
+ * checks are performed there.
+ */
+char *
+GetSubscriptionConnInfo(Subscription *sub)
+{
+	MemoryContext oldcxt;
+
+	if (sub->conninfo)
+		return sub->conninfo;
+
+	Assert(OidIsValid(sub->serverid));
+
+	oldcxt = MemoryContextSwitchTo(sub->cxt);
+	sub->conninfo = ForeignServerConnectionString(sub->owner,
+												  GetForeignServer(sub->serverid));
+	MemoryContextSwitchTo(oldcxt);
+
+	return sub->conninfo;
 }
 
 /*

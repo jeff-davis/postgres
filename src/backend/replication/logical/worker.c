@@ -5105,7 +5105,8 @@ maybe_reread_subscription(void)
 	 * 'parallel' to any other value or the server decides not to stream the
 	 * in-progress transaction.
 	 */
-	if (strcmp(newsub->conninfo, MySubscription->conninfo) != 0 ||
+	if (strcmp(GetSubscriptionConnInfo(newsub),
+			   GetSubscriptionConnInfo(MySubscription)) != 0 ||
 		strcmp(newsub->name, MySubscription->name) != 0 ||
 		strcmp(newsub->slotname, MySubscription->slotname) != 0 ||
 		newsub->binary != MySubscription->binary ||
@@ -5703,8 +5704,8 @@ run_apply_worker(void)
 	must_use_password = MySubscription->passwordrequired &&
 		!MySubscription->ownersuperuser;
 
-	LogRepWorkerWalRcvConn = walrcv_connect(MySubscription->conninfo, true,
-											true, must_use_password,
+	LogRepWorkerWalRcvConn = walrcv_connect(GetSubscriptionConnInfo(MySubscription),
+											true, true, must_use_password,
 											MySubscription->name, &err);
 
 	if (LogRepWorkerWalRcvConn == NULL)
@@ -5972,7 +5973,7 @@ SetupApplyOrSyncWorker(int worker_slot)
 
 	/* Connect to the origin and start the replication. */
 	elog(DEBUG1, "connecting to publisher using connection string \"%s\"",
-		 MySubscription->conninfo);
+		 GetSubscriptionConnInfo(MySubscription));
 
 	/*
 	 * Setup callback for syscache so that we know when something changes in
