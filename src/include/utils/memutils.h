@@ -86,6 +86,9 @@ extern bool MemoryContextIsEmpty(MemoryContext context);
 extern Size MemoryContextMemAllocated(MemoryContext context, bool recurse);
 extern void MemoryContextMemConsumed(MemoryContext context,
 									 MemoryContextCounters *consumed);
+extern MemoryPool *MemoryContextCreatePool(MemoryContext owner, Size limit);
+extern void MemoryContextDetachPool(MemoryContext owner);
+extern MemoryPool *MemoryContextGetPool(MemoryContext context);
 extern void MemoryContextStats(MemoryContext context);
 extern void MemoryContextStatsDetail(MemoryContext context,
 									 int max_level, int max_children,

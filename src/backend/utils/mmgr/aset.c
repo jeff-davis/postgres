@@ -422,8 +422,8 @@ AllocSetContextCreateInternal(MemoryContext parent,
 								parent,
 								name);
 
-			((MemoryContext) set)->mem_allocated =
-				KeeperBlock(set)->endptr - ((char *) set);
+			MemoryContextUpdateAlloc((MemoryContext) set,
+									 KeeperBlock(set)->endptr - ((char *) set));
 
 			return (MemoryContext) set;
 		}
@@ -525,7 +525,7 @@ AllocSetContextCreateInternal(MemoryContext parent,
 						parent,
 						name);
 
-	((MemoryContext) set)->mem_allocated = firstBlockSize;
+	MemoryContextUpdateAlloc((MemoryContext) set, firstBlockSize);
 
 	return (MemoryContext) set;
 }
@@ -589,7 +589,7 @@ AllocSetReset(MemoryContext context)
 		else
 		{
 			/* Normal case, release the block */
-			context->mem_allocated -= block->endptr - ((char *) block);
+			MemoryContextUpdateAlloc(context, -(block->endptr - ((char *) block)));
 
 #ifdef CLOBBER_FREED_MEMORY
 			wipe_mem(block, block->freeptr - ((char *) block));
@@ -696,7 +696,7 @@ AllocSetDelete(MemoryContext context)
 		AllocBlock	next = block->next;
 
 		if (!IsKeeperBlock(set, block))
-			context->mem_allocated -= block->endptr - ((char *) block);
+			MemoryContextUpdateAlloc(context, -(block->endptr - ((char *) block)));
 
 #ifdef CLOBBER_FREED_MEMORY
 		wipe_mem(block, block->freeptr - ((char *) block));
@@ -758,7 +758,7 @@ AllocSetAllocLarge(MemoryContext context, Size size, int flags)
 	/* Make a vchunk covering the new block's header */
 	VALGRIND_MEMPOOL_ALLOC(set, block, ALLOC_BLOCKHDRSZ);
 
-	context->mem_allocated += blksize;
+	MemoryContextUpdateAlloc(context, blksize);
 
 	block->aset = set;
 	block->freeptr = block->endptr = ((char *) block) + blksize;
@@ -967,7 +967,7 @@ AllocSetAllocFromNewBlock(MemoryContext context, Size size, int flags,
 	/* Make a vchunk covering the new block's header */
 	VALGRIND_MEMPOOL_ALLOC(set, block, ALLOC_BLOCKHDRSZ);
 
-	context->mem_allocated += blksize;
+	MemoryContextUpdateAlloc(context, blksize);
 
 	block->aset = set;
 	block->freeptr = ((char *) block) + ALLOC_BLOCKHDRSZ;
@@ -1144,7 +1144,7 @@ AllocSetFree(void *pointer)
 		if (block->next)
 			block->next->prev = block->prev;
 
-		set->header.mem_allocated -= block->endptr - ((char *) block);
+		MemoryContextUpdateAlloc(&set->header, -(block->endptr - ((char *) block)));
 
 #ifdef CLOBBER_FREED_MEMORY
 		wipe_mem(block, block->freeptr - ((char *) block));
@@ -1307,9 +1307,8 @@ AllocSetRealloc(void *pointer, Size size, int flags)
 		VALGRIND_MEMPOOL_CHANGE(set, block, newblock, ALLOC_BLOCKHDRSZ);
 		block = newblock;
 
-		/* updated separately, not to underflow when (oldblksize > blksize) */
-		set->header.mem_allocated -= oldblksize;
-		set->header.mem_allocated += blksize;
+		MemoryContextUpdateAlloc(&set->header,
+								 (ssize_t)blksize - (ssize_t)oldblksize);
 
 		block->freeptr = block->endptr = ((char *) block) + blksize;
 

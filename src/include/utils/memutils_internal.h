@@ -157,6 +157,24 @@ extern void MemoryContextCreate(MemoryContext node,
 								MemoryContext parent,
 								const char *name);
 
+/*
+ * MemoryContextUpdateAlloc()
+ *
+ * Update allocation count for this context and all memory pools.
+ */
+static inline void
+MemoryContextUpdateAlloc(MemoryContext context, ssize_t size)
+{
+	Assert(size >= 0 || -size < context->mem_allocated);
+	context->mem_allocated += size;
+
+	for (MemoryPool *p = context->pool; p != NULL; p = p->next)
+	{
+		Assert(size >= 0 || -size < p->allocated);
+		p->allocated += size;
+	}
+}
+
 extern void *MemoryContextAllocationFailure(MemoryContext context, Size size,
 											int flags);
 

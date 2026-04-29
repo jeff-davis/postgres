@@ -235,7 +235,7 @@ BumpContextCreate(MemoryContext parent, const char *name, Size minContextSize,
 	MemoryContextCreate((MemoryContext) set, T_BumpContext, MCTX_BUMP_ID,
 						parent, name);
 
-	((MemoryContext) set)->mem_allocated = allocSize;
+	MemoryContextUpdateAlloc((MemoryContext) set, allocSize);
 
 	return (MemoryContext) set;
 }
@@ -341,7 +341,7 @@ BumpAllocLarge(MemoryContext context, Size size, int flags)
 	/* Make a vchunk covering the new block's header */
 	VALGRIND_MEMPOOL_ALLOC(set, block, Bump_BLOCKHDRSZ);
 
-	context->mem_allocated += blksize;
+	MemoryContextUpdateAlloc(context, blksize);
 
 	/* the block is completely full */
 	block->freeptr = block->endptr = ((char *) block) + blksize;
@@ -481,7 +481,7 @@ BumpAllocFromNewBlock(MemoryContext context, Size size, int flags,
 	/* Make a vchunk covering the new block's header */
 	VALGRIND_MEMPOOL_ALLOC(set, block, Bump_BLOCKHDRSZ);
 
-	context->mem_allocated += blksize;
+	MemoryContextUpdateAlloc(context, blksize);
 
 	/* initialize the new block */
 	BumpBlockInit(set, block, blksize);
@@ -626,7 +626,7 @@ BumpBlockFree(BumpContext *set, BumpBlock *block)
 	/* release the block from the list of blocks */
 	dlist_delete(&block->node);
 
-	((MemoryContext) set)->mem_allocated -= ((char *) block->endptr - (char *) block);
+	MemoryContextUpdateAlloc((MemoryContext) set, -((char *) block->endptr - (char *) block));
 
 #ifdef CLOBBER_FREED_MEMORY
 	wipe_mem(block, ((char *) block->endptr - (char *) block));

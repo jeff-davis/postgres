@@ -113,6 +113,37 @@ typedef struct MemoryContextMethods
 #endif
 } MemoryContextMethods;
 
+/*
+ * Memory pool shared across a subtree of memory contexts.  Each context
+ * belongs to at most one pool directly via MemoryContextData.pool; pools
+ * nest outward via MemoryPool.next, so a context's full pool membership is
+ * the chain reachable from ctx->pool.
+ *
+ * The pool struct is palloc'd inside its owner context, so its lifetime
+ * matches the owner's.  The owner field lets MemoryContextSetParent()
+ * distinguish "the pool is moving with its owner" (cheap: rewire
+ * pool->next, transfer pool->allocated between chains) from "a non-owner
+ * descendant is moving" (slow: subtree walk to transfer accounting and
+ * rewrite pool pointers).
+ *
+ * The limit is queryable by callers (e.g. work_mem-aware operators) and is
+ * also consulted internally by allocators to cap maxBlockSize so a small
+ * chunk request cannot trigger an oversize block relative to the pool.
+ *
+ * Invariant: pool->allocated equals the sum of mem_allocated over every
+ * context in pool->owner's subtree.  In MEMORY_CONTEXT_CHECKING builds
+ * this is verified by MemoryContextCheck().
+ */
+typedef struct MemoryPool
+{
+	Size		limit;			/* configured ceiling, queryable by caller */
+	Size		allocated;		/* sum of mem_allocated for all contexts in
+								 * owner's subtree */
+	struct MemoryContextData *owner;	/* context that created and owns the
+										 * pool */
+	struct MemoryPool *next;	/* next outward (enclosing) pool, or NULL if
+								 * outermost */
+} MemoryPool;
 
 typedef struct MemoryContextData
 {
@@ -123,6 +154,8 @@ typedef struct MemoryContextData
 	bool		isReset;		/* T = no space allocated since last reset */
 	bool		allowInCritSection; /* allow palloc in critical section */
 	Size		mem_allocated;	/* track memory allocated for this context */
+	MemoryPool *pool;			/* innermost pool this context belongs to,
+								 * or NULL if not pooled */
 	const MemoryContextMethods *methods;	/* virtual function table */
 	MemoryContext parent;		/* NULL if no parent (toplevel context) */
 	MemoryContext firstchild;	/* head of linked list of children */

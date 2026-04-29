@@ -543,6 +543,18 @@ MemoryContextDeleteOnly(MemoryContext context)
 	 */
 	context->ident = NULL;
 
+	/*
+	 * If we own a pool, free it before the type-specific delete reclaims our
+	 * memory.  The pool struct lives in the parent context, so it must be
+	 * freed.  MemoryContextSetParent has already decremented any higher-level
+	 * pools.
+	 */
+	if (context->pool != NULL && context->pool->owner == context)
+	{
+		pfree(context->pool);
+		context->pool = NULL;
+	}
+
 	context->methods->delete_context(context);
 }
 
@@ -665,6 +677,76 @@ MemoryContextSetIdentifier(MemoryContext context, const char *id)
 }
 
 /*
+ * Helper function to move a memory context out of one pool and into another.
+ *
+ *
+ * If the context inherited the pool, we need to calculate the sum first.
+ *
+ *   Fast path: 'context' owns its pool.  The pool moves with the context;
+ *   we only have to rewire pool->next to the new outer pool and shift
+ *   pool->allocated between the old and new outer chains.  No subtree walk.
+ *
+ *   Slow path: 'context' is a non-owner whose inherited pool is changing.
+ *   We must walk the subtree to (a) sum mem_allocated so we can move that
+ *   total between the old and new outer chains, (b) rewrite ctx->pool from
+ *   the old outer to the new outer for every descendant that inherited it,
+ *   and (c) rewrite owned pools' ->next from the old outer to the new outer
+ *   when they were sitting directly on top of it.
+ *
+ * If old and new outer pools coincide there is nothing to do.
+ */
+static void
+MemoryContextTransferPool(MemoryContext context, MemoryContext new_parent)
+{
+	bool is_owner = (context->pool != NULL && context->pool->owner == context);
+	MemoryPool *old_parent_pool = is_owner ? context->pool->next : context->pool;
+	MemoryPool *new_parent_pool = new_parent ? new_parent->pool : NULL;
+	Size subtree_mem;
+
+	if (!old_parent_pool && !new_parent_pool)
+		return;
+
+	if (old_parent_pool == new_parent_pool)
+		return;
+
+	if (is_owner)
+		subtree_mem = context->pool->allocated;
+	else
+		subtree_mem = MemoryContextMemAllocated(context, true);
+
+	/* subtract from old subtree */
+	for (MemoryPool *pool = old_parent_pool; pool != NULL; pool = pool->next)
+		pool->allocated -= subtree_mem;
+
+	/* add to new subtree */
+	for (MemoryPool *pool = new_parent_pool; pool != NULL; pool = pool->next)
+		pool->allocated += subtree_mem;
+
+	if (is_owner)
+	{
+		context->pool->next = new_parent_pool;
+	}
+	else
+	{
+		/*
+		 * Need to search subtree for references to old_parent_pool and
+		 * replace with new_parent_pool.
+		 */
+		for (MemoryContext cxt = context->firstchild; cxt != NULL;
+			 cxt = MemoryContextTraverseNext(cxt, context))
+		{
+			if (cxt->pool == old_parent_pool)
+				cxt->pool = new_parent_pool;
+			else if (cxt->pool && cxt->pool->owner == cxt &&
+					 cxt->pool->next == old_parent_pool)
+				cxt->pool->next = new_parent_pool;
+		}
+
+		context->pool = new_parent_pool;
+	}
+}
+
+/*
  * MemoryContextSetParent
  *		Change a context to belong to a new parent (or no parent).
  *
@@ -691,6 +773,14 @@ MemoryContextSetParent(MemoryContext context, MemoryContext new_parent)
 	/* Fast path if it's got correct parent already */
 	if (new_parent == context->parent)
 		return;
+
+	/*
+	 * Update pool membership before tree rewiring.  This must happen here
+	 * (rather than after the relink) because the slow path traverses
+	 * context's subtree and uses old_outer == context->pool to identify the
+	 * boundary pool to rewrite -- both must still reflect the old position.
+	 */
+	MemoryContextTransferPool(context, new_parent);
 
 	/* Delink from existing parent, if any */
 	if (context->parent)
@@ -726,6 +816,10 @@ MemoryContextSetParent(MemoryContext context, MemoryContext new_parent)
 		context->prevchild = NULL;
 		context->nextchild = NULL;
 	}
+
+#ifdef MEMORY_CONTEXT_CHECKING
+	MemoryContextCheck(new_parent ? new_parent : context);
+#endif
 }
 
 /*
@@ -825,6 +919,98 @@ MemoryContextMemAllocated(MemoryContext context, bool recurse)
 	}
 
 	return total;
+}
+
+/*
+ * MemoryContextCreatePool
+ *		Attach a new memory pool to 'owner', returning the new pool.
+ *
+ * The pool tracks the total memory allocated in 'owner's subtree and carries
+ * a queryable 'limit' (typically work_mem) that callers consult and that
+ * allocators may consult to cap maxBlockSize.  If 'owner' already inherits
+ * a pool, the new pool nests inside it: the inherited pool becomes the new
+ * pool's outer link.
+ *
+ * The pool struct is palloc'd inside 'owner', so its lifetime matches
+ * owner's; MemoryContextDelete() and MemoryContextDetachPool() both clean
+ * up correctly.
+ *
+ * 'owner' must have no children.  It must not already own a pool (it may,
+ * however, inherit one from above).
+ */
+MemoryPool *
+MemoryContextCreatePool(MemoryContext owner, Size limit)
+{
+	MemoryPool *pool;
+
+	Assert(MemoryContextIsValid(owner));
+	Assert(owner->firstchild == NULL);
+	Assert(owner->pool == NULL || owner->pool->owner != owner);
+
+	/*
+	 * Allocate the pool struct before wiring it in: the alloc goes through
+	 * the inherited (outer) chain, which is exactly where these bytes
+	 * belong since the new pool isn't tracking yet.
+	 */
+	pool = MemoryContextAlloc(owner->parent, sizeof(MemoryPool));
+	pool->limit = limit;
+	pool->owner = owner;
+	pool->next = owner->pool;
+	/*
+	 * Adopt owner's current subtree total (just owner itself, since we
+	 * required no children).  For an outer pool above us, no transfer is
+	 * needed: those bytes were already counted there via the alloc above
+	 * and via the keeper-block bookkeeping established at owner creation.
+	 */
+	pool->allocated = owner->mem_allocated;
+
+	owner->pool = pool;
+
+	return pool;
+}
+
+/*
+ * MemoryContextDetachPool
+ *		Detach and free the pool owned by 'owner'.
+ *
+ * 'owner' must own a pool and have no children, so we don't need to
+ * rewrite any inherited pool pointers.  After detach, allocations under
+ * 'owner' track only the outer chain (or nothing if there was no outer
+ * pool).  No accounting transfer is required: every allocation in this
+ * pool's domain also bumped the outer chain, so the outer chain's
+ * 'allocated' value is already correct.
+ */
+void
+MemoryContextDetachPool(MemoryContext owner)
+{
+	MemoryPool *pool;
+
+	Assert(MemoryContextIsValid(owner));
+	Assert(owner->firstchild == NULL);
+	Assert(owner->pool != NULL);
+	Assert(owner->pool->owner == owner);
+
+	pool = owner->pool;
+	owner->pool = pool->next;
+	pfree(pool);
+}
+
+/*
+ * MemoryContextGetPool
+ *		Return the pool owned by 'context', or NULL if it does not own one.
+ *
+ * Inherited pools are intentionally not exposed: a caller asking for "its"
+ * pool means the one it (or its setup code) configured.  Code that needs
+ * to read an ancestor's pool should be passed a MemoryPool * directly by
+ * whoever installed it.
+ */
+MemoryPool *
+MemoryContextGetPool(MemoryContext context)
+{
+	Assert(MemoryContextIsValid(context));
+	if (context->pool != NULL && context->pool->owner == context)
+		return context->pool;
+	return NULL;
 }
 
 /*
@@ -1090,6 +1276,74 @@ MemoryContextStatsPrint(MemoryContext context, void *passthru,
 								 level, name, stats_string, truncated_ident)));
 }
 
+#ifdef MEMORY_CONTEXT_CHECKING
+/*
+ * Verify that 'ctx' has a valid pool membership: either it shares its
+ * parent's pool (simple inheritance), or it owns a new innermost pool
+ * whose 'next' chains to the parent's pool.
+ */
+static void
+MemoryContextPoolMembershipCheck(MemoryContext ctx)
+{
+	if (ctx->parent == NULL)
+	{
+		/*
+		 * Top-level context: if it has a pool, it must own that pool, and
+		 * the pool must be the outermost (no enclosing pool above).
+		 */
+		if (ctx->pool != NULL)
+		{
+			Assert(ctx->pool->owner == ctx);
+			Assert(ctx->pool->next == NULL);
+		}
+		return;
+	}
+
+	if (ctx->pool == ctx->parent->pool)
+		return;					/* simple inheritance */
+
+	/* Differs from parent: must own a new pool chained to the parent's. */
+	Assert(ctx->pool != NULL);
+	Assert(ctx->pool->owner == ctx);
+	Assert(ctx->pool->next == ctx->parent->pool);
+}
+
+/*
+ * Verify the accounting invariant for a pool: pool->allocated equals the
+ * sum of mem_allocated over every context in pool->owner's subtree.  Also
+ * checks that pool->next, if any, is owned by an ancestor of pool->owner.
+ */
+static void
+MemoryPoolCheck(MemoryPool *pool)
+{
+	MemoryContext owner = pool->owner;
+	Size		sum;
+
+	Assert(owner != NULL);
+	Assert(MemoryContextIsValid(owner));
+	Assert(owner->pool == pool);
+
+	sum = owner->mem_allocated;
+	for (MemoryContext curr = owner->firstchild;
+		 curr != NULL;
+		 curr = MemoryContextTraverseNext(curr, owner))
+		sum += curr->mem_allocated;
+	Assert(sum == pool->allocated);
+
+	if (pool->next != NULL)
+	{
+		MemoryContext outer_owner = pool->next->owner;
+		MemoryContext anc;
+
+		Assert(outer_owner != NULL);
+		for (anc = owner->parent; anc != NULL; anc = anc->parent)
+			if (anc == outer_owner)
+				break;
+		Assert(anc == outer_owner);
+	}
+}
+#endif
+
 /*
  * MemoryContextCheck
  *		Check all chunks in the named context and its children.
@@ -1102,6 +1356,9 @@ MemoryContextCheck(MemoryContext context)
 {
 	Assert(MemoryContextIsValid(context));
 	context->methods->check(context);
+	MemoryContextPoolMembershipCheck(context);
+	if (context->pool != NULL && context->pool->owner == context)
+		MemoryPoolCheck(context->pool);
 
 	for (MemoryContext curr = context->firstchild;
 		 curr != NULL;
@@ -1109,6 +1366,9 @@ MemoryContextCheck(MemoryContext context)
 	{
 		Assert(MemoryContextIsValid(curr));
 		curr->methods->check(curr);
+		MemoryContextPoolMembershipCheck(curr);
+		if (curr->pool != NULL && curr->pool->owner == curr)
+			MemoryPoolCheck(curr->pool);
 	}
 }
 #endif
@@ -1166,6 +1426,7 @@ MemoryContextCreate(MemoryContext node,
 	node->parent = parent;
 	node->firstchild = NULL;
 	node->mem_allocated = 0;
+	node->pool = parent ? parent->pool : NULL;
 	node->prevchild = NULL;
 	node->name = name;
 	node->ident = NULL;

@@ -1866,12 +1866,9 @@ static void
 hash_agg_check_limits(AggState *aggstate)
 {
 	uint64		ngroups = aggstate->hash_ngroups_current;
-	Size		meta_mem = MemoryContextMemAllocated(aggstate->hash_metacxt,
-													 true);
-	Size		entry_mem = MemoryContextMemAllocated(aggstate->hash_tuplescxt,
-													  true);
-	Size		tval_mem = MemoryContextMemAllocated(aggstate->hashcontext->ecxt_per_tuple_memory,
-													 true);
+	Size		meta_mem = MemoryContextGetPool(aggstate->hash_metacxt)->allocated;
+	Size		entry_mem = MemoryContextGetPool(aggstate->hash_tuplescxt)->allocated;
+	Size		tval_mem = MemoryContextGetPool(aggstate->hashcontext->ecxt_per_tuple_memory)->allocated;
 	Size		total_mem = meta_mem + entry_mem + tval_mem;
 	bool		do_spill = false;
 
@@ -2004,19 +2001,20 @@ hash_create_memory(AggState *aggstate)
 	 * The hashcontext's per-tuple memory will be used for byref transition
 	 * values and returned by AggCheckCallContext().
 	 */
-	aggstate->hashcontext = CreateWorkExprContext(aggstate->ss.ps.state);
+	aggstate->hashcontext = CreateExprContext(aggstate->ss.ps.state);
+	MemoryContextCreatePool(aggstate->hashcontext->ecxt_per_tuple_memory,
+							work_mem * 1024L);
 
 	/*
 	 * The meta context will be used for the bucket array of
 	 * TupleHashEntryData (or arrays, in the case of grouping sets). As the
 	 * hash table grows, the bucket array will double in size and the old one
-	 * will be freed, so an AllocSet is appropriate. For large bucket arrays,
-	 * the large allocation path will be used, so it's not worth worrying
-	 * about wasting space due to power-of-two allocations.
+	 * will be freed, so an AllocSet is appropriate.
 	 */
 	aggstate->hash_metacxt = AllocSetContextCreate(aggstate->ss.ps.state->es_query_cxt,
 												   "HashAgg meta context",
 												   ALLOCSET_DEFAULT_SIZES);
+	MemoryContextCreatePool(aggstate->hash_metacxt, work_mem * 1024L);
 
 	/*
 	 * The hash entries themselves, which include the grouping key
@@ -2025,29 +2023,13 @@ hash_create_memory(AggState *aggstate)
 	 * entire hash table is reset. The bump allocator is faster for
 	 * allocations and avoids wasting space on the chunk header or
 	 * power-of-two allocations.
-	 *
-	 * Like CreateWorkExprContext(), use smaller sizings for smaller work_mem,
-	 * to avoid large jumps in memory usage.
 	 */
-
-	/*
-	 * Like CreateWorkExprContext(), use smaller sizings for smaller work_mem,
-	 * to avoid large jumps in memory usage.
-	 */
-	maxBlockSize = pg_prevpower2_size_t(work_mem * (Size) 1024 / 16);
-
-	/* But no bigger than ALLOCSET_DEFAULT_MAXSIZE */
-	maxBlockSize = Min(maxBlockSize, ALLOCSET_DEFAULT_MAXSIZE);
-
-	/* and no smaller than ALLOCSET_DEFAULT_INITSIZE */
-	maxBlockSize = Max(maxBlockSize, ALLOCSET_DEFAULT_INITSIZE);
-
 	aggstate->hash_tuplescxt = BumpContextCreate(aggstate->ss.ps.state->es_query_cxt,
 												 "HashAgg hashed tuples",
 												 ALLOCSET_DEFAULT_MINSIZE,
 												 ALLOCSET_DEFAULT_INITSIZE,
 												 maxBlockSize);
-
+	MemoryContextCreatePool(aggstate->hash_tuplescxt, work_mem * 1024L);
 }
 
 /*
