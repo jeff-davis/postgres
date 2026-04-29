@@ -388,7 +388,7 @@ GenerationAllocLarge(MemoryContext context, Size size, int flags)
 	/* Make a vchunk covering the new block's header */
 	VALGRIND_MEMPOOL_ALLOC(set, block, Generation_BLOCKHDRSZ);
 
-	context->mem_allocated += blksize;
+	MemoryContextUpdateAlloc(context, blksize);
 
 	/* block with a single (used) chunk */
 	block->context = set;
@@ -513,7 +513,7 @@ GenerationAllocFromNewBlock(MemoryContext context, Size size, int flags,
 	/* Make a vchunk covering the new block's header */
 	VALGRIND_MEMPOOL_ALLOC(set, block, Generation_BLOCKHDRSZ);
 
-	context->mem_allocated += blksize;
+	MemoryContextUpdateAlloc(context, blksize);
 
 	/* initialize the new block */
 	GenerationBlockInit(set, block, blksize);
@@ -697,7 +697,7 @@ GenerationBlockFree(GenerationContext *set, GenerationBlock *block)
 	/* release the block from the list of blocks */
 	dlist_delete(&block->node);
 
-	((MemoryContext) set)->mem_allocated -= block->blksize;
+	MemoryContextUpdateAlloc((MemoryContext) set, -((ssize_t) block->blksize));
 
 #ifdef CLOBBER_FREED_MEMORY
 	wipe_mem(block, block->blksize);

@@ -461,7 +461,7 @@ SlabReset(MemoryContext context)
 		VALGRIND_MEMPOOL_FREE(slab, block);
 
 		free(block);
-		context->mem_allocated -= slab->blockSize;
+		MemoryContextUpdateAlloc(context, -((ssize_t) slab->blockSize));
 	}
 
 	/* walk over blocklist and free the blocks */
@@ -481,7 +481,7 @@ SlabReset(MemoryContext context)
 			VALGRIND_MEMPOOL_FREE(slab, block);
 
 			free(block);
-			context->mem_allocated -= slab->blockSize;
+			MemoryContextUpdateAlloc(context, -((ssize_t) slab->blockSize));
 		}
 	}
 
@@ -597,7 +597,7 @@ SlabAllocFromNewBlock(MemoryContext context, Size size, int flags)
 		VALGRIND_MEMPOOL_ALLOC(slab, block, Slab_BLOCKHDRSZ);
 
 		block->slab = slab;
-		context->mem_allocated += slab->blockSize;
+		MemoryContextUpdateAlloc(context, slab->blockSize);
 
 		/* use the first chunk in the new block */
 		chunk = SlabBlockGetChunk(slab, block, 0);
@@ -836,7 +836,7 @@ SlabFree(void *pointer)
 			VALGRIND_MEMPOOL_FREE(slab, block);
 
 			free(block);
-			slab->header.mem_allocated -= slab->blockSize;
+			MemoryContextUpdateAlloc(&slab->header, -((ssize_t) slab->blockSize));
 		}
 
 		/*
