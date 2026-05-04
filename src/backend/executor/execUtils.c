@@ -234,13 +234,21 @@ FreeExecutorState(EState *estate)
 	MemoryContextDelete(estate->es_query_cxt);
 }
 
-/*
- * Internal implementation for CreateExprContext() and CreateWorkExprContext()
- * that allows control over the AllocSet parameters.
+/* ----------------
+ *		CreateExprContext
+ *
+ *		Create a context for expression evaluation within an EState.
+ *
+ * An executor run may require multiple ExprContexts (we usually make one
+ * for each Plan node, and a separate one for per-output-tuple processing
+ * such as constraint checking).  Each ExprContext has its own "per-tuple"
+ * memory context.
+ *
+ * Note we make no assumption about the caller's memory context.
+ * ----------------
  */
-static ExprContext *
-CreateExprContextInternal(EState *estate, Size minContextSize,
-						  Size initBlockSize, Size maxBlockSize)
+ExprContext *
+CreateExprContext(EState *estate)
 {
 	ExprContext *econtext;
 	MemoryContext oldcontext;
@@ -263,9 +271,7 @@ CreateExprContextInternal(EState *estate, Size minContextSize,
 	econtext->ecxt_per_tuple_memory =
 		AllocSetContextCreate(estate->es_query_cxt,
 							  "ExprContext",
-							  minContextSize,
-							  initBlockSize,
-							  maxBlockSize);
+							  ALLOCSET_DEFAULT_SIZES);
 
 	econtext->ecxt_param_exec_vals = estate->es_param_exec_vals;
 	econtext->ecxt_param_list_info = estate->es_param_list_info;
@@ -293,51 +299,6 @@ CreateExprContextInternal(EState *estate, Size minContextSize,
 	MemoryContextSwitchTo(oldcontext);
 
 	return econtext;
-}
-
-/* ----------------
- *		CreateExprContext
- *
- *		Create a context for expression evaluation within an EState.
- *
- * An executor run may require multiple ExprContexts (we usually make one
- * for each Plan node, and a separate one for per-output-tuple processing
- * such as constraint checking).  Each ExprContext has its own "per-tuple"
- * memory context.
- *
- * Note we make no assumption about the caller's memory context.
- * ----------------
- */
-ExprContext *
-CreateExprContext(EState *estate)
-{
-	return CreateExprContextInternal(estate, ALLOCSET_DEFAULT_SIZES);
-}
-
-
-/* ----------------
- *		CreateWorkExprContext
- *
- * Like CreateExprContext, but specifies the AllocSet sizes to be reasonable
- * in proportion to work_mem. If the maximum block allocation size is too
- * large, it's easy to skip right past work_mem with a single allocation.
- * ----------------
- */
-ExprContext *
-CreateWorkExprContext(EState *estate)
-{
-	Size		maxBlockSize;
-
-	maxBlockSize = pg_prevpower2_size_t(work_mem * (Size) 1024 / 16);
-
-	/* But no bigger than ALLOCSET_DEFAULT_MAXSIZE */
-	maxBlockSize = Min(maxBlockSize, ALLOCSET_DEFAULT_MAXSIZE);
-
-	/* and no smaller than ALLOCSET_DEFAULT_INITSIZE */
-	maxBlockSize = Max(maxBlockSize, ALLOCSET_DEFAULT_INITSIZE);
-
-	return CreateExprContextInternal(estate, ALLOCSET_DEFAULT_MINSIZE,
-									 ALLOCSET_DEFAULT_INITSIZE, maxBlockSize);
 }
 
 /* ----------------
