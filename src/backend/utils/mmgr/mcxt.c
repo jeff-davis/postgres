@@ -665,6 +665,86 @@ MemoryContextSetIdentifier(MemoryContext context, const char *id)
 }
 
 /*
+ * Add a memory pool to an existing context. It may already be a member of an
+ * outer pool owned by an ancestor, but it may not already own its memory
+ * pool.
+ *
+ * Currently, the context must have no child contexts, but that restriction
+ * could be lifted if necessary.
+ */
+MemoryPool *
+MemoryContextCreatePool(MemoryContext context, Size limit)
+{
+	MemoryPool *pool = &context->pool;
+
+	Assert(MemoryContextIsValid(context));
+	Assert(limit > 0);
+	Assert(context->firstchild == NULL);
+	Assert(!MemoryContextOwnsPool(context));
+
+	/* outer may already be set */
+
+	pool->limit = limit;
+	pool->allocated = context->mem_allocated;
+
+	return pool;
+}
+
+/* helper for MemoryContextSetParent() */
+static void
+MemoryContextTransferPool(MemoryContext context, MemoryContext new_parent)
+{
+	MemoryPool *old_outer_pool = context->pool.outer;
+	MemoryPool *new_outer_pool = NULL;
+	Size		subtree_mem;
+
+	if (new_parent)
+		new_outer_pool = MemoryContextGetPool(new_parent);
+
+	if (!old_outer_pool && !new_outer_pool)
+		return;
+
+	if (old_outer_pool == new_outer_pool)
+		return;
+
+	/*
+	 * If the context's pool is inherited from some ancestor context, we need
+	 * to calculate the total for this subtree. If it's owned, we can just use
+	 * the pool's total.
+	 */
+	if (MemoryContextOwnsPool(context))
+		subtree_mem = context->pool.allocated;
+	else
+		subtree_mem = MemoryContextMemAllocated(context, true);
+
+	/* subtract from old subtree */
+	for (MemoryPool *pool = old_outer_pool; pool != NULL; pool = pool->outer)
+		pool->allocated -= subtree_mem;
+
+	/* add to new subtree */
+	for (MemoryPool *pool = new_outer_pool; pool != NULL; pool = pool->outer)
+		pool->allocated += subtree_mem;
+
+	/*
+	 * If it's not the owner of its pool, subcontexts could refer to pools
+	 * owned by the context's old ancestors. Search subtree for references to
+	 * old_outer_pool and replace with new_outer_pool. NB: old_outer_pool or
+	 * new_outer_pool might be NULL here.
+	 */
+	if (!MemoryContextOwnsPool(context))
+	{
+		for (MemoryContext cxt = context->firstchild; cxt != NULL;
+			 cxt = MemoryContextTraverseNext(cxt, context))
+		{
+			if (cxt->pool.outer == old_outer_pool)
+				cxt->pool.outer = new_outer_pool;
+		}
+	}
+
+	context->pool.outer = new_outer_pool;
+}
+
+/*
  * MemoryContextSetParent
  *		Change a context to belong to a new parent (or no parent).
  *
@@ -691,6 +771,12 @@ MemoryContextSetParent(MemoryContext context, MemoryContext new_parent)
 	/* Fast path if it's got correct parent already */
 	if (new_parent == context->parent)
 		return;
+
+	/*
+	 * This must happen here while we still have information about the
+	 * existing ancestor.
+	 */
+	MemoryContextTransferPool(context, new_parent);
 
 	/* Delink from existing parent, if any */
 	if (context->parent)
@@ -726,6 +812,10 @@ MemoryContextSetParent(MemoryContext context, MemoryContext new_parent)
 		context->prevchild = NULL;
 		context->nextchild = NULL;
 	}
+
+#ifdef MEMORY_CONTEXT_CHECKING
+	MemoryContextCheck(context);
+#endif
 }
 
 /*
@@ -1090,18 +1180,30 @@ MemoryContextStatsPrint(MemoryContext context, void *passthru,
 								 level, name, stats_string, truncated_ident)));
 }
 
+#ifdef MEMORY_CONTEXT_CHECKING
+
+static void
+MemoryContextCheckPool(MemoryContext context)
+{
+	if (MemoryContextOwnsPool(context))
+		Assert(context->pool.allocated == MemoryContextMemAllocated(context, true));
+
+	if (context->parent)
+		Assert(context->pool.outer == MemoryContextGetPool(context->parent));
+}
+
 /*
  * MemoryContextCheck
  *		Check all chunks in the named context and its children.
  *
  * This is just a debugging utility, so it's not fancy.
  */
-#ifdef MEMORY_CONTEXT_CHECKING
 void
 MemoryContextCheck(MemoryContext context)
 {
 	Assert(MemoryContextIsValid(context));
 	context->methods->check(context);
+	MemoryContextCheckPool(context);
 
 	for (MemoryContext curr = context->firstchild;
 		 curr != NULL;
@@ -1109,8 +1211,10 @@ MemoryContextCheck(MemoryContext context)
 	{
 		Assert(MemoryContextIsValid(curr));
 		curr->methods->check(curr);
+		MemoryContextCheckPool(curr);
 	}
 }
+
 #endif
 
 /*
@@ -1166,6 +1270,9 @@ MemoryContextCreate(MemoryContext node,
 	node->parent = parent;
 	node->firstchild = NULL;
 	node->mem_allocated = 0;
+	node->pool.limit = 0;
+	node->pool.allocated = 0;
+	node->pool.outer = NULL;
 	node->prevchild = NULL;
 	node->name = name;
 	node->ident = NULL;
@@ -1180,6 +1287,7 @@ MemoryContextCreate(MemoryContext node,
 		parent->firstchild = node;
 		/* inherit allowInCritSection flag from parent */
 		node->allowInCritSection = parent->allowInCritSection;
+		node->pool.outer = MemoryContextGetPool(parent);
 	}
 	else
 	{

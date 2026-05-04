@@ -114,6 +114,21 @@ typedef struct MemoryContextMethods
 } MemoryContextMethods;
 
 
+/*
+ * Memory Pools account for memory usage.
+ *
+ * If limit > 0, then this pool is owned by the containing context, and
+ * 'allocated' is valid. If limit == 0, the pool was inherited from the parent
+ * context, and 'allocated' is invalid.
+ */
+typedef struct MemoryPool
+{
+	Size		limit;			/* limit (not enforced) */
+	Size		allocated;		/* allocation total for subtree */
+	struct MemoryPool *outer;	/* outer containing pool */
+} MemoryPool;
+
+
 typedef struct MemoryContextData
 {
 	pg_node_attr(abstract)		/* there are no nodes of this type */
@@ -123,6 +138,7 @@ typedef struct MemoryContextData
 	bool		isReset;		/* T = no space allocated since last reset */
 	bool		allowInCritSection; /* allow palloc in critical section */
 	Size		mem_allocated;	/* track memory allocated for this context */
+	MemoryPool	pool;			/* accounting, if enabled */
 	const MemoryContextMethods *methods;	/* virtual function table */
 	MemoryContext parent;		/* NULL if no parent (toplevel context) */
 	MemoryContext firstchild;	/* head of linked list of children */

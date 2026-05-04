@@ -457,15 +457,18 @@ BumpAllocFromNewBlock(MemoryContext context, Size size, int flags,
 	BumpBlock  *block;
 	Size		blksize;
 	Size		required_size;
+	Size		blockSizeLimit;
 
 	/*
 	 * The first such block has size initBlockSize, and we double the space in
 	 * each succeeding block, but not more than maxBlockSize.
 	 */
 	blksize = set->nextBlockSize;
+	blockSizeLimit = MemoryContextBlockSizeLimit(context, set->initBlockSize,
+												 set->maxBlockSize);
 	set->nextBlockSize <<= 1;
-	if (set->nextBlockSize > set->maxBlockSize)
-		set->nextBlockSize = set->maxBlockSize;
+	if (set->nextBlockSize > blockSizeLimit)
+		set->nextBlockSize = blockSizeLimit;
 
 	/* we'll need space for the chunk, chunk hdr and block hdr */
 	required_size = chunk_size + Bump_CHUNKHDRSZ + Bump_BLOCKHDRSZ;

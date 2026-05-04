@@ -17,6 +17,7 @@
 #define MEMUTILS_INTERNAL_H
 
 #include "utils/memutils.h"
+#include "port/pg_bitutils.h"
 
 /* These functions implement the MemoryContext API for AllocSet context. */
 extern void *AllocSetAlloc(MemoryContext context, Size size, int flags);
@@ -157,16 +158,89 @@ extern void MemoryContextCreate(MemoryContext node,
 								MemoryContext parent,
 								const char *name);
 
+static inline bool
+MemoryPoolIsValid(MemoryPool *pool)
+{
+	if (pool->limit > 0)
+		return true;
+
+	Assert(pool->allocated == 0);
+	return false;
+}
+
+static inline bool
+MemoryContextOwnsPool(MemoryContext context)
+{
+	return MemoryPoolIsValid(&context->pool);
+}
+
+static inline MemoryPool *
+MemoryPoolOuter(MemoryPool *pool)
+{
+	Assert(pool->outer == NULL || MemoryPoolIsValid(pool->outer));
+	return pool->outer;
+}
+
+/* get owned or inherited pool for memory context, or NULL */
+static inline MemoryPool *
+MemoryContextGetPool(MemoryContext context)
+{
+	MemoryPool *pool;
+
+	if (MemoryContextOwnsPool(context))
+		pool = &context->pool;
+	else
+		pool = context->pool.outer;
+
+	Assert(pool == NULL || MemoryPoolIsValid(pool));
+	return pool;
+}
+
+/*
+ * If the context is part of a memory pool, calculate a reasonable max block
+ * size given the memory pool limit. This avoids a case where a small chunk
+ * request causes a large block allocation that overwhelms the limit.
+ * Calculated dynamically because the limit could change, e.g. during
+ * MemoryContextSetParent().
+ */
+static inline Size
+MemoryContextBlockSizeLimit(MemoryContext context, Size min, Size max)
+{
+	MemoryPool *pool = MemoryContextGetPool(context);
+	Size		maxBlockSize;
+
+	if (pool != NULL)
+	{
+		/* reasonable value chosen as 1/16th of the limit */
+		maxBlockSize = pg_prevpower2_size_t(pool->limit / 16);
+
+		maxBlockSize = Min(maxBlockSize, max);
+		maxBlockSize = Max(maxBlockSize, min);
+	}
+	else
+		maxBlockSize = max;
+
+	return maxBlockSize;
+}
+
 /*
  * MemoryContextUpdateAlloc()
  *
- * Update allocation total.
+ * Update allocation total for context and pool(s).
  */
 static inline void
 MemoryContextUpdateAlloc(MemoryContext context, ssize_t size)
 {
 	Assert(size >= 0 || -size <= context->mem_allocated);
 	context->mem_allocated += size;
+
+	for (MemoryPool *pool = MemoryContextGetPool(context);
+		 pool != NULL;
+		 pool = MemoryPoolOuter(pool))
+	{
+		Assert(size >= 0 || -size <= pool->allocated);
+		pool->allocated += size;
+	}
 }
 
 extern void *MemoryContextAllocationFailure(MemoryContext context, Size size,

@@ -867,6 +867,7 @@ AllocSetAllocFromNewBlock(MemoryContext context, Size size, int flags,
 	Size		blksize;
 	Size		required_size;
 	Size		chunk_size;
+	Size		blockSizeLimit;
 
 	/* due to the keeper block set->blocks should always be valid */
 	Assert(set->blocks != NULL);
@@ -931,8 +932,11 @@ AllocSetAllocFromNewBlock(MemoryContext context, Size size, int flags,
 	 */
 	blksize = set->nextBlockSize;
 	set->nextBlockSize <<= 1;
-	if (set->nextBlockSize > set->maxBlockSize)
-		set->nextBlockSize = set->maxBlockSize;
+
+	blockSizeLimit = MemoryContextBlockSizeLimit(context, set->initBlockSize,
+												 set->maxBlockSize);
+	if (set->nextBlockSize > blockSizeLimit)
+		set->nextBlockSize = blockSizeLimit;
 
 	/* Choose the actual chunk size to allocate */
 	chunk_size = GetChunkSizeFromFreeListIdx(fidx);
