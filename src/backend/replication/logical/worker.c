@@ -5059,7 +5059,7 @@ maybe_reread_subscription(void)
 		started_tx = true;
 	}
 
-	newsub = GetSubscription(MyLogicalRepWorker->subid, true, true);
+	newsub = GetSubscription(MyLogicalRepWorker->subid, true, true, true);
 
 	if (newsub)
 	{
@@ -5808,7 +5808,7 @@ InitializeLogRepWorker(void)
 	LockSharedObject(SubscriptionRelationId, MyLogicalRepWorker->subid, 0,
 					 AccessShareLock);
 
-	MySubscription = GetSubscription(MyLogicalRepWorker->subid, true, true);
+	MySubscription = GetSubscription(MyLogicalRepWorker->subid, true, true, true);
 
 	if (MySubscription)
 	{

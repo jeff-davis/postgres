@@ -125,11 +125,29 @@ CREATE SUBSCRIPTION regress_testsub6 SERVER test_server PUBLICATION testpub WITH
 
 DROP USER MAPPING FOR regress_subscription_user3 SERVER test_server;
 RESET SESSION AUTHORIZATION;
+CREATE SERVER test_server2 FOREIGN DATA WRAPPER test_fdw;
+GRANT USAGE ON FOREIGN SERVER test_server2 TO regress_subscription_user3;
+SET SESSION AUTHORIZATION regress_subscription_user3;
+CREATE USER MAPPING FOR regress_subscription_user3 SERVER test_server2 OPTIONS(user 'bar', password 'secret');
+
+RESET SESSION AUTHORIZATION;
 REVOKE USAGE ON FOREIGN SERVER test_server FROM regress_subscription_user3;
 SET SESSION AUTHORIZATION regress_subscription_user3;
 
 -- fail, must connect but lacks USAGE on server, as well as user mapping
 DROP SUBSCRIPTION regress_testsub6;
+
+-- ok, should not need to resolve conninfo for the old broken server
+ALTER SUBSCRIPTION regress_testsub6 SERVER test_server2;
+DROP USER MAPPING FOR regress_subscription_user3 SERVER test_server2;
+RESET SESSION AUTHORIZATION;
+REVOKE USAGE ON FOREIGN SERVER test_server2 FROM regress_subscription_user3;
+SET SESSION AUTHORIZATION regress_subscription_user3;
+
+-- ok, should not need to resolve conninfo for the current broken server
+ALTER SUBSCRIPTION regress_testsub6 CONNECTION 'dbname=regress_doesnotexist2 password=secret';
+RESET SESSION AUTHORIZATION;
+SET SESSION AUTHORIZATION regress_subscription_user3;
 
 ALTER SUBSCRIPTION regress_testsub6 SET (slot_name = NONE);
 DROP SUBSCRIPTION regress_testsub6;
@@ -137,6 +155,7 @@ DROP SUBSCRIPTION regress_testsub6;
 SET SESSION AUTHORIZATION regress_subscription_user;
 REVOKE CREATE ON DATABASE REGRESSION FROM regress_subscription_user3;
 
+DROP SERVER test_server2;
 DROP SERVER test_server;
 
 -- fail, FDW is dependent

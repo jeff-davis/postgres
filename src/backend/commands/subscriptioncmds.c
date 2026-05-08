@@ -1424,6 +1424,7 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 	bool		update_failover = false;
 	bool		update_two_phase = false;
 	bool		check_pub_rdt = false;
+	bool		conninfo_needed = true;
 	bool		retain_dead_tuples;
 	int			max_retention;
 	bool		retention_active;
@@ -1454,13 +1455,22 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
 					   stmt->subname);
 
 	/*
-	 * Skip ACL checks on the subscription's foreign server, if any. If
-	 * changing the server (or replacing it with a raw connection), then the
-	 * old one will be removed anyway. If changing something unrelated,
-	 * there's no need to do an additional ACL check here; that will be done
-	 * by the subscription worker anyway.
+	 * If we're replacing the connection information, we don't need the old
+	 * conninfo at all. Trying to construct it could encounter errors, which
+	 * would prevent the user from fixing the problem.
 	 */
-	sub = GetSubscription(subid, false, false);
+	if (stmt->kind == ALTER_SUBSCRIPTION_SERVER ||
+		stmt->kind == ALTER_SUBSCRIPTION_CONNECTION)
+		conninfo_needed = false;
+
+	/*
+	 * Skip ACL checks when constructing the existing connection information;
+	 * the ACL check will be performed on the new connection information, if
+	 * any. If changing something unrelated to conninfo, there's no need to do
+	 * an additional ACL check on the foreign server here; that will be done
+	 * by the subscription worker.
+	 */
+	sub = GetSubscription(subid, false, conninfo_needed, false);
 
 	retain_dead_tuples = sub->retaindeadtuples;
 	origin = sub->origin;
