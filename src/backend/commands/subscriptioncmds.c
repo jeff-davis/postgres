@@ -2193,7 +2193,7 @@ DropSubscription(DropSubscriptionStmt *stmt, bool isTopLevel)
 	Datum		datum;
 	bool		isnull;
 	char	   *subname;
-	char	   *conninfo;
+	char	   *conninfo = NULL;
 	char	   *slotname;
 	List	   *subworkers;
 	ListCell   *lc;
@@ -2256,39 +2256,6 @@ DropSubscription(DropSubscriptionStmt *stmt, bool isTopLevel)
 								   Anum_pg_subscription_subname);
 	subname = pstrdup(NameStr(*DatumGetName(datum)));
 
-	/* Get conninfo */
-	if (OidIsValid(form->subserver))
-	{
-		AclResult	aclresult;
-		ForeignServer *server;
-
-		server = GetForeignServer(form->subserver);
-		aclresult = object_aclcheck(ForeignServerRelationId, form->subserver,
-									form->subowner, ACL_USAGE);
-		if (aclresult != ACLCHECK_OK)
-		{
-			/*
-			 * Unable to generate connection string because permissions on the
-			 * foreign server have been removed. Follow the same logic as an
-			 * unusable subconninfo (which will result in an ERROR later
-			 * unless slot_name = NONE).
-			 */
-			err = psprintf(_("subscription owner \"%s\" does not have permission on foreign server \"%s\""),
-						   GetUserNameFromId(form->subowner, false),
-						   server->servername);
-			conninfo = NULL;
-		}
-		else
-			conninfo = ForeignServerConnectionString(form->subowner,
-													 server);
-	}
-	else
-	{
-		datum = SysCacheGetAttrNotNull(SUBSCRIPTIONOID, tup,
-									   Anum_pg_subscription_subconninfo);
-		conninfo = TextDatumGetCString(datum);
-	}
-
 	/* Get slotname */
 	datum = SysCacheGetAttr(SUBSCRIPTIONOID, tup,
 							Anum_pg_subscription_subslotname, &isnull);
@@ -2296,6 +2263,42 @@ DropSubscription(DropSubscriptionStmt *stmt, bool isTopLevel)
 		slotname = pstrdup(NameStr(*DatumGetName(datum)));
 	else
 		slotname = NULL;
+
+	/* conninfo only needed if slotname is valid */
+	if (slotname)
+	{
+		if (OidIsValid(form->subserver))
+		{
+			AclResult	aclresult;
+			ForeignServer *server;
+
+			server = GetForeignServer(form->subserver);
+			aclresult = object_aclcheck(ForeignServerRelationId, form->subserver,
+										form->subowner, ACL_USAGE);
+			if (aclresult != ACLCHECK_OK)
+			{
+				/*
+				 * Unable to generate connection string because permissions on
+				 * the foreign server have been removed. Follow the same logic
+				 * as an unusable subconninfo and ReportSlotConnectionError()
+				 * for a more helpful error.
+				 */
+				err = psprintf(_("subscription owner \"%s\" does not have permission on foreign server \"%s\""),
+							   GetUserNameFromId(form->subowner, false),
+							   server->servername);
+				conninfo = NULL;
+			}
+			else
+				conninfo = ForeignServerConnectionString(form->subowner,
+														 server);
+		}
+		else
+		{
+			datum = SysCacheGetAttrNotNull(SUBSCRIPTIONOID, tup,
+										   Anum_pg_subscription_subconninfo);
+			conninfo = TextDatumGetCString(datum);
+		}
+	}
 
 	/*
 	 * Since dropping a replication slot is not transactional, the replication
