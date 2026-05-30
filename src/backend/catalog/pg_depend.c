@@ -17,6 +17,7 @@
 #include "access/genam.h"
 #include "access/htup_details.h"
 #include "access/table.h"
+#include "catalog/aclcheck_track.h"
 #include "catalog/catalog.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
@@ -29,6 +30,8 @@
 #include "miscadmin.h"
 #include "storage/lmgr.h"
 #include "storage/lock.h"
+#include "storage/sinval.h"
+#include "utils/acl.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
@@ -38,6 +41,7 @@
 
 static bool isObjectPinned(const ObjectAddress *object);
 static void dependencyLockAndCheckObject(Oid classId, Oid objectId);
+static void recheckAclAndLock(Oid classId, Oid objectId);
 
 
 /*
@@ -733,20 +737,103 @@ isObjectPinned(const ObjectAddress *object)
 
 
 /*
+ * recheckAclAndLock()
+ *
+ * Verify permission and acquire lock.
+ *
+ * If a permission check was tracked for this object, compare the saved
+ * SharedInvalidMessageCounter with the current value. If it changed
+ * (meaning catalog invalidations arrived since the original check),
+ * re-verify the permission before locking. After acquiring the lock,
+ * if more invalidations arrived during the wait, release and retry.
+ *
+ * Same approach as RangeVarGetRelidExtended().
+ *
+ * If no permission check was tracked, just acquire the lock.
+ */
+static void
+recheckAclAndLock(Oid classId, Oid objectId)
+{
+	Oid			roleId;
+	AclMode		mode;
+	uint64		saved_inval_count;
+	ObjectAddress object;
+	bool		had_aclcheck;
+
+	had_aclcheck = aclcheck_track_find(classId, objectId,
+									   &roleId, &mode, &saved_inval_count);
+
+	/* No permission check was tracked, just acquire the lock */
+	if (!had_aclcheck)
+	{
+		if (classId == RelationRelationId)
+			LockRelationOid(objectId, AccessShareLock);
+		else
+			LockDatabaseObject(classId, objectId, 0, AccessShareLock);
+		return;
+	}
+
+	object.classId = classId;
+	object.objectId = objectId;
+	object.objectSubId = 0;
+
+	for (;;)
+	{
+		uint64		inval_count;
+
+		inval_count = SharedInvalidMessageCounter;
+
+		/* Recheck only if invalidations arrived since the original check */
+		if (saved_inval_count != inval_count)
+		{
+			AclResult	aclresult;
+
+			if (classId == RelationRelationId)
+				aclresult = pg_class_aclcheck(objectId, roleId, mode);
+			else
+				aclresult = object_aclcheck(classId, objectId, roleId, mode);
+
+			if (aclresult != ACLCHECK_OK)
+				ereport(ERROR,
+						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+						 errmsg("permission denied for %s",
+								getObjectDescription(&object, false))));
+		}
+
+		/* Acquire lock */
+		if (classId == RelationRelationId)
+			LockRelationOid(objectId, AccessShareLock);
+		else
+			LockDatabaseObject(classId, objectId, 0, AccessShareLock);
+
+		/* If no invalidations during lock wait, we're done */
+		if (inval_count == SharedInvalidMessageCounter)
+			break;
+
+		/* Something changed, release lock and retry */
+		if (classId == RelationRelationId)
+			UnlockRelationOid(objectId, AccessShareLock);
+		else
+			UnlockDatabaseObject(classId, objectId, 0, AccessShareLock);
+
+		saved_inval_count = 0;	/* force recheck on next iteration */
+	}
+}
+
+
+/*
  * dependencyLockAndCheckObject
  *
  * Lock the object that we are about to record a dependency on.  After it's
  * locked, verify that it hasn't been dropped while we weren't looking.  If it
- * has been dropped, throw an an error.
+ * has been dropped, throw an error.
+ *
+ * Lock acquisition and permission verification are handled by
+ * recheckAclAndLock(), which uses the same retry pattern as
+ * RangeVarGetRelidExtended() to close the TOCTOU window.
  *
  * If the caller already holds a lock that conflicts with DROP
- * (AccessShareLock or stronger), this does nothing.  Callers should acquire
- * locks already when they look up the referenced objects, but many callers
- * currently do not.  This is a backstop to make sure that we don't record a
- * bogus reference permanently in the catalogs in that case.  In the future,
- * after we have tightened up all the callers to acquire locks earlier, this
- * could just verify that the object is already locked and throw an error if
- * not.
+ * (AccessShareLock or stronger), this skips lock acquisition entirely.
  */
 static void
 dependencyLockAndCheckObject(Oid classId, Oid objectId)
@@ -775,8 +862,8 @@ dependencyLockAndCheckObject(Oid classId, Oid objectId)
 		if (LockHeldByMe(&tag, AccessShareLock, true))
 			return;
 
-		/* Assume we should lock the whole object not a sub-object */
-		LockDatabaseObject(classId, objectId, 0, AccessShareLock);
+		/* Check permission and acquire lock using retry pattern */
+		recheckAclAndLock(classId, objectId);
 
 		/*
 		 * Check that the object still exists.  If the catalog has a suitable
@@ -835,7 +922,9 @@ dependencyLockAndCheckObject(Oid classId, Oid objectId)
 
 		if (CheckRelationOidLockedByMe(objectId, AccessShareLock, true))
 			return;
-		LockRelationOid(objectId, AccessShareLock);
+
+		/* Check permission and acquire lock using retry pattern */
+		recheckAclAndLock(classId, objectId);
 
 		if (SearchSysCacheExists1(RELOID, ObjectIdGetDatum(objectId)))
 			return;

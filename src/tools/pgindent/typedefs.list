@@ -19,6 +19,7 @@ AbsoluteTime
 AccessMethodInfo
 AccessPriv
 Acl
+AclCheckEntry
 AclItem
 AclMaskHow
 AclMode

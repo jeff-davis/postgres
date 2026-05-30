@@ -44,6 +44,7 @@
 #include "access/sysattr.h"
 #include "access/tableam.h"
 #include "access/xact.h"
+#include "catalog/aclcheck_track.h"
 #include "catalog/binary_upgrade.h"
 #include "catalog/catalog.h"
 #include "catalog/dependency.h"
@@ -81,8 +82,18 @@
 #include "utils/fmgroids.h"
 #include "utils/guc.h"
 #include "utils/lsyscache.h"
+#include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
+
+#define ACLCHECK_TRACK_INITIAL_SIZE 64
+
+static MemoryContext AclCheckTrackContext = NULL;
+
+AclCheckEntry *aclcheck_tracked = NULL;
+int			aclcheck_tracked_count = 0;
+int			aclcheck_tracked_max = 0;
+bool		aclcheck_tracking_active = false;
 
 /*
  * Internal format used by ALTER DEFAULT PRIVILEGES.
@@ -3891,6 +3902,7 @@ object_aclcheck_ext(Oid classid, Oid objectid,
 					Oid roleid, AclMode mode,
 					bool *is_missing)
 {
+	aclcheck_track_record(classid, objectid, roleid, mode);
 	if (object_aclmask_ext(classid, objectid, roleid, mode, ACLMASK_ANY,
 						   is_missing) != 0)
 		return ACLCHECK_OK;
@@ -4093,6 +4105,7 @@ AclResult
 pg_class_aclcheck_ext(Oid table_oid, Oid roleid,
 					  AclMode mode, bool *is_missing)
 {
+	aclcheck_track_record(RelationRelationId, table_oid, roleid, mode);
 	if (pg_class_aclmask_ext(table_oid, roleid, mode,
 							 ACLMASK_ANY, is_missing) != 0)
 		return ACLCHECK_OK;
@@ -5035,4 +5048,70 @@ RemoveRoleFromInitPriv(Oid roleid, Oid classid, Oid objid, int32 objsubid)
 	CommandCounterIncrement();
 
 	table_close(rel, RowExclusiveLock);
+}
+
+/*
+ * Reset the tracking array. Called at each top-level ProcessUtility()
+ * to avoid carrying stale entries from a previous statement.
+ * Resets the memory context, freeing all prior allocations.
+ */
+void
+aclcheck_track_reset(void)
+{
+	if (AclCheckTrackContext == NULL)
+	{
+		AclCheckTrackContext = AllocSetContextCreate(TopMemoryContext,
+													 "AclCheckTrackContext",
+													 ALLOCSET_DEFAULT_SIZES);
+	}
+	else
+	{
+		MemoryContextReset(AclCheckTrackContext);
+	}
+
+	aclcheck_tracked = (AclCheckEntry *)
+		MemoryContextAlloc(AclCheckTrackContext,
+						   ACLCHECK_TRACK_INITIAL_SIZE * sizeof(AclCheckEntry));
+	aclcheck_tracked_max = ACLCHECK_TRACK_INITIAL_SIZE;
+	aclcheck_tracked_count = 0;
+	aclcheck_tracking_active = true;
+}
+
+/*
+ * Grow the tracking array when full. Doubles the size each time.
+ */
+void
+aclcheck_track_grow(void)
+{
+	aclcheck_tracked_max *= 2;
+	aclcheck_tracked = (AclCheckEntry *)
+		repalloc(aclcheck_tracked,
+				 aclcheck_tracked_max * sizeof(AclCheckEntry));
+}
+
+/*
+ * Look up a tracked aclcheck entry for the given object.
+ * Returns true if found, filling in roleId, mode, and inval_count.
+ * Searches from the end to find the most recent check (the one with the
+ * freshest inval_count).
+ *
+ * This is O(n) in the number of tracked entries, but that's fine since a typical
+ * DDL statement should track only a few objects.
+ */
+bool
+aclcheck_track_find(Oid classId, Oid objectId, Oid *roleId, AclMode *mode,
+					uint64 *inval_count)
+{
+	for (int i = aclcheck_tracked_count - 1; i >= 0; i--)
+	{
+		if (aclcheck_tracked[i].classId == classId &&
+			aclcheck_tracked[i].objectId == objectId)
+		{
+			*roleId = aclcheck_tracked[i].roleId;
+			*mode = aclcheck_tracked[i].mode;
+			*inval_count = aclcheck_tracked[i].inval_count;
+			return true;
+		}
+	}
+	return false;
 }

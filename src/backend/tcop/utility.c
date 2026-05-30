@@ -20,6 +20,7 @@
 #include "access/twophase.h"
 #include "access/xact.h"
 #include "access/xlog.h"
+#include "catalog/aclcheck_track.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_inherits.h"
@@ -516,6 +517,13 @@ ProcessUtility(PlannedStmt *pstmt,
 	Assert(qc == NULL || qc->commandTag == CMDTAG_UNKNOWN);
 
 	/*
+	 * Reset the aclcheck tracking for each top-level utility statement and
+	 * enable tracking for the duration of the statement.
+	 */
+	if (context == PROCESS_UTILITY_TOPLEVEL)
+		aclcheck_track_reset();
+
+	/*
 	 * We provide a function hook variable that lets loadable plugins get
 	 * control when ProcessUtility is called.  Such a plugin would normally
 	 * call standard_ProcessUtility().
@@ -528,6 +536,9 @@ ProcessUtility(PlannedStmt *pstmt,
 		standard_ProcessUtility(pstmt, queryString, readOnlyTree,
 								context, params, queryEnv,
 								dest, qc);
+
+	if (context == PROCESS_UTILITY_TOPLEVEL)
+		aclcheck_tracking_active = false;
 }
 
 /*

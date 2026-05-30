@@ -32,6 +32,7 @@
 #include "access/xlogrecovery.h"
 #include "access/xlogutils.h"
 #include "access/xlogwait.h"
+#include "catalog/aclcheck_track.h"
 #include "catalog/index.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_enum.h"
@@ -2960,6 +2961,9 @@ AbortTransaction(void)
 	AtEOXact_Parallel(false);
 	s->parallelModeLevel = 0;
 	s->parallelChildXact = false;	/* should be false already */
+
+	/* Reset aclcheck tracking state */
+	aclcheck_tracking_active = false;
 
 	/*
 	 * do abort processing

@@ -1,4 +1,4 @@
-Parsed test spec with 2 sessions
+Parsed test spec with 3 sessions
 
 starting permutation: s1_begin s1_create_function_in_schema s2_drop_schema s1_commit
 step s1_begin: BEGIN;
@@ -135,3 +135,12 @@ step s2_drop_role: DROP ROLE regress_dependency; <waiting ...>
 step s1_commit: COMMIT;
 step s2_drop_role: <... completed>
 ERROR:  role "regress_dependency" cannot be dropped because some objects depend on it
+
+starting permutation: s2_begin s2_drop_fdw_wrapper s1_create_server_as_role_user s3_revoke_role s2_rollback
+step s2_begin: BEGIN;
+step s2_drop_fdw_wrapper: DROP FOREIGN DATA WRAPPER fdw_wrapper RESTRICT;
+step s1_create_server_as_role_user: SET ROLE role_user; CREATE SERVER srv_role_revoked FOREIGN DATA WRAPPER fdw_wrapper; RESET ROLE; <waiting ...>
+step s3_revoke_role: REVOKE role_fdw FROM role_user;
+step s2_rollback: ROLLBACK;
+step s1_create_server_as_role_user: <... completed>
+ERROR:  permission denied for foreign-data wrapper fdw_wrapper
