@@ -28,6 +28,11 @@
 typedef unsigned int pg_wchar;
 
 /*
+ * Returned for decoding failures in utf8decode() and utf8_to_unicode().
+ */
+#define PG_INVALID_CODEPOINT	0xFFFFFFFF
+
+/*
  * Maximum byte length of multibyte characters in any backend encoding
  */
 #define MAX_MULTIBYTE_CHAR_LEN	4
@@ -393,10 +398,160 @@ surrogate_pair_to_codepoint(char16_t first, char16_t second)
 }
 
 /*
+ * Encode the codepoint as UTF8 and return the number of bytes required. If
+ * the number of bytes required exceeds dstsize, just return the number of
+ * bytes required without modifying dst. If dstsize is zero, dst may be
+ * NULL. If codepoint is not a valid Unicode Scalar, return -1.
+ */
+static inline int
+utf8encode(unsigned char *dst, size_t dstsize, char32_t codepoint)
+{
+	int			nbytes;
+
+	if (codepoint <= 0x7F)
+		nbytes = 1;
+	else if (codepoint <= 0x7FF)
+		nbytes = 2;
+	else if (codepoint <= 0xFFFF)
+	{
+		/* surrogate halves not valid for UTF8 */
+		if (codepoint >= 0xD800 && codepoint <= 0xDFFF)
+			return -1;
+		nbytes = 3;
+	}
+	else if (codepoint <= 0x10FFFF)
+		nbytes = 4;
+	else
+		return -1;
+
+	if (nbytes > dstsize)
+		return nbytes;
+
+	if (codepoint <= 0x7F)
+	{
+		dst[0] = codepoint;
+	}
+	else if (codepoint <= 0x7FF)
+	{
+		dst[0] = 0xC0 | ((codepoint >> 6) & 0x1F);
+		dst[1] = 0x80 | (codepoint & 0x3F);
+	}
+	else if (codepoint <= 0xFFFF)
+	{
+		dst[0] = 0xE0 | ((codepoint >> 12) & 0x0F);
+		dst[1] = 0x80 | ((codepoint >> 6) & 0x3F);
+		dst[2] = 0x80 | (codepoint & 0x3F);
+	}
+	else if (codepoint <= 0x10FFFF)
+	{
+		dst[0] = 0xF0 | ((codepoint >> 18) & 0x07);
+		dst[1] = 0x80 | ((codepoint >> 12) & 0x3F);
+		dst[2] = 0x80 | ((codepoint >> 6) & 0x3F);
+		dst[3] = 0x80 | (codepoint & 0x3F);
+	}
+
+	return nbytes;
+}
+
+/*
+ * Decode the next Unicode codepoint from UTF8 at src, reading no more than
+ * srclen bytes (which must be at least 1). On success, *pcodepoint will be a
+ * valid Unicode Scalar; otherwise it will be set to PG_INVALID_CODEPOINT.
+ *
+ * Returns the number of bytes consumed. If srclen is not large enough
+ * (i.e. src is truncated in the middle of a sequence), returns 0. If invalid,
+ * returns -1.
+ */
+static inline int
+utf8decode(char32_t *pcodepoint, const unsigned char *src, size_t srclen)
+{
+	int			nbytes;
+	char32_t	codepoint;
+
+	Assert(srclen >= 1);
+
+	if ((*src & 0x80) == 0)
+	{
+		*pcodepoint = (char32_t) src[0];
+		return 1;
+	}
+
+	if ((*src & 0xe0) == 0xc0)
+		nbytes = 2;
+	else if ((*src & 0xf0) == 0xe0)
+		nbytes = 3;
+	else if ((*src & 0xf8) == 0xf0)
+		nbytes = 4;
+	else
+		goto invalid;
+
+	/* truncated */
+	if (srclen < nbytes)
+	{
+		*pcodepoint = PG_INVALID_CODEPOINT;
+		return 0;
+	}
+
+	if (nbytes == 2)
+	{
+		/* check continuation byte */
+		if ((src[1] & 0xc0) != 0x80)
+			goto invalid;
+
+		codepoint = (char32_t) (((src[0] & 0x1f) << 6) |
+								(src[1] & 0x3f));
+
+		/* overlong */
+		if (codepoint < 0x0080)
+			goto invalid;
+	}
+	else if (nbytes == 3)
+	{
+		/* check continuation bytes */
+		if ((src[1] & 0xc0) != 0x80 || (src[2] & 0xc0) != 0x80)
+			goto invalid;
+
+		codepoint = (char32_t) (((src[0] & 0x0f) << 12) |
+								((src[1] & 0x3f) << 6) |
+								(src[2] & 0x3f));
+
+		/* overlong or surrogate half */
+		if (codepoint < 0x0800 ||
+			(codepoint >= 0xD800 && codepoint <= 0xDFFF))
+			goto invalid;
+	}
+	else if (nbytes == 4)
+	{
+		/* check continuation bytes */
+		if ((src[1] & 0xc0) != 0x80 || (src[2] & 0xc0) != 0x80 ||
+			(src[3] & 0xc0) != 0x80)
+			goto invalid;
+
+		codepoint = (char32_t) (((src[0] & 0x07) << 18) |
+								((src[1] & 0x3f) << 12) |
+								((src[2] & 0x3f) << 6) |
+								(src[3] & 0x3f));
+
+		/* overlong or out-of-range */
+		if (codepoint < 0x10000 || codepoint > 0x10FFFF)
+			goto invalid;
+	}
+
+	*pcodepoint = codepoint;
+	return nbytes;
+
+invalid:
+	*pcodepoint = PG_INVALID_CODEPOINT;
+	return -1;
+}
+
+/*
  * Convert a UTF-8 character to a Unicode code point.
  * This is a one-character version of pg_utf2wchar_with_len.
  *
  * No error checks here, c must point to a long-enough string.
+ *
+ * XXX: Callers should consider utf8decode() instead.
  */
 static inline char32_t
 utf8_to_unicode(const unsigned char *c)
@@ -416,13 +571,14 @@ utf8_to_unicode(const unsigned char *c)
 						   ((c[2] & 0x3f) << 6) |
 						   (c[3] & 0x3f));
 	else
-		/* that is an invalid code on purpose */
-		return 0xffffffff;
+		return PG_INVALID_CODEPOINT;
 }
 
 /*
  * Map a Unicode code point to UTF-8.  utf8string must have at least
  * unicode_utf8len(c) bytes available.
+ *
+ * XXX: Callers should consider utf8encode() instead.
  */
 static inline unsigned char *
 unicode_to_utf8(char32_t c, unsigned char *utf8string)
