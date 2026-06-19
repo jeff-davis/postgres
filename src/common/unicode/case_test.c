@@ -54,22 +54,22 @@ initcap_wbnext(void *state)
 
 	while (wbstate->offset < wbstate->len)
 	{
-		int			ulen = pg_utf_mblen((const unsigned char *) wbstate->str +
-										wbstate->offset);
+		int			ulen;
 		char32_t	u;
 		bool		curr_alnum;
 		size_t		prev_offset = wbstate->offset;
 
+		ulen = utf8decode(&u, (const unsigned char *) wbstate->str + wbstate->offset,
+						  wbstate->len - wbstate->offset);
+
 		/* invalid UTF8 */
-		if (wbstate->offset + ulen > wbstate->len)
+		if (ulen <= 0)
 		{
 			wbstate->init = true;
 			wbstate->offset = wbstate->len;
 			return prev_offset;
 		}
 
-		u = utf8_to_unicode((const unsigned char *) wbstate->str +
-							wbstate->offset);
 		curr_alnum = pg_u_isalnum(u, wbstate->posix);
 
 		if (!wbstate->init || curr_alnum != wbstate->prev_alnum)
@@ -190,7 +190,7 @@ test_icu(void)
 	{
 		pg_unicode_category category = unicode_category(code);
 
-		if (category != PG_U_UNASSIGNED)
+		if (category != PG_U_UNASSIGNED && category != PG_U_SURROGATE)
 		{
 			uint8_t		icu_category = u_charType(code);
 			char		code_str[5] = {0};
@@ -202,7 +202,7 @@ test_icu(void)
 			}
 
 			icu_test_simple(code);
-			unicode_to_utf8(code, (unsigned char *) code_str);
+			utf8encode((unsigned char *) code_str, 5, code);
 			icu_test_full(code_str);
 
 			successful++;
@@ -347,6 +347,18 @@ test_convert_case(void)
 	Assert(needed == 3 && consumed == 3);
 	/* invalid UTF8: leading byte invalid length */
 	needed = unicode_strfold(NULL, 0, "abc\xF8xyz", 7, &consumed, false);
+	Assert(needed == 3 && consumed == 3);
+	/* invalid UTF8: surrogates */
+	needed = unicode_strfold(NULL, 0, "abc\xED\xA0\x81xyz", 7, &consumed, false);
+	Assert(needed == 3 && consumed == 3);
+	/* invalid UTF8: continuation with no leading byte */
+	needed = unicode_strfold(NULL, 0, "abc\x80xyz", 7, &consumed, false);
+	Assert(needed == 3 && consumed == 3);
+	/* invalid UTF8: out of range */
+	needed = unicode_strfold(NULL, 0, "abc\xF5\x80\x80\x80xyz", 7, &consumed, false);
+	Assert(needed == 3 && consumed == 3);
+	/* invalid UTF8: overlong */
+	needed = unicode_strfold(NULL, 0, "abc\xC1\xBFxyz", 7, &consumed, false);
 	Assert(needed == 3 && consumed == 3);
 
 #ifdef USE_ICU

@@ -62,22 +62,22 @@ initcap_wbnext(void *state)
 
 	while (wbstate->offset < wbstate->len)
 	{
-		int			ulen = pg_utf_mblen((const unsigned char *) wbstate->str +
-										wbstate->offset);
+		int			ulen;
 		char32_t	u;
 		bool		curr_alnum;
 		size_t		prev_offset = wbstate->offset;
 
+		ulen = utf8decode(&u, (const unsigned char *) wbstate->str + wbstate->offset,
+						  wbstate->len - wbstate->offset);
+
 		/* invalid UTF8 */
-		if (wbstate->offset + ulen > wbstate->len)
+		if (ulen <= 0)
 		{
 			wbstate->init = true;
 			wbstate->offset = wbstate->len;
 			return prev_offset;
 		}
 
-		u = utf8_to_unicode((const unsigned char *) wbstate->str +
-							wbstate->offset);
 		curr_alnum = pg_u_isalnum(u, wbstate->posix);
 
 		if (!wbstate->init || curr_alnum != wbstate->prev_alnum)

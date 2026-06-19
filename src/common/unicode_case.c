@@ -194,22 +194,6 @@ unicode_strfold(char *dst, size_t dstsize, const char *src, size_t srclen,
 						NULL, NULL);
 }
 
-/* local version of pg_utf_mblen() to be inlinable */
-static int
-utf8_mblen(const unsigned char *s)
-{
-	if ((*s & 0x80) == 0)
-		return 1;
-	else if ((*s & 0xe0) == 0xc0)
-		return 2;
-	else if ((*s & 0xf0) == 0xe0)
-		return 3;
-	else if ((*s & 0xf8) == 0xf0)
-		return 4;
-	else
-		return -1;
-}
-
 /*
  * Implement Unicode Default Case Conversion algorithm.
  *
@@ -248,17 +232,18 @@ convert_case(char *dst, size_t dstsize, const char *src, size_t srclen,
 
 	while (srcoff < srclen)
 	{
-		int			u1len = utf8_mblen((const unsigned char *) src + srcoff);
 		char32_t	u1;
+		int			u1len;
 		char32_t	simple = 0;
 		const char32_t *special = NULL;
 		enum CaseMapResult casemap_result;
 
-		/* invalid UTF8 */
-		if (u1len < 0 || srcoff + u1len > srclen)
-			break;
+		u1len = utf8decode(&u1, (const unsigned char *) src + srcoff,
+						   srclen - srcoff);
 
-		u1 = utf8_to_unicode((const unsigned char *) src + srcoff);
+		/* invalid UTF8 */
+		if (u1len <= 0)
+			break;
 
 		if (str_casekind == CaseTitle)
 		{
@@ -280,6 +265,7 @@ convert_case(char *dst, size_t dstsize, const char *src, size_t srclen,
 				/* no mapping; copy bytes from src */
 				Assert(simple == 0);
 				Assert(special == NULL);
+
 				if (result_len + u1len <= dstsize)
 					memcpy(dst + result_len, src + srcoff, u1len);
 
@@ -289,11 +275,19 @@ convert_case(char *dst, size_t dstsize, const char *src, size_t srclen,
 				{
 					/* replace with single character */
 					char32_t	u2 = simple;
-					char32_t	u2len = unicode_utf8len(u2);
+					int			u2len;
+					size_t		remaining = 0;
+					unsigned char *p = NULL;
+
+					if (dstsize > result_len)
+					{
+						remaining = dstsize - result_len;
+						p = (unsigned char *) dst + result_len;
+					}
 
 					Assert(special == NULL);
-					if (result_len + u2len <= dstsize)
-						unicode_to_utf8(u2, (unsigned char *) dst + result_len);
+					u2len = utf8encode(p, remaining, u2);
+					Assert(u2len > 0);
 
 					result_len += u2len;
 				}
@@ -304,10 +298,18 @@ convert_case(char *dst, size_t dstsize, const char *src, size_t srclen,
 				for (int i = 0; i < MAX_CASE_EXPANSION && special[i]; i++)
 				{
 					char32_t	u2 = special[i];
-					size_t		u2len = unicode_utf8len(u2);
+					int			u2len;
+					size_t		remaining = 0;
+					unsigned char *p = NULL;
 
-					if (result_len + u2len <= dstsize)
-						unicode_to_utf8(u2, (unsigned char *) dst + result_len);
+					if (dstsize > result_len)
+					{
+						remaining = dstsize - result_len;
+						p = (unsigned char *) dst + result_len;
+					}
+
+					u2len = utf8encode(p, remaining, u2);
+					Assert(u2len > 0);
 
 					result_len += u2len;
 				}
@@ -344,14 +346,14 @@ check_final_sigma(const unsigned char *str, size_t len, size_t offset)
 	{
 		if ((str[i] & 0x80) == 0 || (str[i] & 0xC0) == 0xC0)
 		{
-			int			u1len = utf8_mblen((const unsigned char *) str + i);
+			int			u1len;
 			char32_t	curr;
 
-			/* invalid UTF8 */
-			if (u1len < 0 || i + u1len > len)
-				return false;
+			u1len = utf8decode(&curr, (const unsigned char *) str + i, len - i);
 
-			curr = utf8_to_unicode(str + i);
+			/* invalid UTF8 */
+			if (u1len <= 0)
+				return false;
 
 			if (pg_u_prop_case_ignorable(curr))
 				continue;
@@ -371,18 +373,18 @@ check_final_sigma(const unsigned char *str, size_t len, size_t offset)
 		return true;
 
 	/* iterate forwards, looking for Cased character */
-	for (int i = offset + 1; i < len && str[i] != '\0'; i++)
+	for (int i = offset + 1; i < len; i++)
 	{
 		if ((str[i] & 0x80) == 0 || (str[i] & 0xC0) == 0xC0)
 		{
-			int			u1len = utf8_mblen((const unsigned char *) str + i);
+			int			u1len;
 			char32_t	curr;
 
-			/* invalid UTF8 */
-			if (u1len < 0 || i + u1len > len)
-				return false;
+			u1len = utf8decode(&curr, (const unsigned char *) str + i, len - i);
 
-			curr = utf8_to_unicode(str + i);
+			/* invalid UTF8 */
+			if (u1len <= 0)
+				return false;
 
 			if (pg_u_prop_case_ignorable(curr))
 				continue;
