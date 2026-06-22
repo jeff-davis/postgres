@@ -52,24 +52,35 @@ initcap_wbnext(void *state)
 {
 	struct WordBoundaryState *wbstate = (struct WordBoundaryState *) state;
 
-	while (wbstate->offset < wbstate->len &&
-		   wbstate->str[wbstate->offset] != '\0')
+	while (wbstate->offset < wbstate->len)
 	{
-		char32_t	u = utf8_to_unicode((const unsigned char *) wbstate->str +
+		int			ulen = pg_utf_mblen((const unsigned char *) wbstate->str +
 										wbstate->offset);
-		bool		curr_alnum = pg_u_isalnum(u, wbstate->posix);
+		char32_t	u;
+		bool		curr_alnum;
+		size_t		prev_offset = wbstate->offset;
+
+		/* invalid UTF8 */
+		if (wbstate->offset + ulen > wbstate->len)
+		{
+			wbstate->init = true;
+			wbstate->offset = wbstate->len;
+			return prev_offset;
+		}
+
+		u = utf8_to_unicode((const unsigned char *) wbstate->str +
+							wbstate->offset);
+		curr_alnum = pg_u_isalnum(u, wbstate->posix);
 
 		if (!wbstate->init || curr_alnum != wbstate->prev_alnum)
 		{
-			size_t		prev_offset = wbstate->offset;
-
 			wbstate->init = true;
-			wbstate->offset += unicode_utf8len(u);
+			wbstate->offset += ulen;
 			wbstate->prev_alnum = curr_alnum;
 			return prev_offset;
 		}
 
-		wbstate->offset += unicode_utf8len(u);
+		wbstate->offset += ulen;
 	}
 
 	return wbstate->len;
@@ -296,6 +307,8 @@ tfunc_fold(char *dst, size_t dstsize, const char *src,
 static void
 test_convert_case(void)
 {
+	size_t		needed;
+
 	/* test string with no case changes */
 	test_convert(tfunc_lower, "√∞", "√∞");
 	/* test adjust-to-cased behavior */
@@ -320,6 +333,12 @@ test_convert_case(void)
 	/* U+FF11 FULLWIDTH ONE is alphanumeric for full case mapping */
 	test_convert(tfunc_title, "\uFF11a", "\uFF11a");
 
+	/* invalid UTF8: truncated multibyte sequence */
+	needed = unicode_strfold(NULL, 0, "abc\xCE", 4, false);
+	Assert(needed == 3);
+	/* invalid UTF8: invalid byte */
+	needed = unicode_strfold(NULL, 0, "abc\xF8xyz", 7, false);
+	Assert(needed == 3);
 
 #ifdef USE_ICU
 	icu_test_full("");
