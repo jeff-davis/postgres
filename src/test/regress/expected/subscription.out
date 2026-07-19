@@ -173,10 +173,6 @@ ERROR:  permission denied for foreign server test_server
 RESET SESSION AUTHORIZATION;
 GRANT USAGE ON FOREIGN SERVER test_server TO regress_subscription_user3;
 SET SESSION AUTHORIZATION regress_subscription_user3;
--- fail, need user mapping
-CREATE SUBSCRIPTION regress_testsub6 SERVER test_server PUBLICATION testpub WITH (slot_name = NONE, connect = false);
-ERROR:  user mapping not found for user "regress_subscription_user3", server "test_server"
-CREATE USER MAPPING FOR regress_subscription_user3 SERVER test_server OPTIONS(user 'foo', password 'secret');
 -- fail, need CONNECTION clause
 CREATE SUBSCRIPTION regress_testsub6 SERVER test_server PUBLICATION testpub WITH (slot_name = NONE, connect = false);
 ERROR:  foreign data wrapper "test_fdw" does not support subscription connections
@@ -184,10 +180,12 @@ DETAIL:  Foreign data wrapper must be defined with CONNECTION specified.
 RESET SESSION AUTHORIZATION;
 ALTER FOREIGN DATA WRAPPER test_fdw CONNECTION test_fdw_connection;
 SET SESSION AUTHORIZATION regress_subscription_user3;
+-- ok, user mapping is not needed with connect = false
 CREATE SUBSCRIPTION regress_testsub6 SERVER test_server
   PUBLICATION testpub WITH (slot_name = 'dummy', connect = false);
 WARNING:  subscription was created, but is not connected
 HINT:  To initiate replication, you must manually create the replication slot, enable the subscription, and alter the subscription to refresh publications.
+CREATE USER MAPPING FOR regress_subscription_user3 SERVER test_server OPTIONS(user 'foo', password 'secret');
 RESET SESSION AUTHORIZATION;
 REVOKE USAGE ON FOREIGN SERVER test_server FROM regress_subscription_user3;
 SET SESSION AUTHORIZATION regress_subscription_user3;
@@ -209,6 +207,11 @@ CREATE SUBSCRIPTION regress_testsub6 SERVER test_server
 WARNING:  subscription was created, but is not connected
 HINT:  To initiate replication, you must manually create the replication slot, enable the subscription, and alter the subscription to refresh publications.
 DROP USER MAPPING FOR regress_subscription_user3 SERVER test_server;
+-- ok, changing owner does not require server access or a user mapping
+RESET SESSION AUTHORIZATION;
+ALTER SUBSCRIPTION regress_testsub6 OWNER TO regress_subscription_user2;
+ALTER SUBSCRIPTION regress_testsub6 OWNER TO regress_subscription_user3;
+SET SESSION AUTHORIZATION regress_subscription_user3;
 -- ok, test_server lacks user mapping, but replacing connection anyway
 BEGIN;
 ALTER SUBSCRIPTION regress_testsub6 CONNECTION 'dbname=regress_doesnotexist password=secret';

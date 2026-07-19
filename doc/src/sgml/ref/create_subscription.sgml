@@ -83,10 +83,9 @@ CREATE SUBSCRIPTION <replaceable class="parameter">subscription_name</replaceabl
      <para>
       A foreign server to use for the connection.  The server's foreign data
       wrapper must have a <replaceable>connection_function</replaceable>
-      registered, and a user mapping for the subscription owner on the server
-      must exist.  Additionally, the subscription owner must have
-      <literal>USAGE</literal> privileges on
-      <replaceable>servername</replaceable>.
+      registered. When the connection is used, the subscription owner must
+      have <literal>USAGE</literal> privileges on
+      <replaceable>servername</replaceable> and a user mapping must exist.
      </para>
     </listitem>
    </varlistentry>

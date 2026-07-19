@@ -194,15 +194,12 @@ GetForeignServerByName(const char *srvname, bool missing_ok)
 
 
 /*
- * Retrieve connection string from server's FDW.
- *
- * NB: leaks into CurrentMemoryContext.
+ * Get the connection function from a server's FDW.
  */
-char *
-ForeignServerConnectionString(Oid userid, ForeignServer *server)
+Oid
+GetForeignServerConnectionFunction(ForeignServer *server)
 {
 	ForeignDataWrapper *fdw;
-	Datum		connection_datum;
 
 	fdw = GetForeignDataWrapper(server->fdwid);
 
@@ -213,7 +210,24 @@ ForeignServerConnectionString(Oid userid, ForeignServer *server)
 						fdw->fdwname),
 				 errdetail("Foreign data wrapper must be defined with CONNECTION specified.")));
 
-	connection_datum = OidFunctionCall3(fdw->fdwconnection,
+	return fdw->fdwconnection;
+}
+
+
+/*
+ * Retrieve connection string from server's FDW.
+ *
+ * NB: leaks into CurrentMemoryContext.
+ */
+char *
+ForeignServerConnectionString(Oid userid, ForeignServer *server)
+{
+	Datum		connection_datum;
+	Oid			connection_function;
+
+	connection_function = GetForeignServerConnectionFunction(server);
+
+	connection_datum = OidFunctionCall3(connection_function,
 										ObjectIdGetDatum(userid),
 										ObjectIdGetDatum(server->serverid),
 										PointerGetDatum(NULL));

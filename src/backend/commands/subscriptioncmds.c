@@ -805,11 +805,26 @@ CreateSubscription(ParseState *pstate, CreateSubscriptionStmt *stmt,
 		if (aclresult != ACLCHECK_OK)
 			aclcheck_error(aclresult, OBJECT_FOREIGN_SERVER, server->servername);
 
-		/* make sure a user mapping exists */
-		GetUserMapping(owner, server->serverid);
-
 		serverid = server->serverid;
-		conninfo = ForeignServerConnectionString(owner, server);
+
+		if (opts.connect)
+		{
+			/* make sure a user mapping exists */
+			GetUserMapping(owner, server->serverid);
+
+			conninfo = ForeignServerConnectionString(owner, server);
+		}
+		else
+		{
+			/*
+			 * If connect = false, don't check the connection information
+			 * (necessary for dump/restore, which creates the subscription as
+			 * the restoring user first and then changes the owner). However,
+			 * still check that the server's FDW at least supports a
+			 * connection function.
+			 */
+			GetForeignServerConnectionFunction(server);
+		}
 	}
 	else
 	{
@@ -819,8 +834,9 @@ CreateSubscription(ParseState *pstate, CreateSubscriptionStmt *stmt,
 		conninfo = stmt->conninfo;
 	}
 
-	/* Check the connection info string. */
-	walrcv_check_conninfo(conninfo, opts.passwordrequired && !superuser());
+	/* Check the connection info string, if we need one. */
+	if (conninfo)
+		walrcv_check_conninfo(conninfo, opts.passwordrequired && !superuser());
 
 	publications = stmt->publication;
 
@@ -2903,27 +2919,6 @@ AlterSubscriptionOwner_internal(Relation rel, HeapTuple tup, Oid newOwnerId)
 	if (aclresult != ACLCHECK_OK)
 		aclcheck_error(aclresult, OBJECT_DATABASE,
 					   get_database_name(MyDatabaseId));
-
-	/*
-	 * If the subscription uses a server, check that the new owner has USAGE
-	 * privileges on the server and that a user mapping exists. Note: does not
-	 * re-check the resulting connection string.
-	 */
-	if (OidIsValid(form->subserver))
-	{
-		ForeignServer *server = GetForeignServer(form->subserver);
-
-		aclresult = object_aclcheck(ForeignServerRelationId, server->serverid, newOwnerId, ACL_USAGE);
-		if (aclresult != ACLCHECK_OK)
-			ereport(ERROR,
-					errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-					errmsg("new subscription owner \"%s\" does not have permission on foreign server \"%s\"",
-						   GetUserNameFromId(newOwnerId, false),
-						   server->servername));
-
-		/* make sure a user mapping exists */
-		GetUserMapping(newOwnerId, server->serverid);
-	}
 
 	form->subowner = newOwnerId;
 	CatalogTupleUpdate(rel, &tup->t_self, tup);
