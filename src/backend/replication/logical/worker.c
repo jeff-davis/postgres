@@ -484,6 +484,7 @@ WalReceiverConn *LogRepWorkerWalRcvConn = NULL;
 Subscription *MySubscription = NULL;
 char	   *MySubscriptionConninfo = NULL;
 static bool MySubscriptionValid = false;
+static bool CatalogReadValid = false;
 
 static List *on_commit_wakeup_workers_subids = NIL;
 
@@ -5053,37 +5054,25 @@ apply_worker_exit(void)
 }
 
 /*
- * Reread subscription info if needed.
+ * If the changes don't affect the connection, update MySubscription and
+ * SubsciptionConninfo in ApplyContext and return true.
  *
- * For significant changes, we react by exiting the current process; a new
- * one will be launched afterwards if needed.
+ * For the leader, if the connection changed, exit and the launcher will
+ * restart. For parallel apply workers, if the connection changed, return
+ * false.
+ *
+ * NB: the leader and parallel apply workers can see different catalog states,
+ * and the former may succeed while the latter returns false. In that case,
+ * the caller should leave MySubscriptionValid unset so that it has another
+ * chance to update the state.
  */
-void
-maybe_reread_subscription(void)
+static bool
+update_subscription_or_exit(Subscription *newsub, const char *new_conninfo)
 {
-	Subscription *newsub;
-	char	   *old_conninfo;
-	char	   *new_conninfo;
-	bool		started_tx = false;
+	Subscription	*oldsub;
+	char			*old_conninfo;
 
-	/* When cache state is valid there is nothing to do here. */
-	if (MySubscriptionValid)
-		return;
-
-	/* This function might be called inside or outside of transaction. */
-	if (!IsTransactionState())
-	{
-		StartTransactionCommand();
-		started_tx = true;
-	}
-
-	newsub = GetSubscription(MyLogicalRepWorker->subid, true);
-
-	if (newsub)
-	{
-		MemoryContextSetParent(newsub->cxt, ApplyContext);
-	}
-	else
+	if (!newsub)
 	{
 		/*
 		 * Exit if the subscription was removed. This normally should not
@@ -5108,15 +5097,12 @@ maybe_reread_subscription(void)
 						MySubscription->name)));
 
 		apply_worker_exit();
+
+		return false;
 	}
 
-	/*
-	 * May raise error, so build conninfo after checking that the subscription
-	 * is enabled. Allocated in transaction context; must be copied to
-	 * ApplyContext when we set MySubscriptionConninfo.
-	 */
-	new_conninfo = SubscriptionConninfo(newsub);
-
+	Assert(new_conninfo);
+	
 	/* !slotname should never happen when enabled is true. */
 	Assert(newsub->slotname);
 
@@ -5150,6 +5136,8 @@ maybe_reread_subscription(void)
 							MySubscription->name)));
 
 		apply_worker_exit();
+
+		return false;
 	}
 
 	/*
@@ -5168,6 +5156,8 @@ maybe_reread_subscription(void)
 						   MySubscription->name));
 
 		apply_worker_exit();
+
+		return false;
 	}
 
 	/* Check for other changes that should never happen too. */
@@ -5177,11 +5167,13 @@ maybe_reread_subscription(void)
 			 MyLogicalRepWorker->subid);
 	}
 
-	/* Clean old subscription info and switch to new one. */
-	MemoryContextDelete(MySubscription->cxt);
+	/* Move new subscription to ApplyContext and free old subscription */
+	oldsub = MySubscription;
+	MemoryContextSetParent(newsub->cxt, ApplyContext);
 	MySubscription = newsub;
+	MemoryContextDelete(oldsub->cxt);
 
-	/* copy to ApplyContext and update MySubscriptionConninfo */
+	/* Copy new conninfo to ApplyContext and free old conninfo */
 	old_conninfo = MySubscriptionConninfo;
 	MySubscriptionConninfo = MemoryContextStrdup(ApplyContext, new_conninfo);
 	pfree(old_conninfo);
@@ -5193,10 +5185,70 @@ maybe_reread_subscription(void)
 	/* Change wal_receiver_timeout according to the user's wishes */
 	set_wal_receiver_timeout();
 
+	return true;
+}
+
+/*
+ * Reread subscription info if needed.
+ *
+ * For significant changes, we react by exiting the current process; a new
+ * one will be launched afterwards if needed.
+ */
+void
+maybe_reread_subscription(void)
+{
+	Subscription *newsub = NULL;
+	MemoryContext oldcxt;
+	MemoryContext tmpcxt;
+	char	   *new_conninfo = NULL;
+	bool		started_tx = false;
+	bool		success = false;
+
+	/* When cache state is valid there is nothing to do here. */
+	if (MySubscriptionValid)
+		return;
+
+	/* This function might be called inside or outside of transaction. */
+	if (!IsTransactionState())
+	{
+		StartTransactionCommand();
+		started_tx = true;
+	}
+
+	tmpcxt = AllocSetContextCreate(CurrentMemoryContext,
+								   "logical replication subscription read",
+								   ALLOCSET_SMALL_SIZES);
+
+	oldcxt = MemoryContextSwitchTo(tmpcxt);
+
+	/* Ensure consistent catalog view */
+	do
+	{
+		MemoryContextReset(tmpcxt);
+
+		new_conninfo = NULL;
+		CatalogReadValid = true;
+
+		newsub = GetSubscription(MyLogicalRepWorker->subid, true);
+
+		/* May raise error, so build conninfo only if enabled */
+		if (newsub && newsub->enabled)
+			new_conninfo = SubscriptionConninfo(newsub);
+
+		/* only returns false for parallel apply workers */
+		success = update_subscription_or_exit(newsub, new_conninfo);
+
+		AcceptInvalidationMessages();
+	} while (!CatalogReadValid);
+
+	MemoryContextSwitchTo(oldcxt);
+	MemoryContextDelete(tmpcxt);
+
 	if (started_tx)
 		CommitTransactionCommand();
 
-	MySubscriptionValid = true;
+	/* always true for leader at this point */
+	MySubscriptionValid = success;
 }
 
 /*
@@ -5241,6 +5293,7 @@ static void
 subscription_change_cb(Datum arg, SysCacheIdentifier cacheid, uint32 hashvalue)
 {
 	MySubscriptionValid = false;
+	CatalogReadValid = false;
 }
 
 /*
@@ -5824,6 +5877,9 @@ run_apply_worker(void)
 void
 InitializeLogRepWorker(void)
 {
+	Subscription *sub = NULL;
+	char *conninfo = NULL;
+
 	/* Run as replica session replication role. */
 	SetConfigOption("session_replication_role", "replica",
 					PGC_SUSET, PGC_S_OVERRIDE);
@@ -5851,6 +5907,34 @@ InitializeLogRepWorker(void)
 										 "ApplyContext",
 										 ALLOCSET_DEFAULT_SIZES);
 
+	/*
+	 * Keep us informed about subscription or role changes. Note that the
+	 * role's superuser privilege can be revoked.
+	 */
+	CacheRegisterSyscacheCallback(SUBSCRIPTIONOID,
+								  subscription_change_cb,
+								  (Datum) 0);
+	/* Changes to foreign servers may affect subscriptions using SERVER. */
+	CacheRegisterSyscacheCallback(FOREIGNSERVEROID,
+								  subscription_change_cb,
+								  (Datum) 0);
+	/* Changes to user mappings may affect subscriptions using SERVER. */
+	CacheRegisterSyscacheCallback(USERMAPPINGOID,
+								  subscription_change_cb,
+								  (Datum) 0);
+
+	/*
+	 * Changes to FDW connection_function may affect subscriptions using
+	 * SERVER.
+	 */
+	CacheRegisterSyscacheCallback(FOREIGNDATAWRAPPEROID,
+								  subscription_change_cb,
+								  (Datum) 0);
+
+	CacheRegisterSyscacheCallback(AUTHOID,
+								  subscription_change_cb,
+								  (Datum) 0);
+
 	StartTransactionCommand();
 
 	/*
@@ -5861,13 +5945,22 @@ InitializeLogRepWorker(void)
 	LockSharedObject(SubscriptionRelationId, MyLogicalRepWorker->subid, 0,
 					 AccessShareLock);
 
-	MySubscription = GetSubscription(MyLogicalRepWorker->subid, true);
-
-	if (MySubscription)
+	/* Ensure consistent catalog view */
+	do
 	{
-		MemoryContextSetParent(MySubscription->cxt, ApplyContext);
-	}
-	else
+		CatalogReadValid = true;
+		conninfo		 = NULL;
+
+		sub = GetSubscription(MyLogicalRepWorker->subid, true);
+
+		/* May raise error, so build conninfo only if enabled */
+		if (sub && sub->enabled)
+			conninfo = SubscriptionConninfo(sub);
+
+		AcceptInvalidationMessages();
+	} while (!CatalogReadValid);
+
+	if (!sub)
 	{
 		ereport(LOG,
 				(errmsg("logical replication worker for subscription %u will not start because the subscription was removed during startup",
@@ -5880,7 +5973,7 @@ InitializeLogRepWorker(void)
 		proc_exit(0);
 	}
 
-	if (!MySubscription->enabled)
+	if (!sub->enabled)
 	{
 		ereport(LOG,
 				(errmsg("logical replication worker for subscription \"%s\" will not start because the subscription was disabled during startup",
@@ -5889,14 +5982,12 @@ InitializeLogRepWorker(void)
 		apply_worker_exit();
 	}
 
-	/*
-	 * May raise error for server-based subscriptions, so build conninfo after
-	 * checking that the subscription is enabled. Build in transaction context
-	 * and copy to ApplyContext.
-	 */
-	MySubscriptionConninfo =
-		MemoryContextStrdup(ApplyContext,
-							SubscriptionConninfo(MySubscription));
+	/* Move subscription to ApplyContext */
+	MemoryContextSetParent(sub->cxt, ApplyContext);
+	MySubscription = sub;
+
+	/* Copy conninfo to ApplyContext */
+	MySubscriptionConninfo = MemoryContextStrdup(ApplyContext, conninfo);
 
 	MySubscriptionValid = true;
 
@@ -5931,34 +6022,6 @@ InitializeLogRepWorker(void)
 
 	/* Change wal_receiver_timeout according to the user's wishes */
 	set_wal_receiver_timeout();
-
-	/*
-	 * Keep us informed about subscription or role changes. Note that the
-	 * role's superuser privilege can be revoked.
-	 */
-	CacheRegisterSyscacheCallback(SUBSCRIPTIONOID,
-								  subscription_change_cb,
-								  (Datum) 0);
-	/* Changes to foreign servers may affect subscriptions using SERVER. */
-	CacheRegisterSyscacheCallback(FOREIGNSERVEROID,
-								  subscription_change_cb,
-								  (Datum) 0);
-	/* Changes to user mappings may affect subscriptions using SERVER. */
-	CacheRegisterSyscacheCallback(USERMAPPINGOID,
-								  subscription_change_cb,
-								  (Datum) 0);
-
-	/*
-	 * Changes to FDW connection_function may affect subscriptions using
-	 * SERVER.
-	 */
-	CacheRegisterSyscacheCallback(FOREIGNDATAWRAPPEROID,
-								  subscription_change_cb,
-								  (Datum) 0);
-
-	CacheRegisterSyscacheCallback(AUTHOID,
-								  subscription_change_cb,
-								  (Datum) 0);
 
 	if (am_tablesync_worker())
 		ereport(LOG,
