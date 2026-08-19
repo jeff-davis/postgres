@@ -1323,6 +1323,17 @@ strupper_c(char *dst, size_t dstsize, const char *src, size_t srclen)
  * Convert src to lowercase, and return the result length (not including
  * terminating NUL).
  *
+ * Lowercasing is for human-readable display.  If the goal is to convert to a
+ * canonical caseless form, see pg_strfold().
+ *
+ * Notes: Some characters map to more than one character during lowercasing
+ * (e.g. U+0130 LATIN CAPITAL LETTER I WITH DOT ABOVE maps to "i" followed by
+ * U+0307 COMBINING DOT ABOVE), so the result may have more characters than
+ * the original.  Some characters have multiple lowercase forms (e.g. Greek
+ * U+03A3 GREEK CAPITAL LETTER SIGMA may map to either U+03C3 GREEK SMALL
+ * LETTER SIGMA or U+03C2 FINAL SIGMA).  Locale-specific or provider-specific
+ * details can affect the quality of uppercasing.
+ *
  * src must be in the database encoding with no embedded NULs.  If dstsize is
  * zero, dst may be NULL, which is useful for calculating the required buffer
  * size before allocating.
@@ -1346,6 +1357,18 @@ pg_strlower(char *dst, size_t dstsize, const char *src, size_t srclen,
  *
  * Convert src to titlecase, and return the result length (not including
  * terminating NUL).
+ *
+ * Titlecasing is for human-readable display.  Loosely: a titlecase string has
+ * the initial letter of each word uppercased, and all others lowercased.
+ *
+ * Notes: Some characters map to more than one character during uppercasing
+ * (e.g. for the initial letter of a word, U+FB01 LATIN SMALL LIGATURE FI maps
+ * to "Fi"), so the result may have more characters than the original.  Some
+ * characters map to a special titlecase form (e.g. U+01F2 LATIN CAPITAL
+ * LETTER D WITH SMALL LETTER Z) for the initial letter of the word, which is
+ * distinct from both the lowercase and uppercase forms.  Word boundaries are
+ * dependent on the provider and the locale.  Locale-specific or
+ * provider-specific details can affect the quality of titlecasing.
  *
  * src must be in the database encoding with no embedded NULs.  If dstsize is
  * zero, dst may be NULL, which is useful for calculating the required buffer
@@ -1371,6 +1394,14 @@ pg_strtitle(char *dst, size_t dstsize, const char *src, size_t srclen,
  * Convert src to uppercase, and return the result length (not including
  * terminating NUL).
  *
+ * Uppercasing is for human-readable display.  If the goal is to convert to a
+ * canonical caseless form, see pg_strfold().
+ *
+ * Notes: Some characters map to more than one character during uppercasing
+ * (e.g. u+00DF SMALL LETTER SHARP S maps to "SS"), so the result may have
+ * more characters than the original.  Locale-specific or provider-specific
+ * details can affect the quality of uppercasing.
+ *
  * src must be in the database encoding with no embedded NULs.  If dstsize is
  * zero, dst may be NULL, which is useful for calculating the required buffer
  * size before allocating.
@@ -1393,6 +1424,22 @@ pg_strupper(char *dst, size_t dstsize, const char *src, size_t srclen,
  * pg_strfold()
  *
  * Casefold src, and return the result length (not including terminating NUL).
+ *
+ * Casefolding produces a canonical string such that, iff the casefolded
+ * strings are equal, the original strings are a case-insensitive match (see
+ * caveats below).  In practice the result is similar to lowercasing, but the
+ * purpose is different: lowercasing is for human-readable display; whereas
+ * casefolding is meant to canonicalize complex mappings (e.g. Greek U+03C2
+ * FINAL SIGMA) reliably without regard for display.
+ *
+ * Notes: Although casefolding almost always maps to lowercase characters,
+ * there are some characters (e.g. Cherokee U+13F8 - U+13FD) that map to
+ * uppercase.  Locales or providers that don't support proper casefolding may
+ * fall back (e.g. to lowercasing).  Some characters map to more than one
+ * character during folding (e.g. u+00DF SMALL LETTER SHARP S maps to "ss"),
+ * so the result may have more characters than the original.  Normalization
+ * and locale-specific or provider-specific details can affect the quality of
+ * matching.
  *
  * src must be in the database encoding with no embedded NULs.  If dstsize is
  * zero, dst may be NULL, which is useful for calculating the required buffer
