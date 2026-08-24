@@ -107,7 +107,9 @@ INSERT INTO test_pg_unicode_fast VALUES
   (U&'Λλ 1a \FF11a'),
   ('ȺȺȺ'),
   ('ⱥⱥⱥ'),
-  ('ⱥȺ');
+  ('ⱥȺ'),
+  (U&'\FB01'),
+  (U&'\0390');
 
 SELECT
     t, lower(t), initcap(t), upper(t),

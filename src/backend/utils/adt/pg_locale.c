@@ -1318,6 +1318,66 @@ strupper_c(char *dst, size_t dstsize, const char *src, size_t srclen)
 }
 
 /*
+ * Case Mapping Complexities
+ *
+ * Below are general notes on the complexities of Unicode case mapping (the C
+ * locale uses simple ASCII semantics).  See the Unicode Standard and the
+ * provider implementation for details.
+ *
+ * Case mapping can depend on the provider and locale, but in practice there
+ * are three things that matter:
+ *
+ * 1. On what version of Unicode is the provider based?
+ * 2. Is the locale based on "simple" (libc locales & C.UTF-8) or "full" (ICU
+ *    locales & PG_UNICODE_FAST) case mappings?
+ * 3. Is the language one of "tr" or "az" (which have special rules for "i")?
+ *
+ * There are very few differences in case mapping among different languages
+ * and regions.  One important difference, though: if the language is "az" or
+ * "tr", the uppercase of "i" is U+0130 LATIN CAPITAL LETTER I WITH DOT ABOVE,
+ * and the lowercase/foldcase of "I" is U+0131 LATIN SMALL LETTER DOTLESS I.
+ *
+ * Case mapping is for both Case Conversion (lowercasing, titlecasing, and
+ * uppercasing) as well as Case Folding.  Case Conversion is for display;
+ * whereas Case Folding is to create a canonical caseless form of the string
+ * for case-insensitive matching.
+ *
+ * For "full" case mapping, some characters map to more than one other
+ * character, so the result may be longer than the original.  Unicode defines
+ * the maximum string expansion to be 3x the code points (not to be confused
+ * with bytes); see Unicode 17.0 section 5.18.2.  Examples: U+0130 LATIN
+ * CAPITAL LETTER I WITH DOT ABOVE lowercases to "i" followed by U+0307
+ * COMBINING DOT ABOVE; U+FB01 LATIN SMALL LIGATURE FI titlecases to "Fi";
+ * U+0390 GREEK SMALL LETTER IOTA WITH DIALYTIKA AND TONOS uppercases to <0399
+ * 0308 0301>; U+00DF LATIN SMALL LETTER SHARP S casefolds to "ss".  NB: even
+ * for "simple" case mapping, the byte length can change because the mapped
+ * characters may have a different encoded length.
+ *
+ * Some characters have more than two forms.  For instance, Greek Sigma has
+ * forms U+03A3 GREEK CAPITAL LETTER SIGMA, U+03C3 GREEK SMALL LETTER SIGMA,
+ * and U+03C2 GREEK SMALL LETTER FINAL SIGMA.
+ *
+ * When converting case, the mapping chosen may depend on the context within
+ * the string; i.e. it's not always a pure mapping.  For instance, lowercasing
+ * U+03A3 results in U+03C2 if it's at the end of a word; otherwise U+03C3.
+ * Titlecasing uses uppercase (or titlecase, if available) mappings for the
+ * initial letter of a word; otherwise it uses the lowercase mapping.
+ * Casefolding is a pure mapping and never depends on context.
+ *
+ * Normalization is useful after casefolding to improve the quality of
+ * caseless matching.  For a single edge case, U+0345 COMBINING GREEK
+ * YPOGEGRAMMENI, casefolding maps to a character with a different combining
+ * class, and it's useful to normalize both before and after casefolding.
+ *
+ * Mappings may depend on the provider and the version of Unicode on which it
+ * is based.  Unassigned code points map to themselves, so their mapping may
+ * change in a later version of Unicode that assigns those codepoints.  If
+ * mapping only assigned code points, the results of casefolding are
+ * guaranteed to be stable across Unicode versions (case conversion has weaker
+ * guarantees but still quite stable for assigned code points).
+ */
+
+/*
  * pg_strlower()
  *
  * Convert src to lowercase, and return the result length (not including
@@ -1325,6 +1385,8 @@ strupper_c(char *dst, size_t dstsize, const char *src, size_t srclen)
  *
  * Lowercasing is intended for human-readable display.  If the goal is to
  * convert to a canonical caseless form, see pg_strfold().
+ *
+ * See Case Mapping Complexities comment above.
  *
  * src must be in the database encoding with no embedded NULs.  If dstsize is
  * zero, dst may be NULL, which is useful for calculating the required buffer
@@ -1355,6 +1417,8 @@ pg_strlower(char *dst, size_t dstsize, const char *src, size_t srclen,
  * titlecase form, if available), and all other characters lowercased.  Used
  * to implement the SQL INITCAP() function.
  *
+ * See Case Mapping Complexities comment above.
+ *
  * src must be in the database encoding with no embedded NULs.  If dstsize is
  * zero, dst may be NULL, which is useful for calculating the required buffer
  * size before allocating.
@@ -1381,6 +1445,8 @@ pg_strtitle(char *dst, size_t dstsize, const char *src, size_t srclen,
  *
  * Uppercasing is intended for human-readable display.  If the goal is to
  * convert to a canonical caseless form, see pg_strfold().
+ *
+ * See Case Mapping Complexities comment above.
  *
  * src must be in the database encoding with no embedded NULs.  If dstsize is
  * zero, dst may be NULL, which is useful for calculating the required buffer
@@ -1414,6 +1480,8 @@ pg_strupper(char *dst, size_t dstsize, const char *src, size_t srclen,
  * is meant to canonicalize complex mappings reliably without regard for
  * display.  Unicode guarantees that casefolding is stable across versions if
  * the original string consists only of assigned code points.
+ *
+ * See Case Mapping Complexities comment above.
  *
  * src must be in the database encoding with no embedded NULs.  If dstsize is
  * zero, dst may be NULL, which is useful for calculating the required buffer
