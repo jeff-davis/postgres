@@ -5851,6 +5851,34 @@ InitializeLogRepWorker(void)
 										 "ApplyContext",
 										 ALLOCSET_DEFAULT_SIZES);
 
+	/*
+	 * Keep us informed about subscription or role changes. Note that the
+	 * role's superuser privilege can be revoked.
+	 */
+	CacheRegisterSyscacheCallback(SUBSCRIPTIONOID,
+								  subscription_change_cb,
+								  (Datum) 0);
+	/* Changes to foreign servers may affect subscriptions using SERVER. */
+	CacheRegisterSyscacheCallback(FOREIGNSERVEROID,
+								  subscription_change_cb,
+								  (Datum) 0);
+	/* Changes to user mappings may affect subscriptions using SERVER. */
+	CacheRegisterSyscacheCallback(USERMAPPINGOID,
+								  subscription_change_cb,
+								  (Datum) 0);
+
+	/*
+	 * Changes to FDW connection_function may affect subscriptions using
+	 * SERVER.
+	 */
+	CacheRegisterSyscacheCallback(FOREIGNDATAWRAPPEROID,
+								  subscription_change_cb,
+								  (Datum) 0);
+
+	CacheRegisterSyscacheCallback(AUTHOID,
+								  subscription_change_cb,
+								  (Datum) 0);
+
 	StartTransactionCommand();
 
 	/*
@@ -5931,34 +5959,6 @@ InitializeLogRepWorker(void)
 
 	/* Change wal_receiver_timeout according to the user's wishes */
 	set_wal_receiver_timeout();
-
-	/*
-	 * Keep us informed about subscription or role changes. Note that the
-	 * role's superuser privilege can be revoked.
-	 */
-	CacheRegisterSyscacheCallback(SUBSCRIPTIONOID,
-								  subscription_change_cb,
-								  (Datum) 0);
-	/* Changes to foreign servers may affect subscriptions using SERVER. */
-	CacheRegisterSyscacheCallback(FOREIGNSERVEROID,
-								  subscription_change_cb,
-								  (Datum) 0);
-	/* Changes to user mappings may affect subscriptions using SERVER. */
-	CacheRegisterSyscacheCallback(USERMAPPINGOID,
-								  subscription_change_cb,
-								  (Datum) 0);
-
-	/*
-	 * Changes to FDW connection_function may affect subscriptions using
-	 * SERVER.
-	 */
-	CacheRegisterSyscacheCallback(FOREIGNDATAWRAPPEROID,
-								  subscription_change_cb,
-								  (Datum) 0);
-
-	CacheRegisterSyscacheCallback(AUTHOID,
-								  subscription_change_cb,
-								  (Datum) 0);
 
 	if (am_tablesync_worker())
 		ereport(LOG,
