@@ -5053,53 +5053,45 @@ apply_worker_exit(void)
 }
 
 /*
- * Reread subscription info if needed.
+ * Check if the subscription is valid and log appropriate messages based on
+ * the worker type.  If so, return.
  *
- * For significant changes, we react by exiting the current process; a new
- * one will be launched afterwards if needed.
+ * If not, and if this worker is the leader: exit, and the launcher will
+ * restart the worker, which will establish a fresh connection.
+ *
+ * If not, and this worker is a parallel apply worker: return, and the worker
+ * will terminate gracefully.
  */
-void
-maybe_reread_subscription(void)
+static void
+check_subscription(Subscription *sub)
 {
-	Subscription *newsub;
-	char	   *old_conninfo;
-	char	   *new_conninfo;
-	bool		started_tx = false;
-
-	/* When cache state is valid there is nothing to do here. */
-	if (MySubscriptionValid)
-		return;
-
-	/* This function might be called inside or outside of transaction. */
-	if (!IsTransactionState())
+	if (!sub->enabled)
 	{
-		StartTransactionCommand();
-		started_tx = true;
-	}
-
-	newsub = GetSubscription(MyLogicalRepWorker->subid, true);
-
-	if (newsub)
-	{
-		MemoryContextSetParent(newsub->cxt, ApplyContext);
-	}
-	else
-	{
-		/*
-		 * Exit if the subscription was removed. This normally should not
-		 * happen as the worker gets killed during DROP SUBSCRIPTION.
-		 */
 		ereport(LOG,
-				(errmsg("logical replication worker for subscription \"%s\" will stop because the subscription was removed",
-						MySubscription->name)));
+				(errmsg("logical replication worker for subscription \"%s\" will not start because the subscription was disabled during startup",
+						sub->name)));
 
-		/* Ensure we remove no-longer-useful entry for worker's start time */
-		if (am_leader_apply_worker())
-			ApplyLauncherForgetWorkerStartTime(MyLogicalRepWorker->subid);
-
-		proc_exit(0);
+		apply_worker_exit();
 	}
+}
 
+
+/*
+ * Check whether subscription is valid and log appropriate messages based on
+ * the worker type.  If newsub->enabled, then new_conninfo must be non-NULL.
+ *
+ * If the subscription is valid and changes can be applied to the existing
+ * connection safely, return.
+ *
+ * If not, and if this worker is the leader: exit, and the launcher will
+ * restart the worker, which will establish a fresh connection.
+ *
+ * If not, and this worker is a parallel apply worker: return, and worker will
+ * terminate gracefully.
+ */
+static void
+check_subscription_changes(Subscription *newsub, const char *new_conninfo)
+{
 	/* Exit if the subscription was disabled. */
 	if (!newsub->enabled)
 	{
@@ -5109,13 +5101,6 @@ maybe_reread_subscription(void)
 
 		apply_worker_exit();
 	}
-
-	/*
-	 * May raise error, so build conninfo after checking that the subscription
-	 * is enabled. Allocated in transaction context; must be copied to
-	 * ApplyContext when we set MySubscriptionConninfo.
-	 */
-	new_conninfo = SubscriptionConninfo(newsub);
 
 	/* !slotname should never happen when enabled is true. */
 	Assert(newsub->slotname);
@@ -5176,14 +5161,94 @@ maybe_reread_subscription(void)
 		elog(ERROR, "subscription %u changed unexpectedly",
 			 MyLogicalRepWorker->subid);
 	}
+}
 
-	/* Clean old subscription info and switch to new one. */
-	MemoryContextDelete(MySubscription->cxt);
+/*
+ * Reread subscription info if needed.
+ *
+ * For significant changes, we react by exiting the current process; a new
+ * one will be launched afterwards if needed.
+ */
+void
+maybe_reread_subscription(void)
+{
+	Subscription	*newsub;
+	Subscription	*oldsub = MySubscription;
+	MemoryContext	 oldcxt;
+	MemoryContext	 tmpcxt;
+	char			*new_conninfo = NULL;
+	char			*old_conninfo = MySubscriptionConninfo;
+	bool			 started_tx = false;
+
+	/* When cache state is valid there is nothing to do here. */
+	if (MySubscriptionValid)
+		return;
+
+	/* This function might be called inside or outside of transaction. */
+	if (!IsTransactionState())
+	{
+		StartTransactionCommand();
+		started_tx = true;
+	}
+
+	/* Construct subscription and connection information in tmpcxt */
+	tmpcxt = AllocSetContextCreate(CurrentMemoryContext,
+								   "logical replication: load subscription",
+								   ALLOCSET_SMALL_SIZES);
+
+	oldcxt = MemoryContextSwitchTo(tmpcxt);
+
+	newsub = GetSubscription(MyLogicalRepWorker->subid, true);
+
+	if (!newsub)
+	{
+		/*
+		 * Exit if the subscription was removed. This normally should not
+		 * happen as the worker gets killed during DROP SUBSCRIPTION.
+		 */
+		ereport(LOG,
+				(errmsg("logical replication worker for subscription \"%s\" will stop because the subscription was removed",
+						MySubscription->name)));
+
+		/* Ensure we remove no-longer-useful entry for worker's start time */
+		if (am_leader_apply_worker())
+			ApplyLauncherForgetWorkerStartTime(MyLogicalRepWorker->subid);
+
+		proc_exit(0);
+	}
+
+	/*
+	 * Parallel apply workers do not have a connection, nor do they react to
+	 * changes that would require a restart.  Instead, it updates
+	 * MySubscription and continues with the current transaction; and if a
+	 * change needs to be made, it will be terminated by the leader after this
+	 * transaction finishes.
+	 */
+	if (!am_parallel_apply_worker())
+	{
+		/* May raise error, so build conninfo only if enabled */
+		if (newsub->enabled)
+			new_conninfo = SubscriptionConninfo(newsub);
+
+		check_subscription_changes(newsub, new_conninfo);
+	}
+
+	MemoryContextSwitchTo(oldcxt);
+
+	/* Move/copy from tmpcxt to ApplyContext */
+	MemoryContextSetParent(newsub->cxt, ApplyContext);
+	if (new_conninfo)
+		new_conninfo = MemoryContextStrdup(ApplyContext, new_conninfo);
+
+	/* Done with tmpcxt */
+	MemoryContextDelete(tmpcxt);
+
+	/* Update globals */
 	MySubscription = newsub;
+	MySubscriptionConninfo = new_conninfo;
 
-	/* copy to ApplyContext and update MySubscriptionConninfo */
-	old_conninfo = MySubscriptionConninfo;
-	MySubscriptionConninfo = MemoryContextStrdup(ApplyContext, new_conninfo);
+	/* Free old info from ApplyContext */
+	MemoryContextDelete(oldsub->cxt);
 	pfree(old_conninfo);
 
 	/* Change synchronous commit according to the user's wishes */
@@ -5824,6 +5889,11 @@ run_apply_worker(void)
 void
 InitializeLogRepWorker(void)
 {
+	MemoryContext	 tmpcxt;
+	MemoryContext	 oldcxt;
+	Subscription	*sub;
+	char			*conninfo = NULL;
+
 	/* Run as replica session replication role. */
 	SetConfigOption("session_replication_role", "replica",
 					PGC_SUSET, PGC_S_OVERRIDE);
@@ -5861,13 +5931,16 @@ InitializeLogRepWorker(void)
 	LockSharedObject(SubscriptionRelationId, MyLogicalRepWorker->subid, 0,
 					 AccessShareLock);
 
-	MySubscription = GetSubscription(MyLogicalRepWorker->subid, true);
+	/* Construct subscription and connection information in tmpcxt */
+	tmpcxt = AllocSetContextCreate(CurrentMemoryContext,
+								   "logical replication: load subscription",
+								   ALLOCSET_SMALL_SIZES);
 
-	if (MySubscription)
-	{
-		MemoryContextSetParent(MySubscription->cxt, ApplyContext);
-	}
-	else
+	oldcxt = MemoryContextSwitchTo(tmpcxt);
+
+	sub = GetSubscription(MyLogicalRepWorker->subid, true);
+
+	if (!sub)
 	{
 		ereport(LOG,
 				(errmsg("logical replication worker for subscription %u will not start because the subscription was removed during startup",
@@ -5880,23 +5953,27 @@ InitializeLogRepWorker(void)
 		proc_exit(0);
 	}
 
-	if (!MySubscription->enabled)
+	if (!am_parallel_apply_worker())
 	{
-		ereport(LOG,
-				(errmsg("logical replication worker for subscription \"%s\" will not start because the subscription was disabled during startup",
-						MySubscription->name)));
+		if (sub->enabled)
+			conninfo = SubscriptionConninfo(sub);
 
-		apply_worker_exit();
+		check_subscription(sub);
 	}
 
-	/*
-	 * May raise error for server-based subscriptions, so build conninfo after
-	 * checking that the subscription is enabled. Build in transaction context
-	 * and copy to ApplyContext.
-	 */
-	MySubscriptionConninfo =
-		MemoryContextStrdup(ApplyContext,
-							SubscriptionConninfo(MySubscription));
+	MemoryContextSwitchTo(oldcxt);
+
+	/* Move/copy from tmpcxt to ApplyContext */
+	MemoryContextSetParent(sub->cxt, ApplyContext);
+	if (conninfo)
+		conninfo = MemoryContextStrdup(ApplyContext, conninfo);
+
+	/* Done with tmpcxt */
+	MemoryContextDelete(tmpcxt);
+
+	/* Update globals */
+	MySubscription = sub;
+	MySubscriptionConninfo = conninfo;
 
 	MySubscriptionValid = true;
 
