@@ -5061,7 +5061,10 @@ apply_worker_exit(void)
 void
 maybe_reread_subscription(void)
 {
+	Subscription *oldsub;
 	Subscription *newsub;
+	MemoryContext	oldcxt;
+	MemoryContext	tmpcxt;
 	char	   *old_conninfo;
 	char	   *new_conninfo;
 	bool		started_tx = false;
@@ -5077,13 +5080,15 @@ maybe_reread_subscription(void)
 		started_tx = true;
 	}
 
+	tmpcxt = AllocSetContextCreate(CurrentMemoryContext,
+								   "logical replication subscription read",
+								   ALLOCSET_SMALL_SIZES);
+
+	oldcxt = MemoryContextSwitchTo(tmpcxt);
+
 	newsub = GetSubscription(MyLogicalRepWorker->subid, true);
 
-	if (newsub)
-	{
-		MemoryContextSetParent(newsub->cxt, ApplyContext);
-	}
-	else
+	if (!newsub)
 	{
 		/*
 		 * Exit if the subscription was removed. This normally should not
@@ -5177,14 +5182,25 @@ maybe_reread_subscription(void)
 			 MyLogicalRepWorker->subid);
 	}
 
-	/* Clean old subscription info and switch to new one. */
-	MemoryContextDelete(MySubscription->cxt);
-	MySubscription = newsub;
+	/* move/copy to ApplyContext */
+	MemoryContextSetParent(newsub->cxt, ApplyContext);
+	new_conninfo = MemoryContextStrdup(ApplyContext, new_conninfo);
 
-	/* copy to ApplyContext and update MySubscriptionConninfo */
+	/* done with tmpcxt */
+	MemoryContextSwitchTo(oldcxt);
+	MemoryContextDelete(tmpcxt);
+
+	/* save old globals */
+	oldsub = MySubscription;
 	old_conninfo = MySubscriptionConninfo;
-	MySubscriptionConninfo = MemoryContextStrdup(ApplyContext, new_conninfo);
+
+	/* update globals */
+	MySubscription = newsub;
+	MySubscriptionConninfo = new_conninfo;
+
+	/* free old memory */
 	pfree(old_conninfo);
+	MemoryContextDelete(oldsub->cxt);
 
 	/* Change synchronous commit according to the user's wishes */
 	SetConfigOption("synchronous_commit", MySubscription->synccommit,
@@ -5824,6 +5840,11 @@ run_apply_worker(void)
 void
 InitializeLogRepWorker(void)
 {
+	Subscription	*sub;
+	char			*conninfo;
+	MemoryContext	 oldcxt;
+	MemoryContext	 tmpcxt;
+
 	/* Run as replica session replication role. */
 	SetConfigOption("session_replication_role", "replica",
 					PGC_SUSET, PGC_S_OVERRIDE);
@@ -5889,13 +5910,15 @@ InitializeLogRepWorker(void)
 	LockSharedObject(SubscriptionRelationId, MyLogicalRepWorker->subid, 0,
 					 AccessShareLock);
 
-	MySubscription = GetSubscription(MyLogicalRepWorker->subid, true);
+	tmpcxt = AllocSetContextCreate(CurrentMemoryContext,
+								   "logical replication subscription read",
+								   ALLOCSET_SMALL_SIZES);
 
-	if (MySubscription)
-	{
-		MemoryContextSetParent(MySubscription->cxt, ApplyContext);
-	}
-	else
+	oldcxt = MemoryContextSwitchTo(tmpcxt);
+
+	sub = GetSubscription(MyLogicalRepWorker->subid, true);
+
+	if (!sub)
 	{
 		ereport(LOG,
 				(errmsg("logical replication worker for subscription %u will not start because the subscription was removed during startup",
@@ -5908,11 +5931,11 @@ InitializeLogRepWorker(void)
 		proc_exit(0);
 	}
 
-	if (!MySubscription->enabled)
+	if (!sub->enabled)
 	{
 		ereport(LOG,
 				(errmsg("logical replication worker for subscription \"%s\" will not start because the subscription was disabled during startup",
-						MySubscription->name)));
+						sub->name)));
 
 		apply_worker_exit();
 	}
@@ -5922,10 +5945,19 @@ InitializeLogRepWorker(void)
 	 * checking that the subscription is enabled. Build in transaction context
 	 * and copy to ApplyContext.
 	 */
-	MySubscriptionConninfo =
-		MemoryContextStrdup(ApplyContext,
-							SubscriptionConninfo(MySubscription));
+	conninfo = SubscriptionConninfo(sub);
 
+	/* move/copy to ApplyContext */
+	conninfo = MemoryContextStrdup(ApplyContext, conninfo);
+	MemoryContextSetParent(sub->cxt, ApplyContext);
+
+	/* done with tmpcxt */
+	MemoryContextSwitchTo(oldcxt);
+	MemoryContextDelete(tmpcxt);
+
+	/* update globals */
+	MySubscription = sub;
+	MySubscriptionConninfo = conninfo;
 	MySubscriptionValid = true;
 
 	/*
