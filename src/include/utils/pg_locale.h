@@ -192,7 +192,6 @@ struct pg_locale_struct
 			const char *locale;
 			struct UCollator *ucol;
 			struct UCaseMap *ucasemap;
-			locale_t	lt;
 		}			icu;
 #endif
 	};
