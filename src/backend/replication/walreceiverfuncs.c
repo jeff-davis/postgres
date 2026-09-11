@@ -317,10 +317,19 @@ RequestXLogStreaming(TimeLineID tli, XLogRecPtr recptr, const char *conninfo,
 	walrcv->startTime = now;
 
 	/*
-	 * If this is the first startup of walreceiver (on this timeline),
-	 * initialize flushedUpto and latestChunkStart to the starting point.
+	 * If this is the first startup of walreceiver (on this timeline), or if
+	 * we are restarting from an earlier position, initialize flushedUpto and
+	 * latestChunkStart to the starting point.
+	 *
+	 * Restarting from an earlier position can happen after recovery detects
+	 * a corrupt record in WAL that was previously streamed.  In that case,
+	 * flushedUpto must not make recovery believe that the requested WAL is
+	 * already available, or it will read the same corrupt bytes again and
+	 * shut down walreceiver before it can replace them.
 	 */
-	if (!XLogRecPtrIsValid(walrcv->receiveStart) || walrcv->receivedTLI != tli)
+	if (!XLogRecPtrIsValid(walrcv->receiveStart) ||
+		walrcv->receivedTLI != tli ||
+		recptr < walrcv->flushedUpto)
 	{
 		walrcv->flushedUpto = recptr;
 		walrcv->receivedTLI = tli;

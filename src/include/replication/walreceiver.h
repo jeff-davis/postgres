@@ -92,7 +92,8 @@ typedef struct
 	 * and receivedTLI is the timeline it came from.  At the first startup of
 	 * walreceiver, these are set to receiveStart and receiveStartTLI. After
 	 * that, walreceiver updates these whenever it flushes the received WAL to
-	 * disk.
+	 * disk.  RequestXLogStreaming() also resets them when streaming is
+	 * restarted from an earlier position on the same timeline.
 	 */
 	XLogRecPtr	flushedUpto;
 	TimeLineID	receivedTLI;
