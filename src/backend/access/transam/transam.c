@@ -237,20 +237,8 @@ TransactionIdDidAbort(TransactionId transactionId)
  * are correctly marked subcommit first.
  */
 void
-TransactionIdCommitTree(TransactionId xid, int nxids, TransactionId *xids)
-{
-	TransactionIdSetTreeStatus(xid, nxids, xids,
-							   TRANSACTION_STATUS_COMMITTED,
-							   InvalidXLogRecPtr);
-}
-
-/*
- * TransactionIdAsyncCommitTree
- *		Same as above, but for async commits.  The commit record LSN is needed.
- */
-void
-TransactionIdAsyncCommitTree(TransactionId xid, int nxids, TransactionId *xids,
-							 XLogRecPtr lsn)
+TransactionIdCommitTree(TransactionId xid, int nxids, TransactionId *xids,
+						XLogRecPtr lsn)
 {
 	TransactionIdSetTreeStatus(xid, nxids, xids,
 							   TRANSACTION_STATUS_COMMITTED, lsn);

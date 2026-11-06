@@ -338,8 +338,7 @@ extern PGDLLIMPORT TransamVariablesData *TransamVariables;
  */
 extern bool TransactionIdDidCommit(TransactionId transactionId);
 extern bool TransactionIdDidAbort(TransactionId transactionId);
-extern void TransactionIdCommitTree(TransactionId xid, int nxids, TransactionId *xids);
-extern void TransactionIdAsyncCommitTree(TransactionId xid, int nxids, TransactionId *xids, XLogRecPtr lsn);
+extern void TransactionIdCommitTree(TransactionId xid, int nxids, TransactionId *xids, XLogRecPtr lsn);
 extern void TransactionIdAbortTree(TransactionId xid, int nxids, TransactionId *xids);
 extern TransactionId TransactionIdLatest(TransactionId mainxid,
 										 int nxids, const TransactionId *xids);

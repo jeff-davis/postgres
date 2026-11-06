@@ -1358,6 +1358,7 @@ RecordTransactionCommit(void)
 	SharedInvalidationMessage *invalMessages = NULL;
 	bool		RelcacheInitFileInval = false;
 	bool		wrote_xlog;
+	bool		do_flush = false;
 
 	/*
 	 * Log pending invalidations for logical decoding of in-progress
@@ -1545,19 +1546,7 @@ RecordTransactionCommit(void)
 		 synchronous_commit > SYNCHRONOUS_COMMIT_OFF) ||
 		forceSyncCommit || nrels > 0)
 	{
-		XLogFlush(XactLastRecEnd);
-
-		/*
-		 * The commit record is on disk, but not in CLOG yet.  A test can stop
-		 * here to see what others make of the transaction meanwhile.
-		 */
-		INJECTION_POINT_CACHED("commit-before-clog-update", NULL);
-
-		/*
-		 * Now we may update the CLOG, if we wrote a COMMIT record above
-		 */
-		if (markXidCommitted)
-			TransactionIdCommitTree(xid, nchildren, children);
+		do_flush = true;
 	}
 	else
 	{
@@ -1573,15 +1562,26 @@ RecordTransactionCommit(void)
 		 * flush this commit.
 		 */
 		XLogSetAsyncXactLSN(XactLastRecEnd);
-
-		/*
-		 * We must not immediately update the CLOG, since we didn't flush the
-		 * XLOG. Instead, we store the LSN up to which the XLOG must be
-		 * flushed before the CLOG may be updated.
-		 */
-		if (markXidCommitted)
-			TransactionIdAsyncCommitTree(xid, nchildren, children, XactLastRecEnd);
 	}
+
+	/*
+	 * The commit record is inserted, but the status not in CLOG yet.  A test
+	 * can stop here to see what others make of the transaction meanwhile.
+	 */
+	INJECTION_POINT_CACHED("commit-before-clog-update", NULL);
+
+	/*
+	 * Update CLOG status.
+	 *
+	 * We must not immediately write the status to disk, since we didn't flush
+	 * the XLOG. Instead, we store the LSN up to which the XLOG must be
+	 * flushed before the CLOG may be written.
+	 */
+	if (markXidCommitted)
+		TransactionIdCommitTree(xid, nchildren, children, XactLastRecEnd);
+
+	if (do_flush)
+		XLogFlush(XactLastRecEnd);
 
 	/*
 	 * If we entered a commit critical section, leave it now, and let
@@ -6250,7 +6250,7 @@ xact_redo_commit(xl_xact_parsed_commit *parsed,
 		 * status or hint bits set for transactions that haven't yet
 		 * recovered.
 		 */
-		TransactionIdAsyncCommitTree(xid, parsed->nsubxacts, parsed->subxacts, lsn);
+		TransactionIdCommitTree(xid, parsed->nsubxacts, parsed->subxacts, lsn);
 	}
 	else
 	{
@@ -6266,7 +6266,7 @@ xact_redo_commit(xl_xact_parsed_commit *parsed,
 		RecordKnownAssignedTransactionIds(max_xid);
 
 		/* use async, the same as the STANDBY_DISABLED case */
-		TransactionIdAsyncCommitTree(xid, parsed->nsubxacts, parsed->subxacts, lsn);
+		TransactionIdCommitTree(xid, parsed->nsubxacts, parsed->subxacts, lsn);
 
 		/*
 		 * We must mark clog before we update the ProcArray.

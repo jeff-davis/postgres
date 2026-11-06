@@ -2444,11 +2444,11 @@ RecordTransactionCommitPrepared(TransactionId xid,
 	 * a contradiction)
 	 */
 
+	/* Mark the transaction committed in pg_xact */
+	TransactionIdCommitTree(xid, nchildren, children, recptr);
+
 	/* Flush XLOG to disk */
 	XLogFlush(recptr);
-
-	/* Mark the transaction committed in pg_xact */
-	TransactionIdCommitTree(xid, nchildren, children);
 
 	/* Checkpoint can proceed now */
 	MyProc->delayChkptFlags &= ~DELAY_CHKPT_IN_COMMIT;
